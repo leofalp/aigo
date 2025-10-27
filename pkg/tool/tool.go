@@ -1,6 +1,7 @@
-package main
+package tool
 
 import (
+	"aigo/cmd/jsonschema"
 	"context"
 	"reflect"
 )
@@ -8,8 +9,8 @@ import (
 type Tool[I, O any] struct {
 	Name        string
 	Description string
-	Parameters  *Schema
-	Output      *Schema
+	Parameters  *jsonschema.Schema
+	Output      *jsonschema.Schema
 	Function    func(ctx context.Context, input I) (O, error)
 }
 
@@ -20,7 +21,7 @@ type DocumentedTool interface {
 type ToolInfo struct {
 	Name        string
 	Description string
-	Parameters  *Schema
+	Parameters  *jsonschema.Schema
 }
 
 func NewTool[I, O any](name string, description string, function func(ctx context.Context, input I) (O, error)) *Tool[I, O] {
@@ -29,8 +30,8 @@ func NewTool[I, O any](name string, description string, function func(ctx contex
 		output O
 	)
 
-	parameterSchema := GenerateJSONSchema(reflect.TypeOf(intput))
-	outputSchema := GenerateJSONSchema(reflect.TypeOf(output))
+	parameterSchema := jsonschema.GenerateJSONSchema(reflect.TypeOf(intput))
+	outputSchema := jsonschema.GenerateJSONSchema(reflect.TypeOf(output))
 
 	return &Tool[I, O]{
 		Name:        name,
