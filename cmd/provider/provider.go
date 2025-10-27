@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"aigo/pkg/tool"
 	"context"
 )
 
@@ -27,17 +28,10 @@ type ChatResponse struct {
 	FinishReason string     `json:"finish_reason"`
 }
 
-// ToolDefinition represents a tool that can be used by the LLM
-type ToolDefinition struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	Parameters  interface{} `json:"parameters"` // JSON Schema
-}
-
 // ChatRequest represents a request to send a chat message
 type ChatRequest struct {
-	Messages []Message        `json:"messages"`
-	Tools    []ToolDefinition `json:"tools,omitempty"`
+	Messages []Message       `json:"messages"` // TODO better a generic array on few distinct message like system prompt and  user prompt? Why called message instead of prompt?
+	Tools    []tool.ToolInfo `json:"tools,omitempty"`
 }
 
 // Provider is the generic interface that all LLM providers must implement
