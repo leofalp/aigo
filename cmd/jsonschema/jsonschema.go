@@ -1,6 +1,7 @@
 package jsonschema
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -261,7 +262,7 @@ func parseJSONSchemaTag(fieldType reflect.Type, tag reflect.StructTag, schema *S
 	}
 
 	isRequiredByTag := false
-	tags := strings.Split(jsonSchemaTag, ",")
+	tags := strings.Split(jsonSchemaTag, ",") // TODO Description cannot contain comma? Otherwise we need a more robust parser.
 	for _, tagItem := range tags {
 		kv := strings.Split(tagItem, "=")
 		if len(kv) == 2 {
@@ -453,4 +454,37 @@ func handleStructType(t reflect.Type, ctx *schemaContext) *Schema {
 	ctx.defs[defName] = nestedSchema
 
 	return &Schema{Ref: "#/$defs/" + defName}
+}
+
+// JsonString converts the Schema to its JSON representation
+// indent: optional bool parameter. If true, formats JSON with indentation. If false or omitted, returns compact JSON.
+func (s *Schema) JsonString(indent ...bool) (string, error) {
+	shouldIndent := false // default: compact
+	if len(indent) > 0 {
+		shouldIndent = indent[0]
+	}
+
+	var jsonBytes []byte
+	var err error
+
+	if shouldIndent {
+		jsonBytes, err = json.MarshalIndent(s, "", "  ")
+	} else {
+		jsonBytes, err = json.Marshal(s)
+	}
+
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal schema to JSON: %w", err)
+	}
+	return string(jsonBytes), nil
+}
+
+// String returns the JSON representation of the schema with indentation
+// Returns an error message if marshalling fails
+func (s *Schema) String() string {
+	jsonStr, err := s.JsonString() // usa il default (true)
+	if err != nil {
+		return fmt.Sprintf("error: %v", err)
+	}
+	return jsonStr
 }
