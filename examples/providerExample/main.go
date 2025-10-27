@@ -12,8 +12,8 @@ func main() {
 	// Example Using builder pattern to configure the provider
 	testProvider := openai.NewOpenAIProvider().
 		WithAPIKey("your-api-key-here").
-		WithModel("gpt-4o-mini").
-		WithBaseURL("gpt-4o-mini")
+		WithModel("nvidia/nemotron-nano-9b-v2:free").
+		WithBaseURL("https://openrouter.ai/api/v1")
 
 	// Simple message without tools
 	ctx := context.Background()

@@ -1,9 +1,11 @@
 package main
 
 import (
+	"aigo/cmd/provider/openai"
 	"aigo/pkg/client"
 	"aigo/pkg/tool"
 	"context"
+	"fmt"
 )
 
 func main() {
@@ -14,17 +16,24 @@ func main() {
 		calculator,
 	)
 
-	openrouter := client.NewClient("your_api_key", "gpt-4o-mini")
+	openrouter := client.NewClient(
+		openai.NewOpenAIProvider().
+			WithBaseURL("https://openrouter.ai/api/v1").
+			WithAPIKey("your-api-key").
+			WithModel("openrouter/andromeda-alpha"),
+	)
 	err := openrouter.AddTools([]tool.DocumentedTool{calculatorTool})
 	if err != nil {
 		panic(err)
 	}
 
 	openrouter.AddSystemPrompt("You are a helpful assistant.")
-	err = openrouter.SendMessage("Hello, how can you assist me today?")
+
+	resp, err := openrouter.SendMessage("Hello, how can you assist me today?")
 	if err != nil {
 		panic(err)
 	}
+	fmt.Println(resp)
 }
 
 func calculator(ctx context.Context, req calculatorInput) (calculatorOutput, error) {
