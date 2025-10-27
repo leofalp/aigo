@@ -65,12 +65,12 @@ func (c *Client) SendMessage(content string) error {
 
 	body, err := json.Marshal(bodyMap)
 	if err != nil {
-		return fmt.Errorf("Client.SendMessage(): error creating request body: %s", err.Error())
+		return fmt.Errorf("Client.SendSingleMessage(): error creating request body: %s", err.Error())
 	}
 
 	req, err := http.NewRequest("POST", BASEPATH+CHAT_COMPLETITION_PATH, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("Client.SendMessage(): error creating request: %s", err.Error())
+		return fmt.Errorf("Client.SendSingleMessage(): error creating request: %s", err.Error())
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -80,21 +80,21 @@ func (c *Client) SendMessage(content string) error {
 
 	res, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("Client.SendMessage(): error send request: %s", err.Error())
+		return fmt.Errorf("Client.SendSingleMessage(): error send request: %s", err.Error())
 	}
 	defer func() { _ = res.Body.Close() }()
 
 	respBody, err := io.ReadAll(res.Body)
 	if err != nil {
-		return fmt.Errorf("Client.SendMessage(): error reading response body: %s", err.Error())
+		return fmt.Errorf("Client.SendSingleMessage(): error reading response body: %s", err.Error())
 	}
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return fmt.Errorf("Client.SendMessage(): non-2xx status %d: %s", res.StatusCode, string(respBody))
+		return fmt.Errorf("Client.SendSingleMessage(): non-2xx status %d: %s", res.StatusCode, string(respBody))
 	}
 
 	//TODO: append system message
-	fmt.Printf("SendMessage response: %s\n", string(respBody))
+	fmt.Printf("SendSingleMessage response: %s\n", string(respBody))
 
 	return nil
 }
