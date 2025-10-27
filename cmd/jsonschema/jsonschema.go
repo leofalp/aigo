@@ -1,11 +1,12 @@
-package main
+package jsonschema
 
 import (
 	"fmt"
-	log "github.com/sirupsen/logrus"
 	"reflect"
 	"strconv"
 	"strings"
+
+	log "github.com/sirupsen/logrus"
 )
 
 // Schema represents the structure of JSON Schema used for defining arguments and responses.
@@ -34,7 +35,9 @@ type Schema struct {
 }
 
 // GenerateJSONSchema generates a basic JSON schema from a reflect.Type.
-func GenerateJSONSchema(t reflect.Type) *Schema {
+// objectType must be a pointer to the target type. Returns an error if not a pointer or if nil.
+func GenerateJSONSchema[T any]() (*Schema, error) {
+	t := reflect.TypeFor[T]()
 	// Use a context to track visited types and handle recursion
 	ctx := &schemaContext{
 		visited: make(map[reflect.Type]string),
@@ -48,7 +51,7 @@ func GenerateJSONSchema(t reflect.Type) *Schema {
 		schema.Defs = ctx.defs
 	}
 
-	return schema
+	return schema, nil
 }
 
 // schemaContext tracks the state during schema generation to handle recursion
@@ -134,6 +137,7 @@ func handleGenerateJSONSchemaStruct(t reflect.Type, ctx *schemaContext, isRoot b
 		if fieldSchema.Ref == "" {
 			isRequiredByTag, err := parseJSONSchemaTag(field.Type, field.Tag, fieldSchema)
 			if err != nil {
+				// TODO propagate the error?
 				log.Errorf("parseJSONSchemaTag error for field %s: %v", fieldName, err)
 				// Continue execution with the field schema as is
 			}
@@ -321,7 +325,7 @@ func generateFieldSchema(t reflect.Type, ctx *schemaContext, isRoot bool) *Schem
 	case reflect.Ptr:
 		return handlePointerType(t, ctx, isRoot)
 	case reflect.Struct:
-		return handleStructType(t, ctx, isRoot)
+		return handleStructType(t, ctx)
 	default:
 		return &Schema{Type: "object"}
 	}
@@ -379,7 +383,7 @@ func handlePointerType(t reflect.Type, ctx *schemaContext, isRoot bool) *Schema 
 }
 
 // handleStructType handles inline and named struct schemas with recursion tracking.
-func handleStructType(t reflect.Type, ctx *schemaContext, isRoot bool) *Schema {
+func handleStructType(t reflect.Type, ctx *schemaContext) *Schema {
 	// If we've already created a definition for this type, return a reference.
 	if defName, exists := ctx.visited[t]; exists {
 		return &Schema{Ref: "#/$defs/" + defName}

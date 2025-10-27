@@ -1,6 +1,7 @@
-package main
+package client
 
 import (
+	"aigo/pkg/tool"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -8,7 +9,10 @@ import (
 	"net/http"
 )
 
-const SEND_MESSAGE_URL = "https://openrouter.ai/api/v1/chat/completions"
+const (
+	BASEPATH               = "https://openrouter.ai/api/v1/"
+	CHAT_COMPLETITION_PATH = "/chat/completions"
+)
 
 type Message struct {
 	Role    string `json:"role"`
@@ -33,7 +37,7 @@ func (c *Client) AddSystemPrompt(content string) {
 	c.messages = append(c.messages, Message{Role: "system", Content: content})
 }
 
-func (c *Client) AddTools(tools []DocumentedTool) error {
+func (c *Client) AddTools(tools []tool.DocumentedTool) error {
 	for _, tool := range tools {
 		toolInfo := tool.ToolInfo()
 		parametersJsonSchema, err := json.Marshal(toolInfo.Parameters)
@@ -64,7 +68,7 @@ func (c *Client) SendMessage(content string) error {
 		return fmt.Errorf("Client.SendMessage(): error creating request body: %s", err.Error())
 	}
 
-	req, err := http.NewRequest("POST", SEND_MESSAGE_URL, bytes.NewReader(body))
+	req, err := http.NewRequest("POST", BASEPATH+CHAT_COMPLETITION_PATH, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("Client.SendMessage(): error creating request: %s", err.Error())
 	}

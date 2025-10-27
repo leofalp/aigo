@@ -1,25 +1,27 @@
 package main
 
 import (
+	"aigo/pkg/client"
+	"aigo/pkg/tool"
 	"context"
 )
 
 func main() {
 
-	calculatorTool := NewTool[calculatorInput, calculatorOutput](
+	calculatorTool := tool.NewTool[calculatorInput, calculatorOutput](
 		"Calculator",
 		"A simple calculator to perform basic arithmetic operations like addition, subtraction, multiplication, and division.",
 		calculator,
 	)
 
-	client := NewClient("your_api_key", "gpt-4o-mini")
-	err := client.AddTools([]DocumentedTool{calculatorTool})
+	openrouter := client.NewClient("your_api_key", "gpt-4o-mini")
+	err := openrouter.AddTools([]tool.DocumentedTool{calculatorTool})
 	if err != nil {
 		panic(err)
 	}
 
-	client.AddSystemPrompt("You are a helpful assistant.")
-	err = client.SendMessage("Hello, how can you assist me today?")
+	openrouter.AddSystemPrompt("You are a helpful assistant.")
+	err = openrouter.SendMessage("Hello, how can you assist me today?")
 	if err != nil {
 		panic(err)
 	}
