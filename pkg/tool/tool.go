@@ -3,7 +3,6 @@ package tool
 import (
 	"aigo/cmd/jsonschema"
 	"context"
-	"reflect"
 )
 
 type Tool[I, O any] struct {
@@ -25,13 +24,15 @@ type ToolInfo struct {
 }
 
 func NewTool[I, O any](name string, description string, function func(ctx context.Context, input I) (O, error)) *Tool[I, O] {
-	var (
-		intput I
-		output O
-	)
+	parameterSchema, err := jsonschema.GenerateJSONSchema[I]()
+	if err != nil {
+		panic(err) // TODO handle error appropriately
+	}
 
-	parameterSchema := jsonschema.GenerateJSONSchema(reflect.TypeOf(intput))
-	outputSchema := jsonschema.GenerateJSONSchema(reflect.TypeOf(output))
+	outputSchema, err := jsonschema.GenerateJSONSchema[O]()
+	if err != nil {
+		panic(err) // TODO handle error appropriately
+	}
 
 	return &Tool[I, O]{
 		Name:        name,
