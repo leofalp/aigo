@@ -60,7 +60,7 @@ func (c *Client) SendMessage(content string) (*ai.ChatResponse, error) {
 
 	stop := false
 	for !stop {
-		response, err = c.llmProvider.SendSingleMessage(context.Background(), ai.ChatRequest{
+		response, err = c.llmProvider.SendMessage(context.Background(), ai.ChatRequest{
 			Messages: c.messages,
 			Tools:    c.toolDescriptions,
 		})

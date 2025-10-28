@@ -8,7 +8,7 @@ import (
 // Provider is the generic interface that all LLM providers must implement
 type Provider interface {
 	// SendSingleMessage sends a chat request and returns the response
-	SendSingleMessage(ctx context.Context, request ChatRequest) (*ChatResponse, error)
+	SendMessage(ctx context.Context, request ChatRequest) (*ChatResponse, error)
 
 	IsStopMessage(message *ChatResponse) bool
 

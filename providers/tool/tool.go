@@ -24,9 +24,12 @@ type CallableTool interface {
 }
 
 type ToolInfo struct {
-	Name        string
-	Description string
-	Parameters  *jsonschema.Schema
+	Name            string             `json:"name"`
+	Description     string             `json:"description,omitempty"`
+	Parameters      *jsonschema.Schema `json:"parameters,omitempty"`
+	Required        bool               `json:"required,omitempty"`
+	ToolChoice      string             `json:"tool_choice,omitempty"`
+	MaxOutputTokens int                `json:"max_output_tokens,omitempty"`
 }
 
 func NewTool[I, O any](name string, description string, function func(ctx context.Context, input I) (O, error)) *Tool[I, O] {

@@ -20,7 +20,7 @@ func main() {
 	// Simple message without tools
 	ctx := context.Background()
 
-	response, err := testProvider.SendSingleMessage(ctx, ai.ChatRequest{
+	response, err := testProvider.SendMessage(ctx, ai.ChatRequest{
 		Messages: []ai.Message{
 			{Role: "system", Content: "You are a helpful assistant."},
 			{Role: "user", Content: "What is the capital of France?"},
@@ -57,7 +57,7 @@ func main() {
 		},
 	}
 
-	response2, err := testProvider.SendSingleMessage(ctx, ai.ChatRequest{
+	response2, err := testProvider.SendMessage(ctx, ai.ChatRequest{
 		Messages: []ai.Message{
 			{Role: "user", Content: "What's the weather like in Paris?"},
 		},
