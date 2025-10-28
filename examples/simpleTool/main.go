@@ -19,6 +19,7 @@ func main() {
 	openrouter := client.NewClient(
 		openai.NewOpenAIProvider().
 			WithBaseURL("https://openrouter.ai/api/v1").
+			WithAPIKey("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").
 			WithModel("openrouter/andromeda-alpha"),
 	).
 		AddTools([]tool.CallableTool{calculatorTool}).

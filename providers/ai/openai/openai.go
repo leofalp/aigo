@@ -1,12 +1,11 @@
 package openai
 
 import (
+	"aigo/internal/utils"
 	"aigo/providers/ai"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 )
@@ -74,30 +73,27 @@ func (p *OpenAIProvider) GetModelName() string {
 }
 
 // SendMessage implements the Provider interface
-func (p *OpenAIProvider) SendSingleMessage(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
+func (p *OpenAIProvider) SendMessage(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
+	// check API key
 	if p.apiKey == "" {
 		return nil, fmt.Errorf("API key is not set")
 	}
+
+	// Prepend system prompt into messages, if set
+	var messages []ai.Message
+	if p.systemPrompt != "" {
+		messages = append(messages, ai.Message{
+			Role:    ai.RoleSystem,
+			Content: p.systemPrompt,
+		})
+	}
+	messages = append(messages, request.Messages...)
+
 	// Build the request body
 	bodyMap := map[string]interface{}{
 		"model":    p.model,
-		"messages": request.Messages,
-	}
-
-	// Add tools if provided
-	if len(request.Tools) > 0 {
-		tools := make([]map[string]interface{}, 0, len(request.Tools))
-		for _, tool := range request.Tools {
-			tools = append(tools, map[string]interface{}{
-				"type": "function",
-				"function": map[string]interface{}{
-					"name":        tool.Name,
-					"description": tool.Description,
-					"parameters":  tool.Parameters,
-				},
-			})
-		}
-		bodyMap["tools"] = tools
+		"messages": messages,
+		"tools":    request.Tools,
 	}
 
 	body, err := json.Marshal(bodyMap)
@@ -105,54 +101,18 @@ func (p *OpenAIProvider) SendSingleMessage(ctx context.Context, request ai.ChatR
 		return nil, fmt.Errorf("error marshaling request body: %w", err)
 	}
 
-	// Create HTTP request
-	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+chatCompletionsEndpoint, bytes.NewReader(body))
+	httpResponse, resp, err := utils.DoPostSync[apiResponse](*p.client, p.baseURL+chatCompletionsEndpoint, p.apiKey, body)
 	if err != nil {
-		return nil, fmt.Errorf("error creating request: %w", err)
+		return nil, err
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+p.apiKey)
-
-	// Send request
-	res, err := p.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error sending request: %w", err)
-	}
-	defer func() { _ = res.Body.Close() }()
-
-	respBody, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, fmt.Errorf("error reading response body: %w", err)
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("no choices in response") // TODO is this an error?
 	}
 
-	// Check status code
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return nil, fmt.Errorf("non-2xx status %d: %s", res.StatusCode, string(respBody))
-	}
-
-	// Parse response
-	var apiResponse struct {
-		Choices []struct {
-			Message struct {
-				Role      string        `json:"role"`
-				Content   string        `json:"content"`
-				ToolCalls []ai.ToolCall `json:"tool_calls,omitempty"`
-			} `json:"message"`
-			FinishReason string `json:"finish_reason"`
-		} `json:"choices"`
-	}
-
-	if err := json.Unmarshal(respBody, &apiResponse); err != nil {
-		return nil, fmt.Errorf("error parsing response: %w", err)
-	}
-
-	if len(apiResponse.Choices) == 0 {
-		return nil, fmt.Errorf("no choices in response")
-	}
-
-	choice := apiResponse.Choices[0]
+	choice := resp.Choices[0]
 	return &ai.ChatResponse{
+		HttpResponse: httpResponse,
 		Content:      choice.Message.Content,
 		ToolCalls:    choice.Message.ToolCalls,
 		FinishReason: choice.FinishReason,
@@ -165,7 +125,7 @@ func (p *OpenAIProvider) IsStopMessage(message *ai.ChatResponse) bool {
 		return true
 	}
 	// Prefer explicit finish reason from API
-	if message.FinishReason == "stop" {
+	if message.FinishReason == "stop" || message.FinishReason == "length" || message.FinishReason == "content_filter" || message.FinishReason == "null" {
 		return true
 	}
 	// If there's no content and no tool calls, treat as stop

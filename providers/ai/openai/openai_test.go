@@ -131,7 +131,7 @@ func TestSendMessageWithValidResponse(t *testing.T) {
 		WithBaseURL(server.URL)
 
 	ctx := context.Background()
-	response, err := p.SendSingleMessage(ctx, ai.ChatRequest{
+	response, err := p.SendMessage(ctx, ai.ChatRequest{
 		Messages: []ai.Message{
 			{Role: "user", Content: "What is the capital of France?"},
 		},
@@ -197,7 +197,7 @@ func TestSendMessageWithTools(t *testing.T) {
 		WithBaseURL(server.URL)
 
 	ctx := context.Background()
-	response, err := p.SendSingleMessage(ctx, ai.ChatRequest{
+	response, err := p.SendMessage(ctx, ai.ChatRequest{
 		Messages: []ai.Message{
 			{Role: "user", Content: "What's the weather in Paris?"},
 		},
@@ -243,7 +243,7 @@ func TestSendMessageWithNon2xxStatus(t *testing.T) {
 		WithBaseURL(server.URL)
 
 	ctx := context.Background()
-	_, err := p.SendSingleMessage(ctx, ai.ChatRequest{
+	_, err := p.SendMessage(ctx, ai.ChatRequest{
 		Messages: []ai.Message{
 			{Role: "user", Content: "Hello"},
 		},
@@ -273,7 +273,7 @@ func TestSendMessageWithEmptyChoices(t *testing.T) {
 		WithBaseURL(server.URL)
 
 	ctx := context.Background()
-	_, err := p.SendSingleMessage(ctx, ai.ChatRequest{
+	_, err := p.SendMessage(ctx, ai.ChatRequest{
 		Messages: []ai.Message{
 			{Role: "user", Content: "Hello"},
 		},
@@ -297,7 +297,7 @@ func TestSendMessageWithContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := p.SendSingleMessage(ctx, ai.ChatRequest{
+	_, err := p.SendMessage(ctx, ai.ChatRequest{
 		Messages: []ai.Message{
 			{Role: "user", Content: "Hello"},
 		},
