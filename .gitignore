@@ -31,3 +31,7 @@ go.work.sum
 .idea/
 .idea/*
 aigo.iml
+
+# Example binaries
+/providerExample
+/simpleTool
