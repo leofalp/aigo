@@ -6,7 +6,7 @@ import (
 	"aigo/cmd/provider/openai"
 	"aigo/cmd/tool"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -109,7 +109,7 @@ func TestSendMessageWithValidResponse(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		json.MarshalWrite(w, response)
 	}))
 	defer server.Close()
 
@@ -140,7 +140,7 @@ func TestSendMessageWithValidResponse(t *testing.T) {
 func TestSendMessageWithTools(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var requestBody map[string]interface{}
-		json.NewDecoder(r.Body).Decode(&requestBody)
+		json.UnmarshalRead(r.Body, &requestBody)
 
 		if _, ok := requestBody["tools"]; !ok {
 			t.Error("expected tools in request body")
@@ -169,7 +169,7 @@ func TestSendMessageWithTools(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		json.MarshalWrite(w, response)
 	}))
 	defer server.Close()
 
@@ -239,7 +239,7 @@ func TestSendMessageWithEmptyChoices(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		json.MarshalWrite(w, response)
 	}))
 	defer server.Close()
 

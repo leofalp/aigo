@@ -1,7 +1,8 @@
 package jsonschema
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -463,18 +464,20 @@ func (s *Schema) JsonString(indent ...bool) (string, error) {
 		shouldIndent = indent[0]
 	}
 
-	var jsonBytes []byte
-	var err error
-
-	if shouldIndent {
-		jsonBytes, err = json.MarshalIndent(s, "", "  ")
-	} else {
-		jsonBytes, err = json.Marshal(s)
-	}
-
+	jsonBytes, err := json.Marshal(s)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal schema to JSON: %w", err)
 	}
+
+	if shouldIndent {
+		val := jsontext.Value(jsonBytes)
+		err = val.Indent(jsontext.WithIndentPrefix(""), jsontext.WithIndent("  "))
+		if err != nil {
+			return "", fmt.Errorf("failed to indent JSON: %w", err)
+		}
+		return string(val), nil
+	}
+
 	return string(jsonBytes), nil
 }
 

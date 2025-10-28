@@ -2,7 +2,7 @@ package jsonschema
 
 import (
 	"aigo/cmd/jsonschema"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 )
 
