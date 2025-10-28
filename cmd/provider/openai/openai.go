@@ -19,10 +19,11 @@ const (
 
 // OpenAIProvider implements the Provider interface for OpenAI API
 type OpenAIProvider struct {
-	apiKey  string
-	model   string
-	baseURL string
-	client  *http.Client
+	apiKey       string
+	model        string
+	baseURL      string
+	client       *http.Client
+	systemPrompt string
 }
 
 // NewOpenAIProvider creates a new OpenAI provider instance with default values
@@ -55,14 +56,28 @@ func (p *OpenAIProvider) WithBaseURL(baseURL string) provider.Provider {
 	return p
 }
 
-// WithHTTPClient sets a custom HTTP client
-func (p *OpenAIProvider) WithHTTPClient(client *http.Client) *OpenAIProvider {
-	p.client = client
+// WithSystemPrompt sets the default system prompt for conversations.
+func (p *OpenAIProvider) WithSystemPrompt(prompt string) provider.Provider {
+	p.systemPrompt = prompt
 	return p
+}
+
+// WithHttpClient sets a custom HTTP client
+func (p *OpenAIProvider) WithHttpClient(httpClient *http.Client) provider.Provider {
+	p.client = httpClient
+	return p
+}
+
+// GetModelName returns the current model name
+func (p *OpenAIProvider) GetModelName() string {
+	return p.model
 }
 
 // SendMessage implements the Provider interface
 func (p *OpenAIProvider) SendSingleMessage(ctx context.Context, request provider.ChatRequest) (*provider.ChatResponse, error) {
+	if p.apiKey == "" {
+		return nil, fmt.Errorf("API key is not set")
+	}
 	// Build the request body
 	bodyMap := map[string]interface{}{
 		"model":    p.model,
@@ -142,19 +157,4 @@ func (p *OpenAIProvider) SendSingleMessage(ctx context.Context, request provider
 		ToolCalls:    choice.Message.ToolCalls,
 		FinishReason: choice.FinishReason,
 	}, nil
-}
-
-// GetModelName returns the current model name
-func (p *OpenAIProvider) GetModelName() string {
-	return p.model
-}
-
-// SetModel sets the model to use for requests
-func (p *OpenAIProvider) SetModel(model string) {
-	p.model = model
-}
-
-// SetBaseURL allows changing the base URL (useful for OpenAI-compatible APIs like OpenRouter)
-func (p *OpenAIProvider) SetBaseURL(baseURL string) {
-	p.baseURL = baseURL
 }

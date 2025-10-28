@@ -1,17 +1,19 @@
 package main
 
 import (
+	"aigo/cmd/jsonschema"
 	"aigo/cmd/provider"
 	"aigo/cmd/provider/openai"
+	"aigo/cmd/tool"
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
+	"os"
 )
 
 func main() {
 	// Example Using builder pattern to configure the provider
 	testProvider := openai.NewOpenAIProvider().
-		WithAPIKey("your-api-key-here").
 		WithModel("nvidia/nemotron-nano-9b-v2:free").
 		WithBaseURL("https://openrouter.ai/api/v1")
 
@@ -26,30 +28,31 @@ func main() {
 	})
 
 	if err != nil {
-		log.Fatalf("Error sending message: %v", err)
+		slog.Error("Error sending message", "error", err)
+		os.Exit(1)
 	}
 
 	fmt.Printf("Response: %s\n", response.Content)
 	fmt.Printf("Finish Reason: %s\n", response.FinishReason)
 
 	// Example 3: Message with tools
-	tools := []provider.ToolDefinition{
+	tools := []tool.ToolInfo{
 		{
 			Name:        "get_weather",
 			Description: "Get the current weather for a location",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"location": map[string]interface{}{
-						"type":        "string",
-						"description": "The city and state, e.g. San Francisco, CA",
+			Parameters: &jsonschema.Schema{
+				Type: "object",
+				Properties: map[string]*jsonschema.Schema{
+					"location": {
+						Type:        "string",
+						Description: "The city and state, e.g. San Francisco, CA",
 					},
-					"unit": map[string]interface{}{
-						"type": "string",
-						"enum": []string{"celsius", "fahrenheit"},
+					"unit": {
+						Type: "string",
+						Enum: []any{"celsius", "fahrenheit"},
 					},
 				},
-				"required": []string{"location"},
+				Required: []string{"location"},
 			},
 		},
 	}
@@ -62,7 +65,8 @@ func main() {
 	})
 
 	if err != nil {
-		log.Fatalf("Error sending message with tools: %v", err)
+		slog.Error("Error sending message with tools", "error", err)
+		os.Exit(1)
 	}
 
 	fmt.Printf("\nResponse with tools: %s\n", response2.Content)

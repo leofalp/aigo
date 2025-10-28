@@ -1,8 +1,10 @@
 package provider
 
 import (
+	"aigo/cmd/jsonschema"
 	"aigo/cmd/provider"
 	"aigo/cmd/provider/openai"
+	"aigo/cmd/tool"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -76,8 +78,8 @@ func TestGetModelNameReturnsCurrentModel(t *testing.T) {
 }
 
 func TestSetModelChangesModel(t *testing.T) {
-	p := openai.NewOpenAIProvider()
-	p.SetModel("gpt-4")
+	p := openai.NewOpenAIProvider().
+		WithModel("gpt-4")
 
 	if p.GetModelName() != "gpt-4" {
 		t.Errorf("expected model 'gpt-4', got %s", p.GetModelName())
@@ -180,14 +182,14 @@ func TestSendMessageWithTools(t *testing.T) {
 		Messages: []provider.Message{
 			{Role: "user", Content: "What's the weather in Paris?"},
 		},
-		Tools: []provider.ToolDefinition{
+		Tools: []tool.ToolInfo{
 			{
 				Name:        "get_weather",
 				Description: "Get weather for a location",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"location": map[string]string{"type": "string"},
+				Parameters: &jsonschema.Schema{
+					Type: "object",
+					Properties: map[string]*jsonschema.Schema{
+						"location": {Type: "string"},
 					},
 				},
 			},
@@ -286,7 +288,7 @@ func TestWithHTTPClientSetsCustomClient(t *testing.T) {
 		Timeout: 0,
 	}
 
-	p := openai.NewOpenAIProvider().WithHTTPClient(customClient)
+	p := openai.NewOpenAIProvider().WithHttpClient(customClient)
 
 	if p == nil {
 		t.Error("expected provider after setting custom client")
