@@ -1,7 +1,7 @@
 package openai
 
 import (
-	"aigo/cmd/provider"
+	"aigo/providers/ai"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -39,31 +39,31 @@ func NewOpenAIProvider() *OpenAIProvider {
 }
 
 // WithAPIKey sets the API key for the provider
-func (p *OpenAIProvider) WithAPIKey(apiKey string) provider.Provider {
+func (p *OpenAIProvider) WithAPIKey(apiKey string) ai.Provider {
 	p.apiKey = apiKey
 	return p
 }
 
 // WithModel sets the model to use for requests
-func (p *OpenAIProvider) WithModel(model string) provider.Provider {
+func (p *OpenAIProvider) WithModel(model string) ai.Provider {
 	p.model = model
 	return p
 }
 
 // WithBaseURL sets the base URL for the API
-func (p *OpenAIProvider) WithBaseURL(baseURL string) provider.Provider {
+func (p *OpenAIProvider) WithBaseURL(baseURL string) ai.Provider {
 	p.baseURL = baseURL
 	return p
 }
 
 // WithSystemPrompt sets the default system prompt for conversations.
-func (p *OpenAIProvider) WithSystemPrompt(prompt string) provider.Provider {
+func (p *OpenAIProvider) WithSystemPrompt(prompt string) ai.Provider {
 	p.systemPrompt = prompt
 	return p
 }
 
 // WithHttpClient sets a custom HTTP client
-func (p *OpenAIProvider) WithHttpClient(httpClient *http.Client) provider.Provider {
+func (p *OpenAIProvider) WithHttpClient(httpClient *http.Client) ai.Provider {
 	p.client = httpClient
 	return p
 }
@@ -74,7 +74,7 @@ func (p *OpenAIProvider) GetModelName() string {
 }
 
 // SendMessage implements the Provider interface
-func (p *OpenAIProvider) SendSingleMessage(ctx context.Context, request provider.ChatRequest) (*provider.ChatResponse, error) {
+func (p *OpenAIProvider) SendSingleMessage(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
 	if p.apiKey == "" {
 		return nil, fmt.Errorf("API key is not set")
 	}
@@ -135,9 +135,9 @@ func (p *OpenAIProvider) SendSingleMessage(ctx context.Context, request provider
 	var apiResponse struct {
 		Choices []struct {
 			Message struct {
-				Role      string              `json:"role"`
-				Content   string              `json:"content"`
-				ToolCalls []provider.ToolCall `json:"tool_calls,omitempty"`
+				Role      string        `json:"role"`
+				Content   string        `json:"content"`
+				ToolCalls []ai.ToolCall `json:"tool_calls,omitempty"`
 			} `json:"message"`
 			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
@@ -152,9 +152,25 @@ func (p *OpenAIProvider) SendSingleMessage(ctx context.Context, request provider
 	}
 
 	choice := apiResponse.Choices[0]
-	return &provider.ChatResponse{
+	return &ai.ChatResponse{
 		Content:      choice.Message.Content,
 		ToolCalls:    choice.Message.ToolCalls,
 		FinishReason: choice.FinishReason,
 	}, nil
+}
+
+// IsStopMessage reports whether the given chat response should be treated as a stop/end signal.
+func (p *OpenAIProvider) IsStopMessage(message *ai.ChatResponse) bool {
+	if message == nil {
+		return true
+	}
+	// Prefer explicit finish reason from API
+	if message.FinishReason == "stop" {
+		return true
+	}
+	// If there's no content and no tool calls, treat as stop
+	if message.Content == "" && len(message.ToolCalls) == 0 {
+		return true
+	}
+	return false
 }

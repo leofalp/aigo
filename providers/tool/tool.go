@@ -1,7 +1,7 @@
 package tool
 
 import (
-	"aigo/cmd/jsonschema"
+	"aigo/internal/jsonschema"
 	"context"
 	"encoding/json"
 )
