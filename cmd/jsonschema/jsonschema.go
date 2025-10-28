@@ -3,11 +3,10 @@ package jsonschema
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"strconv"
 	"strings"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // Schema represents the structure of JSON Schema used for defining arguments and responses.
@@ -139,7 +138,7 @@ func handleGenerateJSONSchemaStruct(t reflect.Type, ctx *schemaContext, isRoot b
 			isRequiredByTag, err := parseJSONSchemaTag(field.Type, field.Tag, fieldSchema)
 			if err != nil {
 				// TODO propagate the error?
-				log.Errorf("parseJSONSchemaTag error for field %s: %v", fieldName, err)
+				slog.Error("parseJSONSchemaTag error", "field", fieldName, "error", err)
 				// Continue execution with the field schema as is
 			}
 

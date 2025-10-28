@@ -2,8 +2,8 @@ package main
 
 import (
 	"aigo/cmd/provider/openai"
+	"aigo/cmd/tool"
 	"aigo/pkg/client"
-	"aigo/pkg/tool"
 	"context"
 	"fmt"
 )
@@ -19,7 +19,6 @@ func main() {
 	openrouter := client.NewClient(
 		openai.NewOpenAIProvider().
 			WithBaseURL("https://openrouter.ai/api/v1").
-			WithAPIKey("your-api-key").
 			WithModel("openrouter/andromeda-alpha"),
 	)
 	err := openrouter.AddTools([]tool.DocumentedTool{calculatorTool})

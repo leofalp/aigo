@@ -2,7 +2,7 @@ package client
 
 import (
 	"aigo/cmd/provider"
-	"aigo/pkg/tool"
+	"aigo/cmd/tool"
 	"context"
 )
 
