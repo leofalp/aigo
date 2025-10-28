@@ -19,16 +19,15 @@ func main() {
 	openrouter := client.NewClient(
 		openai.NewOpenAIProvider().
 			WithBaseURL("https://openrouter.ai/api/v1").
-			WithModel("openrouter/andromeda-alpha"),
-	)
-	err := openrouter.AddTools([]tool.DocumentedTool{calculatorTool})
-	if err != nil {
-		panic(err)
-	}
+			WithModel("openrouter/andromeda-alpha").
+			WithAPIKey("your-api-key-here"),
+	).
+		AddTools([]tool.CallableTool{calculatorTool}).
+		AddSystemPrompt("You are a helpful assistant.").
+		SetMaxToolCallIterations(5). // Optional, default is 3
+		SetOutputFormat(calculatorOutput{}) // Optional free response otherwise
 
-	openrouter.AddSystemPrompt("You are a helpful assistant.")
-
-	resp, err := openrouter.SendMessage("Hello, how can you assist me today?")
+	resp, err := openrouter.SendMessage("3+4")
 	if err != nil {
 		panic(err)
 	}
