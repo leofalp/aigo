@@ -1,10 +1,9 @@
-package provider
+package openai
 
 import (
-	"aigo/cmd/jsonschema"
-	"aigo/cmd/provider"
-	"aigo/cmd/provider/openai"
-	"aigo/cmd/tool"
+	"aigo/internal/jsonschema"
+	"aigo/providers/ai"
+	"aigo/providers/tool"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -14,10 +13,18 @@ import (
 )
 
 func TestNewOpenAIProviderUsesDefaults(t *testing.T) {
-	os.Setenv("OPENAI_API_KEY", "test-key-from-env")
-	defer os.Unsetenv("OPENAI_API_KEY")
+	err := os.Setenv("OPENAI_API_KEY", "test-key-from-env")
+	if err != nil {
+		t.Fatal("failed to set env variable: " + err.Error())
+	}
+	defer func() {
+		err = os.Unsetenv("OPENAI_API_KEY")
+		if err != nil {
+			t.Fatal("failed to unset env variable: " + err.Error())
+		}
+	}()
 
-	p := openai.NewOpenAIProvider()
+	p := NewOpenAIProvider()
 
 	if p.GetModelName() == "" {
 		t.Error("expected non-empty model name")
@@ -25,9 +32,12 @@ func TestNewOpenAIProviderUsesDefaults(t *testing.T) {
 }
 
 func TestNewOpenAIProviderWithoutEnvVariable(t *testing.T) {
-	os.Unsetenv("OPENAI_API_KEY")
+	err := os.Unsetenv("OPENAI_API_KEY")
+	if err != nil {
+		t.Fatal("failed to set env variable: " + err.Error())
+	}
 
-	p := openai.NewOpenAIProvider()
+	p := NewOpenAIProvider()
 
 	if p == nil {
 		t.Error("expected provider to be created even without env variable")
@@ -35,7 +45,7 @@ func TestNewOpenAIProviderWithoutEnvVariable(t *testing.T) {
 }
 
 func TestBuilderPatternWithAPIKey(t *testing.T) {
-	p := openai.NewOpenAIProvider().WithAPIKey("custom-key")
+	p := NewOpenAIProvider().WithAPIKey("custom-key")
 
 	if p == nil {
 		t.Error("expected provider after setting API key")
@@ -43,7 +53,7 @@ func TestBuilderPatternWithAPIKey(t *testing.T) {
 }
 
 func TestBuilderPatternWithModel(t *testing.T) {
-	p := openai.NewOpenAIProvider().WithModel("gpt-4o")
+	p := NewOpenAIProvider().WithModel("gpt-4o")
 
 	if p.GetModelName() != "gpt-4o" {
 		t.Errorf("expected model 'gpt-4o', got %s", p.GetModelName())
@@ -51,7 +61,7 @@ func TestBuilderPatternWithModel(t *testing.T) {
 }
 
 func TestBuilderPatternWithBaseURL(t *testing.T) {
-	p := openai.NewOpenAIProvider().WithBaseURL("https://custom.api.com/v1")
+	p := NewOpenAIProvider().WithBaseURL("https://custom.api.com/v1")
 
 	if p == nil {
 		t.Error("expected provider after setting base URL")
@@ -59,7 +69,7 @@ func TestBuilderPatternWithBaseURL(t *testing.T) {
 }
 
 func TestBuilderPatternChaining(t *testing.T) {
-	p := openai.NewOpenAIProvider().
+	p := NewOpenAIProvider().
 		WithAPIKey("test-key").
 		WithModel("gpt-4o").
 		WithBaseURL("https://custom.api.com/v1")
@@ -70,7 +80,7 @@ func TestBuilderPatternChaining(t *testing.T) {
 }
 
 func TestGetModelNameReturnsCurrentModel(t *testing.T) {
-	p := openai.NewOpenAIProvider().WithModel("gpt-4o-mini")
+	p := NewOpenAIProvider().WithModel("gpt-4o-mini")
 
 	if p.GetModelName() != "gpt-4o-mini" {
 		t.Errorf("expected model name 'gpt-4o-mini', got %s", p.GetModelName())
@@ -78,7 +88,7 @@ func TestGetModelNameReturnsCurrentModel(t *testing.T) {
 }
 
 func TestSetModelChangesModel(t *testing.T) {
-	p := openai.NewOpenAIProvider().
+	p := NewOpenAIProvider().
 		WithModel("gpt-4")
 
 	if p.GetModelName() != "gpt-4" {
@@ -109,17 +119,20 @@ func TestSendMessageWithValidResponse(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		err := json.NewEncoder(w).Encode(response)
+		if err != nil {
+			t.Fatal("failed to encode response: " + err.Error())
+		}
 	}))
 	defer server.Close()
 
-	p := openai.NewOpenAIProvider().
+	p := NewOpenAIProvider().
 		WithAPIKey("test-key").
 		WithBaseURL(server.URL)
 
 	ctx := context.Background()
-	response, err := p.SendSingleMessage(ctx, provider.ChatRequest{
-		Messages: []provider.Message{
+	response, err := p.SendSingleMessage(ctx, ai.ChatRequest{
+		Messages: []ai.Message{
 			{Role: "user", Content: "What is the capital of France?"},
 		},
 	})
@@ -140,7 +153,10 @@ func TestSendMessageWithValidResponse(t *testing.T) {
 func TestSendMessageWithTools(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var requestBody map[string]interface{}
-		json.NewDecoder(r.Body).Decode(&requestBody)
+		err := json.NewDecoder(r.Body).Decode(&requestBody)
+		if err != nil {
+			t.Fatal("failed to decode request body: " + err.Error())
+		}
 
 		if _, ok := requestBody["tools"]; !ok {
 			t.Error("expected tools in request body")
@@ -169,17 +185,20 @@ func TestSendMessageWithTools(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		err = json.NewEncoder(w).Encode(response)
+		if err != nil {
+			t.Fatal("failed to encode response: " + err.Error())
+		}
 	}))
 	defer server.Close()
 
-	p := openai.NewOpenAIProvider().
+	p := NewOpenAIProvider().
 		WithAPIKey("test-key").
 		WithBaseURL(server.URL)
 
 	ctx := context.Background()
-	response, err := p.SendSingleMessage(ctx, provider.ChatRequest{
-		Messages: []provider.Message{
+	response, err := p.SendSingleMessage(ctx, ai.ChatRequest{
+		Messages: []ai.Message{
 			{Role: "user", Content: "What's the weather in Paris?"},
 		},
 		Tools: []tool.ToolInfo{
@@ -212,17 +231,20 @@ func TestSendMessageWithTools(t *testing.T) {
 func TestSendMessageWithNon2xxStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"error": "Invalid API key"}`))
+		_, err := w.Write([]byte(`{"error": "Invalid API key"}`))
+		if err != nil {
+			t.Fatal("failed to write response: " + err.Error())
+		}
 	}))
 	defer server.Close()
 
-	p := openai.NewOpenAIProvider().
+	p := NewOpenAIProvider().
 		WithAPIKey("invalid-key").
 		WithBaseURL(server.URL)
 
 	ctx := context.Background()
-	_, err := p.SendSingleMessage(ctx, provider.ChatRequest{
-		Messages: []provider.Message{
+	_, err := p.SendSingleMessage(ctx, ai.ChatRequest{
+		Messages: []ai.Message{
 			{Role: "user", Content: "Hello"},
 		},
 	})
@@ -239,17 +261,20 @@ func TestSendMessageWithEmptyChoices(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		err := json.NewEncoder(w).Encode(response)
+		if err != nil {
+			t.Fatal("failed to encode response: " + err.Error())
+		}
 	}))
 	defer server.Close()
 
-	p := openai.NewOpenAIProvider().
+	p := NewOpenAIProvider().
 		WithAPIKey("test-key").
 		WithBaseURL(server.URL)
 
 	ctx := context.Background()
-	_, err := p.SendSingleMessage(ctx, provider.ChatRequest{
-		Messages: []provider.Message{
+	_, err := p.SendSingleMessage(ctx, ai.ChatRequest{
+		Messages: []ai.Message{
 			{Role: "user", Content: "Hello"},
 		},
 	})
@@ -265,15 +290,15 @@ func TestSendMessageWithContextCancellation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := openai.NewOpenAIProvider().
+	p := NewOpenAIProvider().
 		WithAPIKey("test-key").
 		WithBaseURL(server.URL)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := p.SendSingleMessage(ctx, provider.ChatRequest{
-		Messages: []provider.Message{
+	_, err := p.SendSingleMessage(ctx, ai.ChatRequest{
+		Messages: []ai.Message{
 			{Role: "user", Content: "Hello"},
 		},
 	})
@@ -288,7 +313,7 @@ func TestWithHTTPClientSetsCustomClient(t *testing.T) {
 		Timeout: 0,
 	}
 
-	p := openai.NewOpenAIProvider().WithHttpClient(customClient)
+	p := NewOpenAIProvider().WithHttpClient(customClient)
 
 	if p == nil {
 		t.Error("expected provider after setting custom client")
@@ -296,8 +321,8 @@ func TestWithHTTPClientSetsCustomClient(t *testing.T) {
 }
 
 func TestBuilderPatternReturnsProviderInterface(t *testing.T) {
-	var _ provider.Provider = openai.NewOpenAIProvider()
-	var _ provider.Provider = openai.NewOpenAIProvider().WithAPIKey("key")
-	var _ provider.Provider = openai.NewOpenAIProvider().WithModel("model")
-	var _ provider.Provider = openai.NewOpenAIProvider().WithBaseURL("url")
+	var _ ai.Provider = NewOpenAIProvider()
+	NewOpenAIProvider().WithAPIKey("key")
+	NewOpenAIProvider().WithModel("model")
+	NewOpenAIProvider().WithBaseURL("url")
 }

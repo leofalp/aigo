@@ -1,8 +1,8 @@
-package provider
+package ai
 
 import (
-	"aigo/cmd/jsonschema"
-	"aigo/cmd/tool"
+	"aigo/internal/jsonschema"
+	"aigo/providers/tool"
 )
 
 // ToolCall represents a function/tool call request from the LLM

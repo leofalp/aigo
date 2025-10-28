@@ -1,12 +1,11 @@
 package jsonschema
 
 import (
-	"aigo/cmd/jsonschema"
 	"testing"
 )
 
 func TestGeneratesStringSchema(t *testing.T) {
-	schema, err := jsonschema.GenerateJSONSchema[string]()
+	schema, err := GenerateJSONSchema[string]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -16,7 +15,7 @@ func TestGeneratesStringSchema(t *testing.T) {
 }
 
 func TestGeneratesIntegerSchema(t *testing.T) {
-	schema, err := jsonschema.GenerateJSONSchema[int]()
+	schema, err := GenerateJSONSchema[int]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -26,7 +25,7 @@ func TestGeneratesIntegerSchema(t *testing.T) {
 }
 
 func TestGeneratesNumberSchemaForFloat(t *testing.T) {
-	schema, err := jsonschema.GenerateJSONSchema[float32]()
+	schema, err := GenerateJSONSchema[float32]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -36,7 +35,7 @@ func TestGeneratesNumberSchemaForFloat(t *testing.T) {
 }
 
 func TestGeneratesBooleanSchema(t *testing.T) {
-	schema, err := jsonschema.GenerateJSONSchema[bool]()
+	schema, err := GenerateJSONSchema[bool]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -46,7 +45,7 @@ func TestGeneratesBooleanSchema(t *testing.T) {
 }
 
 func TestGeneratesArraySchemaForSlice(t *testing.T) {
-	schema, err := jsonschema.GenerateJSONSchema[[]string]()
+	schema, err := GenerateJSONSchema[[]string]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -62,7 +61,7 @@ func TestGeneratesArraySchemaForSlice(t *testing.T) {
 }
 
 func TestGeneratesArraySchemaForIntSlice(t *testing.T) {
-	schema, err := jsonschema.GenerateJSONSchema[[]int]()
+	schema, err := GenerateJSONSchema[[]int]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -78,7 +77,7 @@ func TestGeneratesArraySchemaForIntSlice(t *testing.T) {
 }
 
 func TestGeneratesObjectSchemaForMap(t *testing.T) {
-	schema, err := jsonschema.GenerateJSONSchema[map[string]string]()
+	schema, err := GenerateJSONSchema[map[string]string]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -91,7 +90,7 @@ func TestGeneratesObjectSchemaForMap(t *testing.T) {
 }
 
 func TestGeneratesObjectSchemaForMapWithIntValues(t *testing.T) {
-	schema, err := jsonschema.GenerateJSONSchema[map[string]int]()
+	schema, err := GenerateJSONSchema[map[string]int]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -101,7 +100,7 @@ func TestGeneratesObjectSchemaForMapWithIntValues(t *testing.T) {
 	if schema.AdditionalProperties == nil {
 		t.Error("Expected additionalProperties to be defined")
 	}
-	valueSchema, ok := schema.AdditionalProperties.(*jsonschema.Schema)
+	valueSchema, ok := schema.AdditionalProperties.(*Schema)
 	if !ok {
 		t.Error("Expected additionalProperties to be a Schema")
 	}
@@ -116,7 +115,7 @@ func TestGeneratesSchemaForSimpleStruct(t *testing.T) {
 		Age  int
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Person]()
+	schema, err := GenerateJSONSchema[Person]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -146,7 +145,7 @@ func TestHandlesJSONTags(t *testing.T) {
 		LastName  string `json:"last_name"`
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[User]()
+	schema, err := GenerateJSONSchema[User]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -167,7 +166,7 @@ func TestIgnoresFieldsWithJSONDashTag(t *testing.T) {
 		Private string `json:"-"`
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Data]()
+	schema, err := GenerateJSONSchema[Data]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -185,7 +184,7 @@ func TestIgnoresUnexportedFields(t *testing.T) {
 		private string
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Data]()
+	schema, err := GenerateJSONSchema[Data]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -204,7 +203,7 @@ func TestMarksFieldsAsRequiredWhenNotPointerAndNoOmitempty(t *testing.T) {
 	}
 	// TODO Per default vogliamo che siano required o no?
 
-	schema, err := jsonschema.GenerateJSONSchema[Person]()
+	schema, err := GenerateJSONSchema[Person]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -235,7 +234,7 @@ func TestDoesNotMarkFieldsAsRequiredWhenOmitempty(t *testing.T) {
 		Age  int    `json:"age,omitempty"`
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Person]()
+	schema, err := GenerateJSONSchema[Person]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -250,7 +249,7 @@ func TestDoesNotMarkPointerFieldsAsRequired(t *testing.T) {
 		Age  *int
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Person]()
+	schema, err := GenerateJSONSchema[Person]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -264,7 +263,7 @@ func TestHandlesPointerFields(t *testing.T) {
 		Name *string
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Person]()
+	schema, err := GenerateJSONSchema[Person]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -283,7 +282,7 @@ func TestHandlesNestedStructs(t *testing.T) {
 		Address Address
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Person]()
+	schema, err := GenerateJSONSchema[Person]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -308,7 +307,7 @@ func TestHandlesSliceOfStructs(t *testing.T) {
 		Price int
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[[]Item]()
+	schema, err := GenerateJSONSchema[[]Item]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -335,7 +334,7 @@ func TestHandlesMapWithStructValues(t *testing.T) {
 		Price int
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[map[string]Item]()
+	schema, err := GenerateJSONSchema[map[string]Item]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -345,7 +344,7 @@ func TestHandlesMapWithStructValues(t *testing.T) {
 	if schema.AdditionalProperties == nil {
 		t.Fatal("Expected additionalProperties to be defined")
 	}
-	valueSchema, ok := schema.AdditionalProperties.(*jsonschema.Schema)
+	valueSchema, ok := schema.AdditionalProperties.(*Schema)
 	if !ok {
 		t.Fatal("Expected additionalProperties to be a Schema")
 	}
@@ -359,7 +358,7 @@ func TestHandlesDescriptionTag(t *testing.T) {
 		Name string `json:"name" jsonschema:"description=The user's full name"`
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[User]()
+	schema, err := GenerateJSONSchema[User]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -374,7 +373,7 @@ func TestHandlesRequiredTag(t *testing.T) {
 		Age  int    `json:"age,omitempty"`
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[User]()
+	schema, err := GenerateJSONSchema[User]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -391,7 +390,7 @@ func TestHandlesEnumTagForString(t *testing.T) {
 		Value string `json:"value" jsonschema:"enum=active,enum=inactive,enum=pending"`
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Status]()
+	schema, err := GenerateJSONSchema[Status]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -411,7 +410,7 @@ func TestHandlesEnumTagForInteger(t *testing.T) {
 		Level int `json:"level" jsonschema:"enum=1,enum=2,enum=3"`
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Priority]()
+	schema, err := GenerateJSONSchema[Priority]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -431,7 +430,7 @@ func TestHandlesEnumTagForFloat(t *testing.T) {
 		Score float64 `json:"score" jsonschema:"enum=1.5,enum=2.5,enum=3.5"`
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Rating]()
+	schema, err := GenerateJSONSchema[Rating]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -451,7 +450,7 @@ func TestHandlesEnumTagForBoolean(t *testing.T) {
 		Enabled bool `json:"enabled" jsonschema:"enum=true,enum=false"`
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Flag]()
+	schema, err := GenerateJSONSchema[Flag]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -465,7 +464,7 @@ func TestHandlesMultipleJSONSchemaTags(t *testing.T) {
 		Status string `json:"status" jsonschema:"description=User status,enum=active,enum=inactive,required"`
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[User]()
+	schema, err := GenerateJSONSchema[User]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -486,7 +485,7 @@ func TestHandlesRecursiveStructWithSelfReference(t *testing.T) {
 		Children []*Node
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Node]()
+	schema, err := GenerateJSONSchema[Node]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -519,7 +518,7 @@ func TestHandlesRecursiveStructWithDirectReference(t *testing.T) {
 		Next  *LinkedNode
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[LinkedNode]()
+	schema, err := GenerateJSONSchema[LinkedNode]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -537,7 +536,7 @@ func TestHandlesMutuallyRecursiveStructs(t *testing.T) {
 		B    interface{}
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[A]()
+	schema, err := GenerateJSONSchema[A]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -561,7 +560,7 @@ func TestHandlesComplexNestedStructures(t *testing.T) {
 		Children []Item
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Item]()
+	schema, err := GenerateJSONSchema[Item]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -602,29 +601,29 @@ func TestHandlesAllIntegerTypes(t *testing.T) {
 
 	for _, tt := range types {
 		t.Run(tt.name, func(t *testing.T) {
-			var schema *jsonschema.Schema
+			var schema *Schema
 			var err error
 			switch tt.name {
 			case "int":
-				schema, err = jsonschema.GenerateJSONSchema[int]()
+				schema, err = GenerateJSONSchema[int]()
 			case "int8":
-				schema, err = jsonschema.GenerateJSONSchema[int8]()
+				schema, err = GenerateJSONSchema[int8]()
 			case "int16":
-				schema, err = jsonschema.GenerateJSONSchema[int16]()
+				schema, err = GenerateJSONSchema[int16]()
 			case "int32":
-				schema, err = jsonschema.GenerateJSONSchema[int32]()
+				schema, err = GenerateJSONSchema[int32]()
 			case "int64":
-				schema, err = jsonschema.GenerateJSONSchema[int64]()
+				schema, err = GenerateJSONSchema[int64]()
 			case "uint":
-				schema, err = jsonschema.GenerateJSONSchema[uint]()
+				schema, err = GenerateJSONSchema[uint]()
 			case "uint8":
-				schema, err = jsonschema.GenerateJSONSchema[uint8]()
+				schema, err = GenerateJSONSchema[uint8]()
 			case "uint16":
-				schema, err = jsonschema.GenerateJSONSchema[uint16]()
+				schema, err = GenerateJSONSchema[uint16]()
 			case "uint32":
-				schema, err = jsonschema.GenerateJSONSchema[uint32]()
+				schema, err = GenerateJSONSchema[uint32]()
 			case "uint64":
-				schema, err = jsonschema.GenerateJSONSchema[uint64]()
+				schema, err = GenerateJSONSchema[uint64]()
 			}
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
@@ -647,13 +646,13 @@ func TestHandlesAllFloatTypes(t *testing.T) {
 
 	for _, tt := range types {
 		t.Run(tt.name, func(t *testing.T) {
-			var schema *jsonschema.Schema
+			var schema *Schema
 			var err error
 			switch tt.name {
 			case "float32":
-				schema, err = jsonschema.GenerateJSONSchema[float32]()
+				schema, err = GenerateJSONSchema[float32]()
 			case "float64":
-				schema, err = jsonschema.GenerateJSONSchema[float64]()
+				schema, err = GenerateJSONSchema[float64]()
 			}
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
@@ -668,7 +667,7 @@ func TestHandlesAllFloatTypes(t *testing.T) {
 func TestHandlesEmptyStruct(t *testing.T) {
 	type Empty struct{}
 
-	schema, err := jsonschema.GenerateJSONSchema[Empty]()
+	schema, err := GenerateJSONSchema[Empty]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -686,7 +685,7 @@ func TestHandlesStructWithOnlyUnexportedFields(t *testing.T) {
 		age  int
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Private]()
+	schema, err := GenerateJSONSchema[Private]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -704,7 +703,7 @@ func TestHandlesPointerToStruct(t *testing.T) {
 		Age  int
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[*Person]()
+	schema, err := GenerateJSONSchema[*Person]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -725,7 +724,7 @@ func TestHandlesNestedPointers(t *testing.T) {
 		Address *Address
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Person]()
+	schema, err := GenerateJSONSchema[Person]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -739,7 +738,7 @@ func TestHandlesNestedPointers(t *testing.T) {
 }
 
 func TestHandlesArrayOfPrimitives(t *testing.T) {
-	schema, err := jsonschema.GenerateJSONSchema[[5]int]()
+	schema, err := GenerateJSONSchema[[5]int]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -755,7 +754,7 @@ func TestHandlesArrayOfPrimitives(t *testing.T) {
 }
 
 func TestHandlesSliceOfPointers(t *testing.T) {
-	schema, err := jsonschema.GenerateJSONSchema[[]*string]()
+	schema, err := GenerateJSONSchema[[]*string]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -771,7 +770,7 @@ func TestHandlesSliceOfPointers(t *testing.T) {
 }
 
 func TestHandlesMapWithComplexKeys(t *testing.T) {
-	schema, err := jsonschema.GenerateJSONSchema[map[string][]int]()
+	schema, err := GenerateJSONSchema[map[string][]int]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -781,7 +780,7 @@ func TestHandlesMapWithComplexKeys(t *testing.T) {
 	if schema.AdditionalProperties == nil {
 		t.Fatal("Expected additionalProperties to be defined")
 	}
-	valueSchema, ok := schema.AdditionalProperties.(*jsonschema.Schema)
+	valueSchema, ok := schema.AdditionalProperties.(*Schema)
 	if !ok {
 		t.Fatal("Expected additionalProperties to be a Schema")
 	}
@@ -798,7 +797,7 @@ func TestHandlesStructWithMixedFieldVisibility(t *testing.T) {
 		internal int
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Mixed]()
+	schema, err := GenerateJSONSchema[Mixed]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -820,7 +819,7 @@ func TestHandlesStructWithBothJSONAndJSONSchemaTagsCombined(t *testing.T) {
 		Type  string  `json:"type" jsonschema:"enum=physical,enum=digital"`
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Product]()
+	schema, err := GenerateJSONSchema[Product]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -846,7 +845,7 @@ func TestHandlesDeeplyNestedStructures(t *testing.T) {
 		L2 Level2
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Level1]()
+	schema, err := GenerateJSONSchema[Level1]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -867,7 +866,7 @@ func TestHandlesDeeplyNestedStructures(t *testing.T) {
 }
 
 func TestHandlesSliceOfSlices(t *testing.T) {
-	schema, err := jsonschema.GenerateJSONSchema[[][]string]()
+	schema, err := GenerateJSONSchema[[][]string]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -889,21 +888,21 @@ func TestHandlesSliceOfSlices(t *testing.T) {
 }
 
 func TestHandlesMapOfMaps(t *testing.T) {
-	schema, err := jsonschema.GenerateJSONSchema[map[string]map[string]int]()
+	schema, err := GenerateJSONSchema[map[string]map[string]int]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
 	if schema.Type != "object" {
 		t.Errorf("Expected type 'object', got '%s'", schema.Type)
 	}
-	valueSchema, ok := schema.AdditionalProperties.(*jsonschema.Schema)
+	valueSchema, ok := schema.AdditionalProperties.(*Schema)
 	if !ok {
 		t.Fatal("Expected additionalProperties to be a Schema")
 	}
 	if valueSchema.Type != "object" {
 		t.Errorf("Expected nested map type 'object', got '%s'", valueSchema.Type)
 	}
-	nestedValueSchema, ok := valueSchema.AdditionalProperties.(*jsonschema.Schema)
+	nestedValueSchema, ok := valueSchema.AdditionalProperties.(*Schema)
 	if !ok {
 		t.Fatal("Expected nested additionalProperties to be a Schema")
 	}
@@ -919,7 +918,7 @@ func TestHandlesStructWithArrayAndMapFields(t *testing.T) {
 		Single  string
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Complex]()
+	schema, err := GenerateJSONSchema[Complex]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -941,7 +940,7 @@ func TestGeneratesUniqueDefinitionNames(t *testing.T) {
 		Right *Node
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Node]()
+	schema, err := GenerateJSONSchema[Node]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -964,7 +963,7 @@ func TestHandlesTreeStructureWithMultipleReferences(t *testing.T) {
 		Children []*TreeNode
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[TreeNode]()
+	schema, err := GenerateJSONSchema[TreeNode]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -992,7 +991,7 @@ func TestHandlesStructWithAllOptionalFields(t *testing.T) {
 		Field3 *bool   `json:"field3,omitempty"`
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Optional]()
+	schema, err := GenerateJSONSchema[Optional]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -1009,7 +1008,7 @@ func TestHandlesStructWithMixedRequiredAndOptional(t *testing.T) {
 		Optional2 *int   `json:"optional2"`
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Mixed]()
+	schema, err := GenerateJSONSchema[Mixed]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -1039,7 +1038,7 @@ func TestHandlesJsonSchemaTagWithSpaces(t *testing.T) {
 		Field string `json:"field" jsonschema:"description=A field with spaces in description"`
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Tagged]()
+	schema, err := GenerateJSONSchema[Tagged]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -1057,7 +1056,7 @@ func TestDoesNotCreateDefinitionsForNonRecursiveStructs(t *testing.T) {
 		Data Simple
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Container]()
+	schema, err := GenerateJSONSchema[Container]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -1073,7 +1072,7 @@ func TestHandlesAnonymousStructs(t *testing.T) {
 		}
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Container]()
+	schema, err := GenerateJSONSchema[Container]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -1094,7 +1093,7 @@ func TestHandlesEnumWithSingleValue(t *testing.T) {
 		Value string `json:"value" jsonschema:"enum=only"`
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[Single]()
+	schema, err := GenerateJSONSchema[Single]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -1114,7 +1113,7 @@ func TestHandlesMultipleFieldsWithDifferentJSONSchemaTags(t *testing.T) {
 		Field4 bool   `json:"field4,omitempty"`
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[MultiTag]()
+	schema, err := GenerateJSONSchema[MultiTag]()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}

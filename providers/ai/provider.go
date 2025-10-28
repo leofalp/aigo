@@ -1,4 +1,4 @@
-package provider
+package ai
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 type Provider interface {
 	// SendSingleMessage sends a chat request and returns the response
 	SendSingleMessage(ctx context.Context, request ChatRequest) (*ChatResponse, error)
+
+	IsStopMessage(message *ChatResponse) bool
 
 	// GetModelName returns the name of the model being used
 	GetModelName() string

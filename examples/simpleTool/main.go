@@ -1,9 +1,9 @@
 package main
 
 import (
-	"aigo/cmd/provider/openai"
-	"aigo/cmd/tool"
-	"aigo/pkg/client"
+	"aigo/core/client"
+	"aigo/providers/ai/openai"
+	"aigo/providers/tool"
 	"context"
 	"fmt"
 )
@@ -19,15 +19,14 @@ func main() {
 	openrouter := client.NewClient(
 		openai.NewOpenAIProvider().
 			WithBaseURL("https://openrouter.ai/api/v1").
-			WithModel("openrouter/andromeda-alpha").
-			WithAPIKey("your-api-key-here"),
+			WithModel("openrouter/andromeda-alpha"),
 	).
 		AddTools([]tool.CallableTool{calculatorTool}).
 		AddSystemPrompt("You are a helpful assistant.").
 		SetMaxToolCallIterations(5). // Optional, default is 3
 		SetOutputFormat(calculatorOutput{}) // Optional free response otherwise
 
-	resp, err := openrouter.SendMessage("3+4")
+	resp, err := openrouter.SendMessage("3344*56")
 	if err != nil {
 		panic(err)
 	}

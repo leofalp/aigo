@@ -1,7 +1,6 @@
 package jsonschema
 
 import (
-	"aigo/cmd/jsonschema"
 	"encoding/json"
 	"testing"
 )
@@ -13,7 +12,7 @@ func TestGenerateJSONSchemaWithValidStruct(t *testing.T) {
 		Email string `json:"email"`
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[SampleStruct]()
+	schema, err := GenerateJSONSchema[SampleStruct]()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -37,7 +36,7 @@ func TestGenerateJSONSchemaWithRecursiveStruct(t *testing.T) {
 		Children []*RecursiveStruct `json:"children"`
 	}
 
-	schema, err := jsonschema.GenerateJSONSchema[RecursiveStruct]()
+	schema, err := GenerateJSONSchema[RecursiveStruct]()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -56,9 +55,9 @@ func TestGenerateJSONSchemaWithRecursiveStruct(t *testing.T) {
 }
 
 func TestJsonStringWithIndentation(t *testing.T) {
-	schema := &jsonschema.Schema{
+	schema := &Schema{
 		Type: "object",
-		Properties: map[string]*jsonschema.Schema{
+		Properties: map[string]*Schema{
 			"name": {Type: "string"},
 		},
 	}
@@ -79,9 +78,9 @@ func TestJsonStringWithIndentation(t *testing.T) {
 }
 
 func TestJsonStringWithoutIndentation(t *testing.T) {
-	schema := &jsonschema.Schema{
+	schema := &Schema{
 		Type: "object",
-		Properties: map[string]*jsonschema.Schema{
+		Properties: map[string]*Schema{
 			"name": {Type: "string"},
 		},
 	}
@@ -97,9 +96,9 @@ func TestJsonStringWithoutIndentation(t *testing.T) {
 }
 
 func TestStringMethodReturnsValidJSON(t *testing.T) {
-	schema := &jsonschema.Schema{
+	schema := &Schema{
 		Type: "object",
-		Properties: map[string]*jsonschema.Schema{
+		Properties: map[string]*Schema{
 			"name": {Type: "string"},
 		},
 	}
