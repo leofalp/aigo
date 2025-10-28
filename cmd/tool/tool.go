@@ -3,6 +3,7 @@ package tool
 import (
 	"aigo/cmd/jsonschema"
 	"context"
+	"encoding/json"
 )
 
 type Tool[I, O any] struct {
@@ -15,6 +16,11 @@ type Tool[I, O any] struct {
 
 type DocumentedTool interface {
 	ToolInfo() ToolInfo
+}
+
+type CallableTool interface {
+	Call(inputJson string) (string, error)
+	DocumentedTool
 }
 
 type ToolInfo struct {
@@ -49,4 +55,25 @@ func (t *Tool[I, O]) ToolInfo() ToolInfo {
 		Description: t.Description,
 		Parameters:  t.Parameters,
 	}
+}
+
+func (t *Tool[I, O]) Call(inputJson string) (string, error) {
+	var parsedInput I
+
+	err := json.Unmarshal([]byte(inputJson), &parsedInput)
+	if err != nil {
+		return "", nil
+	}
+
+	output, err := t.Function(context.Background(), parsedInput)
+	if err != nil {
+		return "", err
+	}
+
+	outputBytes, err := json.Marshal(output)
+	if err != nil {
+		return "", err
+	}
+
+	return string(outputBytes), nil
 }
