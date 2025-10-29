@@ -5,50 +5,35 @@ import (
 )
 
 func TestGeneratesStringSchema(t *testing.T) {
-	schema, err := GenerateJSONSchema[string]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[string]()
 	if schema.Type != "string" {
 		t.Errorf("Expected type 'string', got '%s'", schema.Type)
 	}
 }
 
 func TestGeneratesIntegerSchema(t *testing.T) {
-	schema, err := GenerateJSONSchema[int]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[int]()
 	if schema.Type != "integer" {
 		t.Errorf("Expected type 'integer', got '%s'", schema.Type)
 	}
 }
 
 func TestGeneratesNumberSchemaForFloat(t *testing.T) {
-	schema, err := GenerateJSONSchema[float32]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[float32]()
 	if schema.Type != "number" {
 		t.Errorf("Expected type 'number', got '%s'", schema.Type)
 	}
 }
 
 func TestGeneratesBooleanSchema(t *testing.T) {
-	schema, err := GenerateJSONSchema[bool]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[bool]()
 	if schema.Type != "boolean" {
 		t.Errorf("Expected type 'boolean', got '%s'", schema.Type)
 	}
 }
 
 func TestGeneratesArraySchemaForSlice(t *testing.T) {
-	schema, err := GenerateJSONSchema[[]string]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[[]string]()
 	if schema.Type != "array" {
 		t.Errorf("Expected type 'array', got '%s'", schema.Type)
 	}
@@ -61,10 +46,7 @@ func TestGeneratesArraySchemaForSlice(t *testing.T) {
 }
 
 func TestGeneratesArraySchemaForIntSlice(t *testing.T) {
-	schema, err := GenerateJSONSchema[[]int]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[[]int]()
 	if schema.Type != "array" {
 		t.Errorf("Expected type 'array', got '%s'", schema.Type)
 	}
@@ -77,10 +59,7 @@ func TestGeneratesArraySchemaForIntSlice(t *testing.T) {
 }
 
 func TestGeneratesObjectSchemaForMap(t *testing.T) {
-	schema, err := GenerateJSONSchema[map[string]string]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[map[string]string]()
 	if schema.Type != "object" {
 		t.Errorf("Expected type 'object', got '%s'", schema.Type)
 	}
@@ -90,10 +69,7 @@ func TestGeneratesObjectSchemaForMap(t *testing.T) {
 }
 
 func TestGeneratesObjectSchemaForMapWithIntValues(t *testing.T) {
-	schema, err := GenerateJSONSchema[map[string]int]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[map[string]int]()
 	if schema.Type != "object" {
 		t.Errorf("Expected type 'object', got '%s'", schema.Type)
 	}
@@ -115,10 +91,7 @@ func TestGeneratesSchemaForSimpleStruct(t *testing.T) {
 		Age  int
 	}
 
-	schema, err := GenerateJSONSchema[Person]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Person]()
 	if schema.Type != "object" {
 		t.Errorf("Expected type 'object', got '%s'", schema.Type)
 	}
@@ -145,10 +118,7 @@ func TestHandlesJSONTags(t *testing.T) {
 		LastName  string `json:"last_name"`
 	}
 
-	schema, err := GenerateJSONSchema[User]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[User]()
 	if _, exists := schema.Properties["first_name"]; !exists {
 		t.Error("Expected 'first_name' property to exist")
 	}
@@ -166,10 +136,7 @@ func TestIgnoresFieldsWithJSONDashTag(t *testing.T) {
 		Private string `json:"-"`
 	}
 
-	schema, err := GenerateJSONSchema[Data]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Data]()
 	if _, exists := schema.Properties["Public"]; !exists {
 		t.Error("Expected 'Public' property to exist")
 	}
@@ -184,10 +151,7 @@ func TestIgnoresUnexportedFields(t *testing.T) {
 		private string
 	}
 
-	schema, err := GenerateJSONSchema[Data]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Data]()
 	if _, exists := schema.Properties["Public"]; !exists {
 		t.Error("Expected 'Public' property to exist")
 	}
@@ -203,10 +167,7 @@ func TestMarksFieldsAsRequiredWhenNotPointerAndNoOmitempty(t *testing.T) {
 	}
 	// TODO Per default vogliamo che siano required o no?
 
-	schema, err := GenerateJSONSchema[Person]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Person]()
 	if len(schema.Required) != 2 {
 		t.Errorf("Expected 2 required fields, got %d", len(schema.Required))
 	}
@@ -234,10 +195,7 @@ func TestDoesNotMarkFieldsAsRequiredWhenOmitempty(t *testing.T) {
 		Age  int    `json:"age,omitempty"`
 	}
 
-	schema, err := GenerateJSONSchema[Person]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Person]()
 	if len(schema.Required) != 0 {
 		t.Errorf("Expected 0 required fields, got %d", len(schema.Required))
 	}
@@ -249,10 +207,7 @@ func TestDoesNotMarkPointerFieldsAsRequired(t *testing.T) {
 		Age  *int
 	}
 
-	schema, err := GenerateJSONSchema[Person]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Person]()
 	if len(schema.Required) != 0 {
 		t.Errorf("Expected 0 required fields, got %d", len(schema.Required))
 	}
@@ -263,10 +218,7 @@ func TestHandlesPointerFields(t *testing.T) {
 		Name *string
 	}
 
-	schema, err := GenerateJSONSchema[Person]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Person]()
 	if schema.Properties["Name"].Type != "string" {
 		t.Errorf("Expected Name type 'string', got '%s'", schema.Properties["Name"].Type)
 	}
@@ -282,10 +234,7 @@ func TestHandlesNestedStructs(t *testing.T) {
 		Address Address
 	}
 
-	schema, err := GenerateJSONSchema[Person]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Person]()
 	if _, exists := schema.Properties["Address"]; !exists {
 		t.Fatal("Expected 'Address' property to exist")
 	}
@@ -307,10 +256,7 @@ func TestHandlesSliceOfStructs(t *testing.T) {
 		Price int
 	}
 
-	schema, err := GenerateJSONSchema[[]Item]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[[]Item]()
 	if schema.Type != "array" {
 		t.Errorf("Expected type 'array', got '%s'", schema.Type)
 	}
@@ -334,10 +280,7 @@ func TestHandlesMapWithStructValues(t *testing.T) {
 		Price int
 	}
 
-	schema, err := GenerateJSONSchema[map[string]Item]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[map[string]Item]()
 	if schema.Type != "object" {
 		t.Errorf("Expected type 'object', got '%s'", schema.Type)
 	}
@@ -358,10 +301,7 @@ func TestHandlesDescriptionTag(t *testing.T) {
 		Name string `json:"name" jsonschema:"description=The user's full name"`
 	}
 
-	schema, err := GenerateJSONSchema[User]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[User]()
 	if schema.Properties["name"].Description != "The user's full name" {
 		t.Errorf("Expected description 'The user's full name', got '%s'", schema.Properties["name"].Description)
 	}
@@ -373,10 +313,7 @@ func TestHandlesRequiredTag(t *testing.T) {
 		Age  int    `json:"age,omitempty"`
 	}
 
-	schema, err := GenerateJSONSchema[User]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[User]()
 	if len(schema.Required) != 1 {
 		t.Errorf("Expected 1 required field, got %d", len(schema.Required))
 	}
@@ -390,10 +327,7 @@ func TestHandlesEnumTagForString(t *testing.T) {
 		Value string `json:"value" jsonschema:"enum=active,enum=inactive,enum=pending"`
 	}
 
-	schema, err := GenerateJSONSchema[Status]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Status]()
 	if len(schema.Properties["value"].Enum) != 3 {
 		t.Errorf("Expected 3 enum values, got %d", len(schema.Properties["value"].Enum))
 	}
@@ -410,10 +344,7 @@ func TestHandlesEnumTagForInteger(t *testing.T) {
 		Level int `json:"level" jsonschema:"enum=1,enum=2,enum=3"`
 	}
 
-	schema, err := GenerateJSONSchema[Priority]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Priority]()
 	if len(schema.Properties["level"].Enum) != 3 {
 		t.Errorf("Expected 3 enum values, got %d", len(schema.Properties["level"].Enum))
 	}
@@ -430,10 +361,7 @@ func TestHandlesEnumTagForFloat(t *testing.T) {
 		Score float64 `json:"score" jsonschema:"enum=1.5,enum=2.5,enum=3.5"`
 	}
 
-	schema, err := GenerateJSONSchema[Rating]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Rating]()
 	if len(schema.Properties["score"].Enum) != 3 {
 		t.Errorf("Expected 3 enum values, got %d", len(schema.Properties["score"].Enum))
 	}
@@ -450,10 +378,7 @@ func TestHandlesEnumTagForBoolean(t *testing.T) {
 		Enabled bool `json:"enabled" jsonschema:"enum=true,enum=false"`
 	}
 
-	schema, err := GenerateJSONSchema[Flag]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Flag]()
 	if len(schema.Properties["enabled"].Enum) != 2 {
 		t.Errorf("Expected 2 enum values, got %d", len(schema.Properties["enabled"].Enum))
 	}
@@ -464,10 +389,7 @@ func TestHandlesMultipleJSONSchemaTags(t *testing.T) {
 		Status string `json:"status" jsonschema:"description=User status,enum=active,enum=inactive,required"`
 	}
 
-	schema, err := GenerateJSONSchema[User]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[User]()
 	if schema.Properties["status"].Description != "User status" {
 		t.Errorf("Expected description 'User status', got '%s'", schema.Properties["status"].Description)
 	}
@@ -485,10 +407,7 @@ func TestHandlesRecursiveStructWithSelfReference(t *testing.T) {
 		Children []*Node
 	}
 
-	schema, err := GenerateJSONSchema[Node]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Node]()
 	if schema.Type != "object" {
 		t.Errorf("Expected type 'object', got '%s'", schema.Type)
 	}
@@ -518,10 +437,7 @@ func TestHandlesRecursiveStructWithDirectReference(t *testing.T) {
 		Next  *LinkedNode
 	}
 
-	schema, err := GenerateJSONSchema[LinkedNode]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[LinkedNode]()
 	if schema.Type != "object" {
 		t.Errorf("Expected type 'object', got '%s'", schema.Type)
 	}
@@ -536,10 +452,7 @@ func TestHandlesMutuallyRecursiveStructs(t *testing.T) {
 		B    interface{}
 	}
 
-	schema, err := GenerateJSONSchema[A]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[A]()
 	if schema.Type != "object" {
 		t.Errorf("Expected type 'object', got '%s'", schema.Type)
 	}
@@ -560,10 +473,7 @@ func TestHandlesComplexNestedStructures(t *testing.T) {
 		Children []Item
 	}
 
-	schema, err := GenerateJSONSchema[Item]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Item]()
 	if schema.Type != "object" {
 		t.Errorf("Expected type 'object', got '%s'", schema.Type)
 	}
@@ -602,31 +512,27 @@ func TestHandlesAllIntegerTypes(t *testing.T) {
 	for _, tt := range types {
 		t.Run(tt.name, func(t *testing.T) {
 			var schema *Schema
-			var err error
 			switch tt.name {
 			case "int":
-				schema, err = GenerateJSONSchema[int]()
+				schema = GenerateJSONSchema[int]()
 			case "int8":
-				schema, err = GenerateJSONSchema[int8]()
+				schema = GenerateJSONSchema[int8]()
 			case "int16":
-				schema, err = GenerateJSONSchema[int16]()
+				schema = GenerateJSONSchema[int16]()
 			case "int32":
-				schema, err = GenerateJSONSchema[int32]()
+				schema = GenerateJSONSchema[int32]()
 			case "int64":
-				schema, err = GenerateJSONSchema[int64]()
+				schema = GenerateJSONSchema[int64]()
 			case "uint":
-				schema, err = GenerateJSONSchema[uint]()
+				schema = GenerateJSONSchema[uint]()
 			case "uint8":
-				schema, err = GenerateJSONSchema[uint8]()
+				schema = GenerateJSONSchema[uint8]()
 			case "uint16":
-				schema, err = GenerateJSONSchema[uint16]()
+				schema = GenerateJSONSchema[uint16]()
 			case "uint32":
-				schema, err = GenerateJSONSchema[uint32]()
+				schema = GenerateJSONSchema[uint32]()
 			case "uint64":
-				schema, err = GenerateJSONSchema[uint64]()
-			}
-			if err != nil {
-				t.Fatalf("Unexpected error: %v", err)
+				schema = GenerateJSONSchema[uint64]()
 			}
 			if schema.Type != "integer" {
 				t.Errorf("Expected type 'integer' for %s, got '%s'", tt.name, schema.Type)
@@ -650,9 +556,9 @@ func TestHandlesAllFloatTypes(t *testing.T) {
 			var err error
 			switch tt.name {
 			case "float32":
-				schema, err = GenerateJSONSchema[float32]()
+				schema = GenerateJSONSchema[float32]()
 			case "float64":
-				schema, err = GenerateJSONSchema[float64]()
+				schema = GenerateJSONSchema[float64]()
 			}
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
@@ -667,10 +573,7 @@ func TestHandlesAllFloatTypes(t *testing.T) {
 func TestHandlesEmptyStruct(t *testing.T) {
 	type Empty struct{}
 
-	schema, err := GenerateJSONSchema[Empty]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Empty]()
 	if schema.Type != "object" {
 		t.Errorf("Expected type 'object', got '%s'", schema.Type)
 	}
@@ -685,10 +588,7 @@ func TestHandlesStructWithOnlyUnexportedFields(t *testing.T) {
 		age  int
 	}
 
-	schema, err := GenerateJSONSchema[Private]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Private]()
 	if schema.Type != "object" {
 		t.Errorf("Expected type 'object', got '%s'", schema.Type)
 	}
@@ -703,10 +603,7 @@ func TestHandlesPointerToStruct(t *testing.T) {
 		Age  int
 	}
 
-	schema, err := GenerateJSONSchema[*Person]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[*Person]()
 	if schema.Type != "object" {
 		t.Errorf("Expected type 'object', got '%s'", schema.Type)
 	}
@@ -724,10 +621,7 @@ func TestHandlesNestedPointers(t *testing.T) {
 		Address *Address
 	}
 
-	schema, err := GenerateJSONSchema[Person]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Person]()
 	if _, exists := schema.Properties["Address"]; !exists {
 		t.Fatal("Expected 'Address' property to exist")
 	}
@@ -738,10 +632,7 @@ func TestHandlesNestedPointers(t *testing.T) {
 }
 
 func TestHandlesArrayOfPrimitives(t *testing.T) {
-	schema, err := GenerateJSONSchema[[5]int]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[[5]int]()
 	if schema.Type != "array" {
 		t.Errorf("Expected type 'array', got '%s'", schema.Type)
 	}
@@ -754,10 +645,7 @@ func TestHandlesArrayOfPrimitives(t *testing.T) {
 }
 
 func TestHandlesSliceOfPointers(t *testing.T) {
-	schema, err := GenerateJSONSchema[[]*string]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[[]*string]()
 	if schema.Type != "array" {
 		t.Errorf("Expected type 'array', got '%s'", schema.Type)
 	}
@@ -770,10 +658,7 @@ func TestHandlesSliceOfPointers(t *testing.T) {
 }
 
 func TestHandlesMapWithComplexKeys(t *testing.T) {
-	schema, err := GenerateJSONSchema[map[string][]int]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[map[string][]int]()
 	if schema.Type != "object" {
 		t.Errorf("Expected type 'object', got '%s'", schema.Type)
 	}
@@ -797,10 +682,7 @@ func TestHandlesStructWithMixedFieldVisibility(t *testing.T) {
 		internal int
 	}
 
-	schema, err := GenerateJSONSchema[Mixed]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Mixed]()
 	if len(schema.Properties) != 2 {
 		t.Errorf("Expected 2 properties, got %d", len(schema.Properties))
 	}
@@ -819,10 +701,7 @@ func TestHandlesStructWithBothJSONAndJSONSchemaTagsCombined(t *testing.T) {
 		Type  string  `json:"type" jsonschema:"enum=physical,enum=digital"`
 	}
 
-	schema, err := GenerateJSONSchema[Product]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Product]()
 	if schema.Properties["name"].Description != "Product name" {
 		t.Errorf("Expected name description, got '%s'", schema.Properties["name"].Description)
 	}
@@ -845,10 +724,7 @@ func TestHandlesDeeplyNestedStructures(t *testing.T) {
 		L2 Level2
 	}
 
-	schema, err := GenerateJSONSchema[Level1]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Level1]()
 	if schema.Type != "object" {
 		t.Errorf("Expected type 'object', got '%s'", schema.Type)
 	}
@@ -866,10 +742,7 @@ func TestHandlesDeeplyNestedStructures(t *testing.T) {
 }
 
 func TestHandlesSliceOfSlices(t *testing.T) {
-	schema, err := GenerateJSONSchema[[][]string]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[[][]string]()
 	if schema.Type != "array" {
 		t.Errorf("Expected type 'array', got '%s'", schema.Type)
 	}
@@ -888,10 +761,7 @@ func TestHandlesSliceOfSlices(t *testing.T) {
 }
 
 func TestHandlesMapOfMaps(t *testing.T) {
-	schema, err := GenerateJSONSchema[map[string]map[string]int]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[map[string]map[string]int]()
 	if schema.Type != "object" {
 		t.Errorf("Expected type 'object', got '%s'", schema.Type)
 	}
@@ -918,10 +788,7 @@ func TestHandlesStructWithArrayAndMapFields(t *testing.T) {
 		Single  string
 	}
 
-	schema, err := GenerateJSONSchema[Complex]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Complex]()
 	if schema.Properties["Items"].Type != "array" {
 		t.Errorf("Expected Items type 'array', got '%s'", schema.Properties["Items"].Type)
 	}
@@ -940,10 +807,7 @@ func TestGeneratesUniqueDefinitionNames(t *testing.T) {
 		Right *Node
 	}
 
-	schema, err := GenerateJSONSchema[Node]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Node]()
 	if schema.Defs == nil {
 		t.Fatal("Expected $defs to be defined")
 	}
@@ -963,10 +827,7 @@ func TestHandlesTreeStructureWithMultipleReferences(t *testing.T) {
 		Children []*TreeNode
 	}
 
-	schema, err := GenerateJSONSchema[TreeNode]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[TreeNode]()
 	if schema.Type != "object" {
 		t.Errorf("Expected type 'object', got '%s'", schema.Type)
 	}
@@ -991,10 +852,7 @@ func TestHandlesStructWithAllOptionalFields(t *testing.T) {
 		Field3 *bool   `json:"field3,omitempty"`
 	}
 
-	schema, err := GenerateJSONSchema[Optional]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Optional]()
 	if len(schema.Required) != 0 {
 		t.Errorf("Expected 0 required fields, got %d", len(schema.Required))
 	}
@@ -1008,10 +866,7 @@ func TestHandlesStructWithMixedRequiredAndOptional(t *testing.T) {
 		Optional2 *int   `json:"optional2"`
 	}
 
-	schema, err := GenerateJSONSchema[Mixed]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Mixed]()
 	if len(schema.Required) != 2 {
 		t.Errorf("Expected 2 required fields, got %d", len(schema.Required))
 	}
@@ -1038,10 +893,7 @@ func TestHandlesJsonSchemaTagWithSpaces(t *testing.T) {
 		Field string `json:"field" jsonschema:"description=A field with spaces in description"`
 	}
 
-	schema, err := GenerateJSONSchema[Tagged]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Tagged]()
 	if schema.Properties["field"].Description != "A field with spaces in description" {
 		t.Errorf("Expected description with spaces, got '%s'", schema.Properties["field"].Description)
 	}
@@ -1056,10 +908,7 @@ func TestDoesNotCreateDefinitionsForNonRecursiveStructs(t *testing.T) {
 		Data Simple
 	}
 
-	schema, err := GenerateJSONSchema[Container]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Container]()
 	if schema.Defs != nil && len(schema.Defs) > 0 {
 		t.Error("Did not expect $defs for non-recursive structures")
 	}
@@ -1072,10 +921,7 @@ func TestHandlesAnonymousStructs(t *testing.T) {
 		}
 	}
 
-	schema, err := GenerateJSONSchema[Container]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Container]()
 	if _, exists := schema.Properties["Nested"]; !exists {
 		t.Fatal("Expected 'Nested' property to exist")
 	}
@@ -1093,10 +939,7 @@ func TestHandlesEnumWithSingleValue(t *testing.T) {
 		Value string `json:"value" jsonschema:"enum=only"`
 	}
 
-	schema, err := GenerateJSONSchema[Single]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[Single]()
 	if len(schema.Properties["value"].Enum) != 1 {
 		t.Errorf("Expected 1 enum value, got %d", len(schema.Properties["value"].Enum))
 	}
@@ -1113,10 +956,7 @@ func TestHandlesMultipleFieldsWithDifferentJSONSchemaTags(t *testing.T) {
 		Field4 bool   `json:"field4,omitempty"`
 	}
 
-	schema, err := GenerateJSONSchema[MultiTag]()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[MultiTag]()
 	if schema.Properties["field1"].Description != "First field" {
 		t.Error("Expected field1 to have description")
 	}

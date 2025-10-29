@@ -2,8 +2,6 @@ package ai
 
 import (
 	"aigo/internal/jsonschema"
-	"aigo/providers/tool"
-	"net/http"
 )
 
 /*
@@ -12,10 +10,21 @@ import (
 
 // ChatRequest represents a request to send a chat message
 type ChatRequest struct {
-	Messages         []Message         `json:"messages"`                    // Contains all messages in the conversation
-	Tools            []tool.ToolInfo   `json:"tools,omitempty"`             // Contains tool definitions if any
+	Messages         []Message         `json:"messages"`                    // Contains all messages in the conversation except system prompt
+	Model            string            `json:"model"`                       // Model identifier to use
+	Models           []string          `json:"models,omitempty"`            // Optional list of model identifiers to use af fallback for model selection
+	SystemPrompt     string            `json:"system_prompt,omitempty"`     // Optional system prompt
+	Tools            []ToolDescription `json:"tools,omitempty"`             // Contains tool definitions if any
 	ResponseFormat   *ResponseFormat   `json:"response_format,omitempty"`   // Optional response format
 	GenerationConfig *GenerationConfig `json:"generation_config,omitempty"` // Optional generation configuration
+	//ToolChoice      string            `json:"tool_choice,omitempty"` ->   // computed from tools.Required
+}
+
+type ToolDescription struct {
+	Name        string             `json:"name"`
+	Description string             `json:"description,omitempty"`
+	Parameters  *jsonschema.Schema `json:"parameters,omitempty"`
+	Required    bool               `json:"required,omitempty"`
 }
 
 // Message represents a single message in a conversation
@@ -32,6 +41,7 @@ type GenerationConfig struct {
 	TopP             float32 `json:"top_p,omitempty"`             // OpenAi only: Nucleus (top-p) sampling [0..1]. Alternative to temperature; keeps tokens within top_p cumulative probability.
 	FrequencyPenalty float32 `json:"frequency_penalty,omitempty"` // OpenAi only: Penalty [-2..2]. Positive values reduce repetition by penalizing frequent tokens.
 	PresencePenalty  float32 `json:"presence_penalty,omitempty"`  // OpenAi only: Penalty [-2..2]. Positive values encourage new topics by penalizing tokens that already appeared.
+	MaxOutputTokens  int     `json:"max_output_tokens,omitempty"` // Optional max tokens specifically for the output (if supported by provider)
 }
 
 type ResponseFormat struct {
@@ -61,8 +71,8 @@ type ChatResponse struct {
 	FinishReason string     `json:"finish_reason,omitempty"`
 	Usage        *Usage     `json:"usage,omitempty"`
 
-	// for observability and debugging
-	HttpResponse *http.Response `json:"-"` // Raw HTTP response, if applicable
+	// TODO observability and debugging
+	//HttpResponse *http.Response `json:"-"` // Raw HTTP response, if applicable
 }
 
 /*

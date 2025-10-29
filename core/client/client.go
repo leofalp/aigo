@@ -1,44 +1,48 @@
 package client
 
 import (
+	"aigo/internal/jsonschema"
 	"aigo/providers/ai"
 	"aigo/providers/tool"
 	"context"
-	"reflect"
+	"encoding/json"
 )
 
-type Client struct {
+type Client[T any] struct {
 	llmProvider           ai.Provider
 	messages              []ai.Message
-	toolCatalog           map[string]tool.CallableTool
-	toolDescriptions      []tool.ToolInfo
 	maxToolCallIterations int
-	outputFormat          reflect.Type
+	// for fast accessing tool by name
+	toolCatalog map[string]tool.GenericTool
+	// for passing tool info to LLM without processing all tools each time
+	toolDescriptions []ai.ToolDescription
+	outputSchema     *jsonschema.Schema
 }
 
-func NewClient(llmProvider ai.Provider) *Client {
-	return &Client{
+func NewClient[T any](llmProvider ai.Provider) *Client[T] {
+	return &Client[T]{
 		llmProvider:           llmProvider,
-		toolCatalog:           map[string]tool.CallableTool{},
+		toolCatalog:           map[string]tool.GenericTool{},
 		maxToolCallIterations: 3,
+		outputSchema:          jsonschema.GenerateJSONSchema[T](),
 	}
 }
 
-func (c *Client) SetProvider(provider ai.Provider) {
+func (c *Client[T]) SetProvider(provider ai.Provider) {
 	c.llmProvider = provider
 }
 
-func (c *Client) AddSystemPrompt(content string) *Client {
+func (c *Client[T]) AddSystemPrompt(content string) *Client[T] {
 	c.appendMessage(ai.RoleSystem, content)
 	return c
 }
 
-func (c *Client) SetMaxToolCallIterations(maxCalls int) *Client {
+func (c *Client[T]) SetMaxToolCallIterations(maxCalls int) *Client[T] {
 	c.maxToolCallIterations = maxCalls
 	return c
 }
 
-func (c *Client) AddTools(tools []tool.CallableTool) *Client {
+func (c *Client[T]) AddTools(tools []tool.GenericTool) *Client[T] {
 	for i, t := range tools {
 		c.toolCatalog[t.ToolInfo().Name] = tools[i]
 		c.toolDescriptions = append(c.toolDescriptions, t.ToolInfo())
@@ -47,12 +51,7 @@ func (c *Client) AddTools(tools []tool.CallableTool) *Client {
 	return c
 }
 
-func (c *Client) SetOutputFormat(outputObject any) *Client {
-	c.outputFormat = reflect.TypeOf(outputObject) //TODO enforce structure on response
-	return c
-}
-
-func (c *Client) SendMessage(content string) (*ai.ChatResponse, error) {
+func (c *Client[T]) SendMessage(content string) (*T, error) {
 	c.appendMessage(ai.RoleUser, content)
 	response := &ai.ChatResponse{}
 	toolCallIterations := 0
@@ -63,6 +62,9 @@ func (c *Client) SendMessage(content string) (*ai.ChatResponse, error) {
 		response, err = c.llmProvider.SendMessage(context.Background(), ai.ChatRequest{
 			Messages: c.messages,
 			Tools:    c.toolDescriptions,
+			ResponseFormat: &ai.ResponseFormat{
+				OutputSchema: c.outputSchema,
+			},
 		})
 		if err != nil {
 			return nil, err
@@ -86,10 +88,16 @@ func (c *Client) SendMessage(content string) (*ai.ChatResponse, error) {
 
 	}
 
-	return response, nil
+	var resp T
+	err = json.Unmarshal([]byte(response.Content), &resp)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resp, nil
 }
 
-func (c *Client) appendMessage(role ai.MessageRole, content string) {
+func (c *Client[T]) appendMessage(role ai.MessageRole, content string) {
 	c.messages = append(c.messages, ai.Message{
 		Role:    role,
 		Content: content,

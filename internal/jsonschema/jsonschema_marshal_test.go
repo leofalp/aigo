@@ -12,10 +12,7 @@ func TestGenerateJSONSchemaWithValidStruct(t *testing.T) {
 		Email string `json:"email"`
 	}
 
-	schema, err := GenerateJSONSchema[SampleStruct]()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[SampleStruct]()
 
 	if schema.Type != "object" {
 		t.Errorf("expected schema type to be 'object', got '%s'", schema.Type)
@@ -36,10 +33,7 @@ func TestGenerateJSONSchemaWithRecursiveStruct(t *testing.T) {
 		Children []*RecursiveStruct `json:"children"`
 	}
 
-	schema, err := GenerateJSONSchema[RecursiveStruct]()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	schema := GenerateJSONSchema[RecursiveStruct]()
 
 	if schema.Type != "object" {
 		t.Errorf("expected schema type to be 'object', got '%s'", schema.Type)
