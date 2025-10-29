@@ -2,6 +2,7 @@ package tool
 
 import (
 	"aigo/internal/jsonschema"
+	"aigo/providers/ai"
 	"context"
 	"encoding/json"
 )
@@ -9,51 +10,53 @@ import (
 type Tool[I, O any] struct {
 	Name        string
 	Description string
+	Required    bool
 	Parameters  *jsonschema.Schema
 	Output      *jsonschema.Schema
 	Function    func(ctx context.Context, input I) (O, error)
 }
 
-type DocumentedTool interface {
-	ToolInfo() ToolInfo
-}
-
-type CallableTool interface {
+type GenericTool interface {
+	ToolInfo() ai.ToolDescription
 	Call(inputJson string) (string, error)
-	DocumentedTool
 }
 
-type ToolInfo struct {
-	Name            string             `json:"name"`
-	Description     string             `json:"description,omitempty"`
-	Parameters      *jsonschema.Schema `json:"parameters,omitempty"`
-	Required        bool               `json:"required,omitempty"`
-	ToolChoice      string             `json:"tool_choice,omitempty"`
-	MaxOutputTokens int                `json:"max_output_tokens,omitempty"`
+type funcToolOptions struct {
+	Description string
+	Required    bool
 }
 
-func NewTool[I, O any](name string, description string, function func(ctx context.Context, input I) (O, error)) *Tool[I, O] {
-	parameterSchema, err := jsonschema.GenerateJSONSchema[I]()
-	if err != nil {
-		panic(err) // TODO handle error appropriately
+func WithDescription(description string) func(tool *funcToolOptions) {
+	return func(s *funcToolOptions) {
+		s.Description = description
+	}
+}
+
+func IsRequired() func(tool *funcToolOptions) {
+	return func(s *funcToolOptions) {
+		s.Required = true
+	}
+}
+
+func NewTool[I, O any](name string, function func(ctx context.Context, input I) (O, error), options ...func(tool *funcToolOptions)) *Tool[I, O] {
+	toolOptions := &funcToolOptions{}
+	for _, o := range options {
+		o(toolOptions)
 	}
 
-	outputSchema, err := jsonschema.GenerateJSONSchema[O]()
-	if err != nil {
-		panic(err) // TODO handle error appropriately
-	}
-
-	return &Tool[I, O]{
+	tool := &Tool[I, O]{
 		Name:        name,
-		Description: description,
-		Parameters:  parameterSchema,
-		Output:      outputSchema,
+		Required:    toolOptions.Required,
+		Description: toolOptions.Description,
+		Parameters:  jsonschema.GenerateJSONSchema[I](),
+		Output:      jsonschema.GenerateJSONSchema[O](),
 		Function:    function,
 	}
+	return tool
 }
 
-func (t *Tool[I, O]) ToolInfo() ToolInfo {
-	return ToolInfo{
+func (t *Tool[I, O]) ToolInfo() ai.ToolDescription {
+	return ai.ToolDescription{
 		Name:        t.Name,
 		Description: t.Description,
 		Parameters:  t.Parameters,
@@ -65,7 +68,7 @@ func (t *Tool[I, O]) Call(inputJson string) (string, error) {
 
 	err := json.Unmarshal([]byte(inputJson), &parsedInput)
 	if err != nil {
-		return "", nil
+		return "", err
 	}
 
 	output, err := t.Function(context.Background(), parsedInput)

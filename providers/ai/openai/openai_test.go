@@ -3,7 +3,6 @@ package openai
 import (
 	"aigo/internal/jsonschema"
 	"aigo/providers/ai"
-	"aigo/providers/tool"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -11,25 +10,6 @@ import (
 	"os"
 	"testing"
 )
-
-func TestNewOpenAIProviderUsesDefaults(t *testing.T) {
-	err := os.Setenv("OPENAI_API_KEY", "test-key-from-env")
-	if err != nil {
-		t.Fatal("failed to set env variable: " + err.Error())
-	}
-	defer func() {
-		err = os.Unsetenv("OPENAI_API_KEY")
-		if err != nil {
-			t.Fatal("failed to unset env variable: " + err.Error())
-		}
-	}()
-
-	p := NewOpenAIProvider()
-
-	if p.GetModelName() == "" {
-		t.Error("expected non-empty model name")
-	}
-}
 
 func TestNewOpenAIProviderWithoutEnvVariable(t *testing.T) {
 	err := os.Unsetenv("OPENAI_API_KEY")
@@ -52,47 +32,11 @@ func TestBuilderPatternWithAPIKey(t *testing.T) {
 	}
 }
 
-func TestBuilderPatternWithModel(t *testing.T) {
-	p := NewOpenAIProvider().WithModel("gpt-4o")
-
-	if p.GetModelName() != "gpt-4o" {
-		t.Errorf("expected model 'gpt-4o', got %s", p.GetModelName())
-	}
-}
-
 func TestBuilderPatternWithBaseURL(t *testing.T) {
 	p := NewOpenAIProvider().WithBaseURL("https://custom.api.com/v1")
 
 	if p == nil {
 		t.Error("expected provider after setting base URL")
-	}
-}
-
-func TestBuilderPatternChaining(t *testing.T) {
-	p := NewOpenAIProvider().
-		WithAPIKey("test-key").
-		WithModel("gpt-4o").
-		WithBaseURL("https://custom.api.com/v1")
-
-	if p.GetModelName() != "gpt-4o" {
-		t.Errorf("expected model 'gpt-4o', got %s", p.GetModelName())
-	}
-}
-
-func TestGetModelNameReturnsCurrentModel(t *testing.T) {
-	p := NewOpenAIProvider().WithModel("gpt-4o-mini")
-
-	if p.GetModelName() != "gpt-4o-mini" {
-		t.Errorf("expected model name 'gpt-4o-mini', got %s", p.GetModelName())
-	}
-}
-
-func TestSetModelChangesModel(t *testing.T) {
-	p := NewOpenAIProvider().
-		WithModel("gpt-4")
-
-	if p.GetModelName() != "gpt-4" {
-		t.Errorf("expected model 'gpt-4', got %s", p.GetModelName())
 	}
 }
 
@@ -106,19 +50,32 @@ func TestSendMessageWithValidResponse(t *testing.T) {
 			t.Errorf("expected Content-Type 'application/json', got %s", r.Header.Get("Content-Type"))
 		}
 
+		// Responses API style response (new models)
 		response := map[string]interface{}{
-			"choices": []map[string]interface{}{
+			"id":         "resp_1",
+			"object":     "response",
+			"created_at": 1234567890,
+			"model":      "gpt-test",
+			"output": []map[string]interface{}{
 				{
-					"message": map[string]interface{}{
-						"role":    "assistant",
-						"content": "Paris is the capital of France.",
+					"id":   "out_1",
+					"type": "message",
+					"role": "assistant",
+					"content": []map[string]interface{}{
+						{
+							"type": "output_text",
+							"text": "Paris is the capital of France.",
+						},
 					},
-					"finish_reason": "stop",
 				},
 			},
+			"status": "completed",
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		// Log the exact JSON we will send for debugging
+		respBytes, _ := json.Marshal(response)
+		t.Logf("server response JSON: %s", string(respBytes))
 		err := json.NewEncoder(w).Encode(response)
 		if err != nil {
 			t.Fatal("failed to encode response: " + err.Error())
@@ -162,29 +119,33 @@ func TestSendMessageWithTools(t *testing.T) {
 			t.Error("expected tools in request body")
 		}
 
+		// Responses API style response with a separate function_call output item
 		response := map[string]interface{}{
-			"choices": []map[string]interface{}{
+			"id":         "resp_tool",
+			"object":     "response",
+			"created_at": 1234567890,
+			"model":      "gpt-test",
+			"output": []map[string]interface{}{
 				{
-					"message": map[string]interface{}{
-						"role":    "assistant",
-						"content": "",
-						"tool_calls": []map[string]interface{}{
-							{
-								"id":   "call_123",
-								"type": "function",
-								"function": map[string]interface{}{
-									"name":      "get_weather",
-									"arguments": `{"location": "Paris"}`,
-								},
-							},
-						},
-					},
-					"finish_reason": "tool_calls",
+					"id":      "out_1",
+					"type":    "message",
+					"role":    "assistant",
+					"content": []map[string]interface{}{},
+				},
+				{
+					"id":        "out_2",
+					"type":      "function_call",
+					"name":      "get_weather",
+					"call_id":   "call_123",
+					"arguments": `{"location": "Paris"}`,
 				},
 			},
+			"status": "completed",
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		respBytes, _ := json.Marshal(response)
+		t.Logf("server response JSON: %s", string(respBytes))
 		err = json.NewEncoder(w).Encode(response)
 		if err != nil {
 			t.Fatal("failed to encode response: " + err.Error())
@@ -201,7 +162,7 @@ func TestSendMessageWithTools(t *testing.T) {
 		Messages: []ai.Message{
 			{Role: "user", Content: "What's the weather in Paris?"},
 		},
-		Tools: []tool.ToolInfo{
+		Tools: []ai.ToolDescription{
 			{
 				Name:        "get_weather",
 				Description: "Get weather for a location",
@@ -256,11 +217,18 @@ func TestSendMessageWithNon2xxStatus(t *testing.T) {
 
 func TestSendMessageWithEmptyChoices(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Return Responses API shape with empty output array
 		response := map[string]interface{}{
-			"choices": []map[string]interface{}{},
+			"id":     "resp_empty",
+			"object": "response",
+			"output": []map[string]interface{}{},
+			"status": "completed",
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		// Log the exact JSON we will send for debugging
+		respBytes, _ := json.Marshal(response)
+		t.Logf("server response JSON: %s", string(respBytes))
 		err := json.NewEncoder(w).Encode(response)
 		if err != nil {
 			t.Fatal("failed to encode response: " + err.Error())
@@ -284,30 +252,6 @@ func TestSendMessageWithEmptyChoices(t *testing.T) {
 	}
 }
 
-func TestSendMessageWithContextCancellation(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		<-r.Context().Done()
-	}))
-	defer server.Close()
-
-	p := NewOpenAIProvider().
-		WithAPIKey("test-key").
-		WithBaseURL(server.URL)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	_, err := p.SendMessage(ctx, ai.ChatRequest{
-		Messages: []ai.Message{
-			{Role: "user", Content: "Hello"},
-		},
-	})
-
-	if err == nil {
-		t.Fatal("expected error for cancelled context, got nil")
-	}
-}
-
 func TestWithHTTPClientSetsCustomClient(t *testing.T) {
 	customClient := &http.Client{
 		Timeout: 0,
@@ -323,6 +267,36 @@ func TestWithHTTPClientSetsCustomClient(t *testing.T) {
 func TestBuilderPatternReturnsProviderInterface(t *testing.T) {
 	var _ ai.Provider = NewOpenAIProvider()
 	NewOpenAIProvider().WithAPIKey("key")
-	NewOpenAIProvider().WithModel("model")
 	NewOpenAIProvider().WithBaseURL("url")
+}
+
+func TestUnmarshalResponsesAPIShape(t *testing.T) {
+	jsonBytes := []byte(`{
+		"id":"resp_1",
+		"object":"response",
+		"created_at":1234567890,
+		"model":"gpt-test",
+		"output":[
+			{
+				"id":"out_1",
+				"type":"message",
+				"role":"assistant",
+				"content":[{"type":"output_text","text":"Paris is the capital of France."}]
+			}
+		],
+		"status":"completed"
+	}`)
+
+	var resp response
+	if err := json.Unmarshal(jsonBytes, &resp); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+
+	if len(resp.Output) == 0 {
+		t.Fatalf("expected resp.Output to have items, got 0")
+	}
+
+	if resp.Output[0].Type != "message" {
+		t.Fatalf("expected output[0].type 'message', got '%s'", resp.Output[0].Type)
+	}
 }

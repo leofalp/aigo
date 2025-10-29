@@ -35,8 +35,8 @@ type Schema struct {
 }
 
 // GenerateJSONSchema generates a basic JSON schema from a reflect.Type.
-// objectType must be a pointer to the target type. Returns an error if not a pointer or if nil.
-func GenerateJSONSchema[T any]() (*Schema, error) {
+// objectType must be a pointer to the target type.
+func GenerateJSONSchema[T any]() *Schema {
 	t := reflect.TypeFor[T]()
 	// Use a context to track visited types and handle recursion
 	ctx := &schemaContext{
@@ -51,7 +51,7 @@ func GenerateJSONSchema[T any]() (*Schema, error) {
 		schema.Defs = ctx.defs
 	}
 
-	return schema, nil
+	return schema
 }
 
 // schemaContext tracks the state during schema generation to handle recursion

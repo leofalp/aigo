@@ -4,7 +4,6 @@ import (
 	"aigo/internal/jsonschema"
 	"aigo/providers/ai"
 	"aigo/providers/ai/openai"
-	"aigo/providers/tool"
 	"context"
 	"fmt"
 	"log/slog"
@@ -14,15 +13,15 @@ import (
 func main() {
 	// Example Using builder pattern to configure the provider
 	testProvider := openai.NewOpenAIProvider().
-		WithModel("nvidia/nemotron-nano-9b-v2:free").
 		WithBaseURL("https://openrouter.ai/api/v1")
 
 	// Simple message without tools
 	ctx := context.Background()
 
 	response, err := testProvider.SendMessage(ctx, ai.ChatRequest{
+		Model:        "nvidia/nemotron-nano-9b-v2:free",
+		SystemPrompt: "You are a helpful assistant.",
 		Messages: []ai.Message{
-			{Role: "system", Content: "You are a helpful assistant."},
 			{Role: "user", Content: "What is the capital of France?"},
 		},
 	})
@@ -36,7 +35,7 @@ func main() {
 	fmt.Printf("Finish Reason: %s\n", response.FinishReason)
 
 	// Example 3: Message with tools
-	tools := []tool.ToolInfo{
+	tools := []ai.ToolDescription{
 		{
 			Name:        "get_weather",
 			Description: "Get the current weather for a location",
@@ -58,6 +57,8 @@ func main() {
 	}
 
 	response2, err := testProvider.SendMessage(ctx, ai.ChatRequest{
+		Model:        "nvidia/nemotron-nano-9b-v2:free",
+		SystemPrompt: "You are a helpful assistant.",
 		Messages: []ai.Message{
 			{Role: "user", Content: "What's the weather like in Paris?"},
 		},
