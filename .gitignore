@@ -31,3 +31,5 @@ go.work.sum
 .idea/
 .idea/*
 aigo.iml
+
+*.env
