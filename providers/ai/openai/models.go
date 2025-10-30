@@ -125,7 +125,6 @@ func requestFromGeneric(request ai.ChatRequest) responseCreateRequest {
 
 	// Build base request
 	req := responseCreateRequest{
-		Model: request.Model,
 		Input: finalInput,
 	}
 
@@ -225,6 +224,7 @@ type response struct {
 	Model              string                 `json:"model"`
 	Output             []outputItem           `json:"output"`
 	Status             string                 `json:"status"` // "completed", "in_progress", "failed", "cancelled"
+	Tools              []tool                 `json:"tools"`
 	Usage              *usageDetails          `json:"usage,omitempty"`
 	Temperature        float64                `json:"temperature"`
 	TopP               float64                `json:"top_p"`
@@ -326,22 +326,17 @@ func responseToGeneric(resp response) *ai.ChatResponse {
 			for _, content := range output.Content {
 				if content.Type == "output_text" {
 					contentParts = append(contentParts, content.Text)
+
+					var functionCall ai.ToolCallFunction
+					err := json.Unmarshal([]byte(content.Text), &functionCall)
+					if err == nil {
+						toolCalls = append(toolCalls, ai.ToolCall{
+							Type:     "function",
+							Function: functionCall,
+						})
+					}
 				}
 			}
-
-		case "function_call":
-			// Convert function call to ToolCall
-			toolCalls = append(toolCalls, ai.ToolCall{
-				ID:   output.CallID,
-				Type: "function",
-				Function: struct {
-					Name      string `json:"name"`
-					Arguments string `json:"arguments"`
-				}{
-					Name:      output.Name,
-					Arguments: output.Arguments,
-				},
-			})
 
 		case "reasoning":
 			// Ignore or log reasoning items (no direct equivalent in ai.ChatResponse)
@@ -361,11 +356,6 @@ func responseToGeneric(resp response) *ai.ChatResponse {
 				chatResp.Content += "\n" + contentParts[i]
 			}
 		}
-	}
-
-	// Add tool calls if present
-	if len(toolCalls) > 0 {
-		chatResp.ToolCalls = toolCalls
 	}
 
 	// Map usage if present
