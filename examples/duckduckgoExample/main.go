@@ -77,7 +77,8 @@ func exampleDirectAdvanced() {
 func exampleAIBase() {
 	c := client.NewClient[string](
 		openai.NewOpenAIProvider().
-			WithBaseURL("https://openrouter.ai/api/v1"),
+			WithModels([]string{"nvidia/nemotron-nano-9b-v2:free"}).
+			WithModel("nvidia/nemotron-nano-9b-v2:free"),
 	).
 		AddTools([]tool.GenericTool{duckduckgo.NewDuckDuckGoSearchTool()}).
 		AddSystemPrompt("You are a helpful assistant. Use the search tool to find information.").
@@ -88,13 +89,14 @@ func exampleAIBase() {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
-	fmt.Println(resp)
+	fmt.Println(resp.Content)
 }
 
 func exampleAIAdvanced() {
 	c := client.NewClient[string](
 		openai.NewOpenAIProvider().
-			WithBaseURL("https://openrouter.ai/api/v1"),
+			WithModels([]string{"nvidia/nemotron-nano-9b-v2:free"}).
+			WithModel("nvidia/nemotron-nano-9b-v2:free"),
 	).
 		AddTools([]tool.GenericTool{duckduckgo.NewDuckDuckGoSearchAdvancedTool()}).
 		AddSystemPrompt("You are a helpful assistant. Use the advanced search to get detailed structured data with sources.").
@@ -105,7 +107,7 @@ func exampleAIAdvanced() {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
-	fmt.Println(resp)
+	fmt.Println(resp.Content)
 }
 
 func truncate(s string, maxLen int) string {

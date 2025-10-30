@@ -6,9 +6,12 @@ import (
 	"aigo/providers/tool"
 	"context"
 	"encoding/json"
+	"reflect"
+	"strconv"
 )
 
 type Client[T any] struct {
+	systemPrompt          string
 	llmProvider           ai.Provider
 	messages              []ai.Message
 	maxToolCallIterations int
@@ -33,7 +36,7 @@ func (c *Client[T]) SetProvider(provider ai.Provider) {
 }
 
 func (c *Client[T]) AddSystemPrompt(content string) *Client[T] {
-	c.appendMessage(ai.RoleSystem, content)
+	c.systemPrompt += content + "\n"
 	return c
 }
 
@@ -51,7 +54,7 @@ func (c *Client[T]) AddTools(tools []tool.GenericTool) *Client[T] {
 	return c
 }
 
-func (c *Client[T]) SendMessage(content string) (*T, error) {
+func (c *Client[T]) SendMessage(content string) (*ai.ChatResponse, error) {
 	c.appendMessage(ai.RoleUser, content)
 	response := &ai.ChatResponse{}
 	toolCallIterations := 0
@@ -60,8 +63,9 @@ func (c *Client[T]) SendMessage(content string) (*T, error) {
 	stop := false
 	for !stop {
 		response, err = c.llmProvider.SendMessage(context.Background(), ai.ChatRequest{
-			Messages: c.messages,
-			Tools:    c.toolDescriptions,
+			SystemPrompt: c.systemPrompt,
+			Messages:     c.messages,
+			Tools:        c.toolDescriptions,
 			ResponseFormat: &ai.ResponseFormat{
 				OutputSchema: c.outputSchema,
 			},
@@ -88,13 +92,31 @@ func (c *Client[T]) SendMessage(content string) (*T, error) {
 
 	}
 
-	var resp T
-	err = json.Unmarshal([]byte(response.Content), &resp)
-	if err != nil {
-		return nil, err
+	return c.responseParser(response)
+}
+
+func (c *Client[T]) responseParser(response *ai.ChatResponse) (*ai.ChatResponse, error) {
+	var typedVar T
+	var err error
+
+	switch reflect.TypeOf(typedVar).Kind().String() {
+	case "string":
+		return response, nil
+	case "bool":
+		_, err = strconv.ParseBool(response.Content)
+	case "float32", "float64":
+		_, err = strconv.ParseFloat(response.Content, 64)
+	case "int", "int8", "int16", "int32", "int64":
+		_, err = strconv.ParseInt(response.Content, 10, 64)
+	default:
+		err = json.Unmarshal([]byte(response.Content), &typedVar)
 	}
 
-	return &resp, nil
+	if err != nil {
+		response.Content = "[Waring] Could not parse response: " + err.Error() + " --> providing raw response content as fallback.\n\n" + response.Content
+	}
+
+	return response, nil
 }
 
 func (c *Client[T]) appendMessage(role ai.MessageRole, content string) {

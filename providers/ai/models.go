@@ -11,8 +11,6 @@ import (
 // ChatRequest represents a request to send a chat message
 type ChatRequest struct {
 	Messages         []Message         `json:"messages"`                    // Contains all messages in the conversation except system prompt
-	Model            string            `json:"model"`                       // Model identifier to use
-	Models           []string          `json:"models,omitempty"`            // Optional list of model identifiers to use af fallback for model selection
 	SystemPrompt     string            `json:"system_prompt,omitempty"`     // Optional system prompt
 	Tools            []ToolDescription `json:"tools,omitempty"`             // Contains tool definitions if any
 	ResponseFormat   *ResponseFormat   `json:"response_format,omitempty"`   // Optional response format
@@ -81,12 +79,13 @@ type ChatResponse struct {
 
 // ToolCall represents a function/tool call request from the LLM
 type ToolCall struct {
-	ID       string `json:"id"`
-	Type     string `json:"type"`
-	Function struct {
-		Name      string `json:"name"`
-		Arguments string `json:"arguments"` // JSON string
-	} `json:"function"`
+	Type     string           `json:"type"`
+	Function ToolCallFunction `json:"function"`
+}
+
+type ToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"` // JSON string
 }
 
 // MessageRole represents the role of a message; compatible with string

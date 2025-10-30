@@ -11,9 +11,15 @@ type Provider interface {
 	SendMessage(ctx context.Context, request ChatRequest) (*ChatResponse, error)
 
 	IsStopMessage(message *ChatResponse) bool
+	
+	// GetModelName returns the name of the model being used
+	GetModelName() string
 
 	// WithAPIKey sets the API key used for authenticating requests.
 	WithAPIKey(apiKey string) Provider
+
+	// WithModel sets the model identifier to use for chat requests.
+	WithModel(model string) Provider
 
 	// WithBaseURL overrides the default base URL for API requests.
 	WithBaseURL(baseURL string) Provider
