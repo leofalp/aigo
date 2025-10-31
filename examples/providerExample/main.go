@@ -8,12 +8,13 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+
+	_ "github.com/joho/godotenv/autoload"
 )
 
 func main() {
 	// Example Using builder pattern to configure the provider
-	testProvider := openai.NewOpenAIProvider().
-		WithBaseURL("https://openrouter.ai/api/v1")
+	testProvider := openai.NewOpenAIProvider()
 
 	// Simple message without tools
 	ctx := context.Background()

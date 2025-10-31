@@ -12,6 +12,7 @@ import (
 
 type Client[T any] struct {
 	systemPrompt          string
+	defaultModel          string
 	llmProvider           ai.Provider
 	messages              []ai.Message
 	maxToolCallIterations int
@@ -22,8 +23,24 @@ type Client[T any] struct {
 	outputSchema     *jsonschema.Schema
 }
 
-func NewClient[T any](llmProvider ai.Provider) *Client[T] {
+type funcClientOptions struct {
+	DefaultModel string
+}
+
+func WithDefaultModel(defaultModel string) func(tool *funcClientOptions) {
+	return func(tool *funcClientOptions) {
+		tool.DefaultModel = defaultModel
+	}
+}
+
+func NewClient[T any](llmProvider ai.Provider, options ...func(tool *funcClientOptions)) *Client[T] {
+	toolOptions := &funcClientOptions{}
+	for _, o := range options {
+		o(toolOptions)
+	}
+
 	return &Client[T]{
+		defaultModel:          toolOptions.DefaultModel,
 		llmProvider:           llmProvider,
 		toolCatalog:           map[string]tool.GenericTool{},
 		maxToolCallIterations: 3,
@@ -63,6 +80,7 @@ func (c *Client[T]) SendMessage(content string) (*ai.ChatResponse, error) {
 	stop := false
 	for !stop {
 		response, err = c.llmProvider.SendMessage(context.Background(), ai.ChatRequest{
+			Model:        c.defaultModel,
 			SystemPrompt: c.systemPrompt,
 			Messages:     c.messages,
 			Tools:        c.toolDescriptions,

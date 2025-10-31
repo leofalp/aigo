@@ -8,15 +8,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/joho/godotenv"
-	"log"
+
+	_ "github.com/joho/godotenv/autoload"
 )
 
 func main() {
-	err := godotenv.Load(".env")
-	if err != nil {
-		log.Fatalf("Error loading .env file: %s", err)
-	}
 
 	fmt.Println("=== DuckDuckGo Search Tool - Usage Examples ===\n")
 
@@ -76,9 +72,8 @@ func exampleDirectAdvanced() {
 
 func exampleAIBase() {
 	c := client.NewClient[string](
-		openai.NewOpenAIProvider().
-			WithModels([]string{"nvidia/nemotron-nano-9b-v2:free"}).
-			WithModel("nvidia/nemotron-nano-9b-v2:free"),
+		openai.NewOpenAIProvider(),
+		client.WithDefaultModel("nvidia/nemotron-nano-9b-v2:free"),
 	).
 		AddTools([]tool.GenericTool{duckduckgo.NewDuckDuckGoSearchTool()}).
 		AddSystemPrompt("You are a helpful assistant. Use the search tool to find information.").
@@ -93,11 +88,8 @@ func exampleAIBase() {
 }
 
 func exampleAIAdvanced() {
-	c := client.NewClient[string](
-		openai.NewOpenAIProvider().
-			WithModels([]string{"nvidia/nemotron-nano-9b-v2:free"}).
-			WithModel("nvidia/nemotron-nano-9b-v2:free"),
-	).
+	c := client.NewClient[string](openai.NewOpenAIProvider(),
+		client.WithDefaultModel("nvidia/nemotron-nano-9b-v2:free")).
 		AddTools([]tool.GenericTool{duckduckgo.NewDuckDuckGoSearchAdvancedTool()}).
 		AddSystemPrompt("You are a helpful assistant. Use the advanced search to get detailed structured data with sources.").
 		SetMaxToolCallIterations(3)

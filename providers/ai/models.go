@@ -10,12 +10,13 @@ import (
 
 // ChatRequest represents a request to send a chat message
 type ChatRequest struct {
-	Messages         []Message         `json:"messages"`                    // Contains all messages in the conversation except system prompt
-	SystemPrompt     string            `json:"system_prompt,omitempty"`     // Optional system prompt
-	Tools            []ToolDescription `json:"tools,omitempty"`             // Contains tool definitions if any
-	ResponseFormat   *ResponseFormat   `json:"response_format,omitempty"`   // Optional response format
-	GenerationConfig *GenerationConfig `json:"generation_config,omitempty"` // Optional generation configuration
-	//ToolChoice      string            `json:"tool_choice,omitempty"` ->   // computed from tools.Required
+	Model            string            `json:"model,omitempty"`              // Model name or identifier
+	Messages         []Message         `json:"messages"`                     // Contains all messages in the conversation except system prompt
+	SystemPrompt     string            `json:"system_prompt,omitempty"`      // Optional system prompt
+	Tools            []ToolDescription `json:"tools,omitempty"`              // Contains tool definitions if any
+	ResponseFormat   *ResponseFormat   `json:"response_format,omitempty"`    // Optional response format
+	GenerationConfig *GenerationConfig `json:"generation_config,omitempty"`  // Optional generation configuration
+	ToolChoiceForced string            `json:"tool_choice_forced,omitempty"` // Forced tool choice to not use computed one from tools.Required
 }
 
 type ToolDescription struct {
