@@ -2,23 +2,20 @@ package client
 
 import (
 	"aigo/internal/jsonschema"
-	"aigo/patterns"
 	"aigo/providers/ai"
 	"aigo/providers/memory"
 	"aigo/providers/tool"
+	"context"
 	"encoding/json"
 	"reflect"
 	"strconv"
 )
 
 type Client[T any] struct {
-	systemPrompt          string
-	defaultModel          string
-	llmProvider           ai.Provider      //TODO: Enforce requirement of llmProvider
-	memoryProvider        memory.Provider  //TODO: put default memory provider(preferably not explicit option)
-	pattern               patterns.Pattern //TODO: put default memory provider(preferably not explicit option)
-	messages              []ai.Message
-	maxToolCallIterations int
+	systemPrompt   string
+	defaultModel   string
+	llmProvider    ai.Provider //TODO: Enforce requirement of llmProvider
+	memoryProvider memory.Provider
 	// for fast accessing tool by name
 	toolCatalog map[string]tool.GenericTool
 	// for passing tool info to LLM without processing all tools each time
@@ -60,11 +57,6 @@ func (c *Client[T]) WithMemoryProvider(memoryProvider memory.Provider) *Client[T
 	return c
 }
 
-func (c *Client[T]) WithPattern(pattern patterns.Pattern) *Client[T] {
-	c.pattern = pattern
-	return c
-}
-
 func (c *Client[T]) AddSystemPrompt(content string) *Client[T] {
 	c.systemPrompt += content + "\n"
 	return c
@@ -79,17 +71,11 @@ func (c *Client[T]) AddTools(tools []tool.GenericTool) *Client[T] {
 	return c
 }
 
-func (c *Client[T]) SendMessage(content string) (*ai.ChatResponse, error) {
-	c.memoryProvider.AppendMessage(&ai.Message{Role: ai.RoleUser, Content: content})
-
-	response, err := c.pattern.Execute(c.llmProvider, &c.memoryProvider,
-		patterns.WithModel(c.defaultModel),
-		patterns.WithSystemPrompt(c.systemPrompt),
-		patterns.WithToolCatalog(c.toolCatalog),
-		patterns.WithDescriptions(c.toolDescriptions),
-		patterns.WithOutputSchema(c.outputSchema),
-	)
-
+func (c *Client[T]) SendMessage(prompt string) (*ai.ChatResponse, error) {
+	c.memoryProvider.AppendMessage(&ai.Message{Role: ai.RoleUser, Content: prompt})
+	response, err := c.llmProvider.SendMessage(context.Background(), ai.ChatRequest{
+		// TODO
+	})
 	if err != nil {
 		return nil, err
 	}
