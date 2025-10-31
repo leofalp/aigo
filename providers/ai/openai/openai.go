@@ -11,14 +11,16 @@ import (
 
 const (
 	defaultBaseURL          = "https://api.openai.com/v1"
-	chatCompletionsEndpoint = "/responses"
+	responsesEndpoint       = "/responses"
+	chatCompletionsEndpoint = "/chat/completions"
 )
 
-// OpenAIProvider implements the Provider interface for OpenAI API
+// OpenAIProvider implements the Provider interface for OpenAI-compatible APIs
 type OpenAIProvider struct {
-	apiKey  string
-	baseURL string
-	client  *http.Client
+	apiKey       string
+	baseURL      string
+	client       *http.Client
+	capabilities Capabilities
 }
 
 // NewOpenAIProvider creates a new OpenAI provider instance with default values
@@ -30,9 +32,10 @@ func NewOpenAIProvider() *OpenAIProvider {
 	}
 
 	return &OpenAIProvider{
-		apiKey:  apiKey,
-		baseURL: baseURL,
-		client:  &http.Client{},
+		apiKey:       apiKey,
+		baseURL:      baseURL,
+		client:       &http.Client{},
+		capabilities: detectCapabilities(baseURL),
 	}
 }
 
@@ -42,9 +45,10 @@ func (p *OpenAIProvider) WithAPIKey(apiKey string) ai.Provider {
 	return p
 }
 
-// WithBaseURL sets the base URL for the API
+// WithBaseURL sets the base URL for the API and re-detects capabilities
 func (p *OpenAIProvider) WithBaseURL(baseURL string) ai.Provider {
 	p.baseURL = baseURL
+	p.capabilities = detectCapabilities(baseURL)
 	return p
 }
 
@@ -54,28 +58,71 @@ func (p *OpenAIProvider) WithHttpClient(httpClient *http.Client) ai.Provider {
 	return p
 }
 
+// WithCapabilities manually overrides detected capabilities (for advanced users)
+func (p *OpenAIProvider) WithCapabilities(capabilities Capabilities) *OpenAIProvider {
+	p.capabilities = capabilities
+	return p
+}
+
+// GetCapabilities returns the current capabilities
+func (p *OpenAIProvider) GetCapabilities() Capabilities {
+	return p.capabilities
+}
+
 // SendMessage implements the Provider interface
+// It automatically chooses the best endpoint based on capabilities
 func (p *OpenAIProvider) SendMessage(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
-	// check API key
+	// Check API key
 	if p.apiKey == "" {
 		return nil, fmt.Errorf("API key is not set")
 	}
 
-	req := requestFromGeneric(request)
-	httpResponse, resp, err := utils.DoPostSync[response](*p.client, p.baseURL+chatCompletionsEndpoint, p.apiKey, req)
+	// Decide which endpoint to use
+	if p.capabilities.SupportsResponses {
+		return p.SendMessageViaResponses(ctx, request)
+	}
+	return p.SendMessageViaChatCompletions(ctx, request)
+}
+
+// SendMessageViaResponses uses the /v1/responses endpoint (OpenAI only)
+func (p *OpenAIProvider) SendMessageViaResponses(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
+	req := requestToResponses(request)
+	httpResponse, resp, err := utils.DoPostSync[responseCreateResponse](*p.client, p.baseURL+responsesEndpoint, p.apiKey, req)
 	if err != nil {
 		return nil, err
 	}
 
 	if resp == nil {
-		return nil, fmt.Errorf("empty response from OpenAI API: %s", httpResponse.Status)
+		return nil, fmt.Errorf("empty response from OpenAI Responses API: %s", httpResponse.Status)
 	}
 
 	if len(resp.Output) == 0 {
-		return nil, fmt.Errorf("no choices in response") // TODO is this an error?
+		return nil, fmt.Errorf("no output items in response")
 	}
 
-	return responseToGeneric(*resp), nil
+	return responsesToGeneric(*resp), nil
+}
+
+// SendMessageViaChatCompletions uses the /v1/chat/completions endpoint (universal)
+func (p *OpenAIProvider) SendMessageViaChatCompletions(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
+	// Determine if we should use legacy functions format
+	useLegacyFunctions := (p.capabilities.ToolCallMode == ToolCallModeFunctions)
+
+	req := requestToChatCompletion(request, useLegacyFunctions)
+	httpResponse, resp, err := utils.DoPostSync[chatCompletionResponse](*p.client, p.baseURL+chatCompletionsEndpoint, p.apiKey, req)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp == nil {
+		return nil, fmt.Errorf("empty response from Chat Completions API: %s", httpResponse.Status)
+	}
+
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("no choices in response")
+	}
+
+	return chatCompletionToGeneric(*resp), nil
 }
 
 // IsStopMessage reports whether the given chat response should be treated as a stop/end signal.
