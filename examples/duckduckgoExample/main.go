@@ -14,7 +14,7 @@ import (
 
 func main() {
 
-	fmt.Println("=== DuckDuckGo Search Tool - Usage Examples ===\n")
+	fmt.Println("=== DuckDuckGo Search Tool - Usage Examples ===")
 
 	// Case 1: Direct use - Base Version (Summary)
 	fmt.Println("--- Case 1: Base Search (Summary) ---")
@@ -76,8 +76,7 @@ func exampleAIBase() {
 		client.WithDefaultModel("nvidia/nemotron-nano-9b-v2:free"),
 	).
 		AddTools([]tool.GenericTool{duckduckgo.NewDuckDuckGoSearchTool()}).
-		AddSystemPrompt("You are a helpful assistant. Use the search tool to find information.").
-		SetMaxToolCallIterations(3)
+		AddSystemPrompt("You are a helpful assistant. Use the search tool to find information.")
 
 	resp, err := c.SendMessage("What is Go programming language?")
 	if err != nil {
@@ -91,8 +90,7 @@ func exampleAIAdvanced() {
 	c := client.NewClient[string](openai.NewOpenAIProvider(),
 		client.WithDefaultModel("nvidia/nemotron-nano-9b-v2:free")).
 		AddTools([]tool.GenericTool{duckduckgo.NewDuckDuckGoSearchAdvancedTool()}).
-		AddSystemPrompt("You are a helpful assistant. Use the advanced search to get detailed structured data with sources.").
-		SetMaxToolCallIterations(3)
+		AddSystemPrompt("You are a helpful assistant. Use the advanced search to get detailed structured data with sources.")
 
 	resp, err := c.SendMessage("Tell me about Albert Einstein with sources")
 	if err != nil {

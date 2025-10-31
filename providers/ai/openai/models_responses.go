@@ -7,10 +7,10 @@ import (
 )
 
 /*
-	INPUT CONVERSION
+	RESPONSES API - INPUT
 */
 
-// responseCreateRequest is the full request for the `/responses` endpoint
+// responseCreateRequest is the full request for the `/v1/responses` endpoint
 type responseCreateRequest struct {
 	Model              string                 `json:"model"`
 	Models             []string               `json:"models,omitempty"` // for model fallback
@@ -22,7 +22,7 @@ type responseCreateRequest struct {
 	Stream             *bool                  `json:"stream,omitempty"`
 	Reasoning          *reasoningConfig       `json:"reasoning,omitempty"`
 	Text               *textConfig            `json:"text,omitempty"`
-	Tools              []tool                 `json:"tools,omitempty"`
+	Tools              []responseTool         `json:"tools,omitempty"`
 	ToolChoice         interface{}            `json:"tool_choice,omitempty"` // "auto", "none", "required" or object
 	ParallelToolCalls  *bool                  `json:"parallel_tool_calls,omitempty"`
 	Background         *bool                  `json:"background,omitempty"`
@@ -61,8 +61,8 @@ type textFormat struct {
 	Type string `json:"type"` // "text", "json_object"
 }
 
-// tool definitions
-type tool struct {
+// responseTool definitions
+type responseTool struct {
 	// Common tools
 	Type string `json:"type"` // "web_search", "file_search", "code_interpreter", "function", "custom", "mcp", "computer_use_preview"`
 
@@ -70,14 +70,10 @@ type tool struct {
 	VectorStoreIDs []string `json:"vector_store_ids,omitempty"`
 
 	// For function calling
-	//The function's name (e.g. get_weather)
-	Name string `json:"name,omitempty"`
-	// 	Details on when and how to use the function
-	Description string `json:"description,omitempty"`
-	// 	JSON schema defining the function's input arguments
-	Parameters jsonschema.Schema `json:"parameters,omitempty"`
-	// Whether to enforce strict mode for the function call
-	Strict bool `json:"strict,omitempty"`
+	Name        string            `json:"name,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Parameters  jsonschema.Schema `json:"parameters,omitempty"`
+	Strict      bool              `json:"strict,omitempty"`
 
 	// For custom tools (GPT-5)
 	Format *customFormat `json:"format,omitempty"`
@@ -100,140 +96,18 @@ type customFormat struct {
 	Definition string `json:"definition"` // Grammar definition
 }
 
-// requestFromGeneric converts ai.ChatRequest into OpenAI Responses API request format
-func requestFromGeneric(request ai.ChatRequest) responseCreateRequest {
-	// Build input from messages
-	var input []inputItem
-
-	// Add system prompt as developer message if present
-	if request.SystemPrompt != "" {
-		input = append(input, inputItem{
-			Role:    "developer",
-			Content: request.SystemPrompt,
-		})
-	}
-
-	// Convert messages
-	for _, msg := range request.Messages {
-		input = append(input, inputItem{
-			Role:    string(msg.Role),
-			Content: msg.Content,
-		})
-	}
-
-	// If there is a single user message without system prompt, use simple input
-	var finalInput interface{}
-	if len(input) == 1 && input[0].Role == "user" {
-		finalInput = input[0].Content.(string)
-	} else {
-		finalInput = input
-	}
-
-	// Build base request
-	req := responseCreateRequest{
-		Input: finalInput,
-	}
-
-	// Map GenerationConfig
-	if request.GenerationConfig != nil {
-		cfg := request.GenerationConfig
-
-		if cfg.Temperature > 0 {
-			temp := float64(cfg.Temperature)
-			req.Temperature = &temp
-		}
-
-		if cfg.TopP > 0 {
-			topP := float64(cfg.TopP)
-			req.TopP = &topP
-		}
-
-		// Responses API prefers `max_output_tokens`
-		if cfg.MaxOutputTokens > 0 {
-			req.MaxOutputTokens = &cfg.MaxOutputTokens
-		} else if cfg.MaxTokens > 0 {
-			req.MaxOutputTokens = &cfg.MaxTokens
-		}
-
-		// Note: FrequencyPenalty and PresencePenalty are not supported by the Responses API
-	}
-
-	// Convert tools
-	if len(request.Tools) > 0 {
-		var requestedTools []string
-
-		for _, tl := range request.Tools {
-			req.Tools = append(req.Tools, tool{
-				Type:        "function",
-				Name:        tl.Name,
-				Description: tl.Description,
-				Parameters:  *tl.Parameters,
-			})
-
-			if tl.Required {
-				requestedTools = append(requestedTools, tl.Name)
-			}
-		}
-
-		// Set tool_choice
-		req.ToolChoice = request.ToolChoiceForced // to force "none" or a specific tool
-		if req.ToolChoice == "" {
-			if len(requestedTools) > 0 {
-				// TODO implement specific tool call
-				var toolChoiceArray []map[string]interface{}
-				for _, toolName := range requestedTools {
-					toolChoiceArray = append(toolChoiceArray, map[string]interface{}{
-						"type": "function",
-						"name": toolName,
-					})
-				}
-				req.ToolChoice = toolChoiceArray
-			} else {
-				req.ToolChoice = "auto" // Model decides whether to call tools
-			}
-		}
-	}
-
-	// Handle ResponseFormat
-	if request.ResponseFormat != nil {
-		// If a schema is provided, use structured output
-		if request.ResponseFormat.OutputSchema != nil {
-			// For now, set text format to `json_object`
-			// A full implementation could use structured outputs with schema validation
-			req.Text = &textConfig{
-				Format: &textFormat{
-					Type: "json_object",
-				},
-			}
-		} else if request.ResponseFormat.Type != "" {
-			// Use provided type hint
-			formatType := request.ResponseFormat.Type
-			if formatType == "json_schema" {
-				formatType = "json_object"
-			}
-			req.Text = &textConfig{
-				Format: &textFormat{
-					Type: formatType,
-				},
-			}
-		}
-	}
-
-	return req
-}
-
 /*
-	OUTPUT CONVERSION
+	RESPONSES API - OUTPUT
 */
 
-type response struct {
+type responseCreateResponse struct {
 	ID                 string                 `json:"id"`
 	Object             string                 `json:"object"` // "response"
 	CreatedAt          float64                `json:"created_at"`
 	Model              string                 `json:"model"`
 	Output             []outputItem           `json:"output"`
 	Status             string                 `json:"status"` // "completed", "in_progress", "failed", "cancelled"
-	Tools              []tool                 `json:"tools"`
+	Tools              []responseTool         `json:"tools"`
 	Usage              *usageDetails          `json:"usage,omitempty"`
 	Temperature        float64                `json:"temperature"`
 	TopP               float64                `json:"top_p"`
@@ -315,8 +189,133 @@ type errorDetails struct {
 	Code    string `json:"code"`
 }
 
-// responseToGeneric converts OpenAI `response` into the generic ai.ChatResponse
-func responseToGeneric(resp response) *ai.ChatResponse {
+/*
+	CONVERSION FUNCTIONS
+*/
+
+// requestToResponses converts ai.ChatRequest into OpenAI Responses API request format
+func requestToResponses(request ai.ChatRequest) responseCreateRequest {
+	// Build input from messages
+	var input []inputItem
+
+	// Add system prompt as developer message if present
+	if request.SystemPrompt != "" {
+		input = append(input, inputItem{
+			Role:    "developer",
+			Content: request.SystemPrompt,
+		})
+	}
+
+	// Convert messages
+	for _, msg := range request.Messages {
+		input = append(input, inputItem{
+			Role:    string(msg.Role),
+			Content: msg.Content,
+		})
+	}
+
+	// If there is a single user message without system prompt, use simple input
+	var finalInput interface{}
+	if len(input) == 1 && input[0].Role == "user" {
+		finalInput = input[0].Content.(string)
+	} else {
+		finalInput = input
+	}
+
+	// Build base request
+	req := responseCreateRequest{
+		Model: request.Model,
+		Input: finalInput,
+	}
+
+	// Map GenerationConfig
+	if request.GenerationConfig != nil {
+		cfg := request.GenerationConfig
+
+		if cfg.Temperature > 0 {
+			temp := float64(cfg.Temperature)
+			req.Temperature = &temp
+		}
+
+		if cfg.TopP > 0 {
+			topP := float64(cfg.TopP)
+			req.TopP = &topP
+		}
+
+		// Responses API prefers `max_output_tokens`
+		if cfg.MaxOutputTokens > 0 {
+			req.MaxOutputTokens = &cfg.MaxOutputTokens
+		} else if cfg.MaxTokens > 0 {
+			req.MaxOutputTokens = &cfg.MaxTokens
+		}
+
+		// Note: FrequencyPenalty and PresencePenalty are not supported by the Responses API
+	}
+
+	// Convert tools
+	if len(request.Tools) > 0 {
+		var requestedTools []string
+
+		for _, tl := range request.Tools {
+			req.Tools = append(req.Tools, responseTool{
+				Type:        "function",
+				Name:        tl.Name,
+				Description: tl.Description,
+				Parameters:  *tl.Parameters,
+			})
+
+			if tl.Required {
+				requestedTools = append(requestedTools, tl.Name)
+			}
+		}
+
+		// Set tool_choice
+		req.ToolChoice = request.ToolChoiceForced // to force "none" or a specific tool
+		if req.ToolChoice == "" {
+			if len(requestedTools) > 0 {
+				// TODO implement specific tool call forcing
+				var toolChoiceArray []map[string]interface{}
+				for _, toolName := range requestedTools {
+					toolChoiceArray = append(toolChoiceArray, map[string]interface{}{
+						"type": "function",
+						"name": toolName,
+					})
+				}
+				req.ToolChoice = toolChoiceArray
+			} else {
+				req.ToolChoice = "auto" // Model decides whether to call tools
+			}
+		}
+	}
+
+	// Handle ResponseFormat
+	if request.ResponseFormat != nil {
+		// If a schema is provided, use structured output
+		if request.ResponseFormat.OutputSchema != nil {
+			req.Text = &textConfig{
+				Format: &textFormat{
+					Type: "json_object",
+				},
+			}
+		} else if request.ResponseFormat.Type != "" {
+			// Use provided type hint
+			formatType := request.ResponseFormat.Type
+			if formatType == "json_schema" {
+				formatType = "json_object"
+			}
+			req.Text = &textConfig{
+				Format: &textFormat{
+					Type: formatType,
+				},
+			}
+		}
+	}
+
+	return req
+}
+
+// responsesToGeneric converts OpenAI response into the generic ai.ChatResponse
+func responsesToGeneric(resp responseCreateResponse) *ai.ChatResponse {
 	chatResp := &ai.ChatResponse{
 		Id:      resp.ID,
 		Model:   resp.Model,
@@ -335,17 +334,18 @@ func responseToGeneric(resp response) *ai.ChatResponse {
 			for _, content := range output.Content {
 				if content.Type == "output_text" {
 					contentParts = append(contentParts, content.Text)
-
-					var functionCall ai.ToolCallFunction
-					err := json.Unmarshal([]byte(content.Text), &functionCall)
-					if err == nil {
-						toolCalls = append(toolCalls, ai.ToolCall{
-							Type:     "function",
-							Function: functionCall,
-						})
-					}
 				}
 			}
+
+		case "function_call":
+			// Tool call from responses API
+			toolCalls = append(toolCalls, ai.ToolCall{
+				Type: "function",
+				Function: ai.ToolCallFunction{
+					Name:      output.Name,
+					Arguments: output.Arguments,
+				},
+			})
 
 		case "reasoning":
 			// Ignore or log reasoning items (no direct equivalent in ai.ChatResponse)
@@ -365,6 +365,11 @@ func responseToGeneric(resp response) *ai.ChatResponse {
 				chatResp.Content += "\n" + contentParts[i]
 			}
 		}
+	}
+
+	// Set tool calls
+	if len(toolCalls) > 0 {
+		chatResp.ToolCalls = toolCalls
 	}
 
 	// Map usage if present
@@ -393,4 +398,20 @@ func responseToGeneric(resp response) *ai.ChatResponse {
 	}
 
 	return chatResp
+}
+
+// parseResponsesToolCallsFromContent attempts to parse tool calls from message content
+// This is a fallback for edge cases
+func parseResponsesToolCallsFromContent(content string) []ai.ToolCall {
+	var toolCalls []ai.ToolCall
+
+	var functionCall ai.ToolCallFunction
+	if err := json.Unmarshal([]byte(content), &functionCall); err == nil {
+		toolCalls = append(toolCalls, ai.ToolCall{
+			Type:     "function",
+			Function: functionCall,
+		})
+	}
+
+	return toolCalls
 }

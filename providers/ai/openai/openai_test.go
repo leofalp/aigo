@@ -85,7 +85,8 @@ func TestSendMessageWithValidResponse(t *testing.T) {
 
 	p := NewOpenAIProvider().
 		WithAPIKey("test-key").
-		WithBaseURL(server.URL)
+		WithBaseURL(server.URL).(*OpenAIProvider)
+	p = p.WithCapabilities(Capabilities{SupportsResponses: true, ToolCallMode: ToolCallModeTools})
 
 	ctx := context.Background()
 	response, err := p.SendMessage(ctx, ai.ChatRequest{
@@ -155,7 +156,8 @@ func TestSendMessageWithTools(t *testing.T) {
 
 	p := NewOpenAIProvider().
 		WithAPIKey("test-key").
-		WithBaseURL(server.URL)
+		WithBaseURL(server.URL).(*OpenAIProvider)
+	p = p.WithCapabilities(Capabilities{SupportsResponses: true, ToolCallMode: ToolCallModeTools})
 
 	ctx := context.Background()
 	response, err := p.SendMessage(ctx, ai.ChatRequest{
@@ -287,7 +289,7 @@ func TestUnmarshalResponsesAPIShape(t *testing.T) {
 		"status":"completed"
 	}`)
 
-	var resp response
+	var resp responseCreateResponse
 	if err := json.Unmarshal(jsonBytes, &resp); err != nil {
 		t.Fatalf("unmarshal error: %v", err)
 	}
