@@ -2,9 +2,10 @@ package client
 
 import (
 	"aigo/internal/jsonschema"
+	"aigo/patterns"
 	"aigo/providers/ai"
+	"aigo/providers/memory"
 	"aigo/providers/tool"
-	"context"
 	"encoding/json"
 	"reflect"
 	"strconv"
@@ -13,7 +14,9 @@ import (
 type Client[T any] struct {
 	systemPrompt          string
 	defaultModel          string
-	llmProvider           ai.Provider
+	llmProvider           ai.Provider      //TODO: Enforce requirement of llmProvider
+	memoryProvider        memory.Provider  //TODO: put default memory provider(preferably not explicit option)
+	pattern               patterns.Pattern //TODO: put default memory provider(preferably not explicit option)
 	messages              []ai.Message
 	maxToolCallIterations int
 	// for fast accessing tool by name
@@ -40,25 +43,30 @@ func NewClient[T any](llmProvider ai.Provider, options ...func(tool *funcClientO
 	}
 
 	return &Client[T]{
-		defaultModel:          toolOptions.DefaultModel,
-		llmProvider:           llmProvider,
-		toolCatalog:           map[string]tool.GenericTool{},
-		maxToolCallIterations: 3,
-		outputSchema:          jsonschema.GenerateJSONSchema[T](),
+		defaultModel: toolOptions.DefaultModel,
+		llmProvider:  llmProvider,
+		toolCatalog:  map[string]tool.GenericTool{},
+		outputSchema: jsonschema.GenerateJSONSchema[T](),
 	}
 }
 
-func (c *Client[T]) SetProvider(provider ai.Provider) {
-	c.llmProvider = provider
+func (c *Client[T]) WithLlmProvider(llmProvider ai.Provider) *Client[T] {
+	c.llmProvider = llmProvider
+	return c
+}
+
+func (c *Client[T]) WithMemoryProvider(memoryProvider memory.Provider) *Client[T] {
+	c.memoryProvider = memoryProvider
+	return c
+}
+
+func (c *Client[T]) WithPattern(pattern patterns.Pattern) *Client[T] {
+	c.pattern = pattern
+	return c
 }
 
 func (c *Client[T]) AddSystemPrompt(content string) *Client[T] {
 	c.systemPrompt += content + "\n"
-	return c
-}
-
-func (c *Client[T]) SetMaxToolCallIterations(maxCalls int) *Client[T] {
-	c.maxToolCallIterations = maxCalls
 	return c
 }
 
@@ -72,42 +80,18 @@ func (c *Client[T]) AddTools(tools []tool.GenericTool) *Client[T] {
 }
 
 func (c *Client[T]) SendMessage(content string) (*ai.ChatResponse, error) {
-	c.appendMessage(ai.RoleUser, content)
-	response := &ai.ChatResponse{}
-	toolCallIterations := 0
-	var err error
+	c.memoryProvider.AppendMessage(&ai.Message{Role: ai.RoleUser, Content: content})
 
-	stop := false
-	for !stop {
-		response, err = c.llmProvider.SendMessage(context.Background(), ai.ChatRequest{
-			Model:        c.defaultModel,
-			SystemPrompt: c.systemPrompt,
-			Messages:     c.messages,
-			Tools:        c.toolDescriptions,
-			ResponseFormat: &ai.ResponseFormat{
-				OutputSchema: c.outputSchema,
-			},
-		})
-		if err != nil {
-			return nil, err
-		}
+	response, err := c.pattern.Execute(c.llmProvider, &c.memoryProvider,
+		patterns.WithModel(c.defaultModel),
+		patterns.WithSystemPrompt(c.systemPrompt),
+		patterns.WithToolCatalog(c.toolCatalog),
+		patterns.WithDescriptions(c.toolDescriptions),
+		patterns.WithOutputSchema(c.outputSchema),
+	)
 
-		c.appendMessage(ai.RoleAssistant, response.Content)
-
-		for _, t := range response.ToolCalls {
-			output, err := c.toolCatalog[t.Function.Name].Call(t.Function.Arguments)
-			if err != nil {
-				return nil, err
-			}
-
-			c.appendMessage(ai.RoleTool, output)
-		}
-
-		if len(response.ToolCalls) > 0 {
-			toolCallIterations++
-		}
-		stop = c.llmProvider.IsStopMessage(response)
-
+	if err != nil {
+		return nil, err
 	}
 
 	return c.responseParser(response)
@@ -135,11 +119,4 @@ func (c *Client[T]) responseParser(response *ai.ChatResponse) (*ai.ChatResponse,
 	}
 
 	return response, nil
-}
-
-func (c *Client[T]) appendMessage(role ai.MessageRole, content string) {
-	c.messages = append(c.messages, ai.Message{
-		Role:    role,
-		Content: content,
-	})
 }
