@@ -33,7 +33,7 @@ func (p *ReactPattern) Execute(llmProvider ai.Provider, memoryProviderPtr *memor
 		response, err = llmProvider.SendMessage(context.Background(), ai.ChatRequest{
 			Model:        opts.Model,
 			SystemPrompt: opts.SystemPrompt,
-			Messages:     memoryProvider.GetMessages(),
+			Messages:     memoryProvider.AllMessages(),
 			Tools:        opts.ToolDescriptions,
 			ResponseFormat: &ai.ResponseFormat{
 				OutputSchema: opts.OutputSchema,
