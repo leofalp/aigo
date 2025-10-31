@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"aigo/internal/jsonschema"
 	"aigo/providers/ai"
 	"encoding/json"
 )
@@ -69,9 +70,14 @@ type tool struct {
 	VectorStoreIDs []string `json:"vector_store_ids,omitempty"`
 
 	// For function calling
-	Name        string                 `json:"name,omitempty"`
-	Description string                 `json:"description,omitempty"`
-	Parameters  map[string]interface{} `json:"parameters,omitempty"`
+	//The function's name (e.g. get_weather)
+	Name string `json:"name,omitempty"`
+	// 	Details on when and how to use the function
+	Description string `json:"description,omitempty"`
+	// 	JSON schema defining the function's input arguments
+	Parameters jsonschema.Schema `json:"parameters,omitempty"`
+	// Whether to enforce strict mode for the function call
+	Strict bool `json:"strict,omitempty"`
 
 	// For custom tools (GPT-5)
 	Format *customFormat `json:"format,omitempty"`
@@ -154,34 +160,37 @@ func requestFromGeneric(request ai.ChatRequest) responseCreateRequest {
 
 	// Convert tools
 	if len(request.Tools) > 0 {
-		hasRequiredTool := false
+		var requestedTools []string
 
 		for _, tl := range request.Tools {
-			// Convert jsonschema.Schema to map[string]interface{}
-			var params map[string]interface{}
-			if tl.Parameters != nil {
-				// Serialize and deserialize to convert
-				paramBytes, _ := json.Marshal(tl.Parameters)
-				_ = json.Unmarshal(paramBytes, &params)
-			}
-
 			req.Tools = append(req.Tools, tool{
 				Type:        "function",
 				Name:        tl.Name,
 				Description: tl.Description,
-				Parameters:  params,
+				Parameters:  *tl.Parameters,
 			})
 
 			if tl.Required {
-				hasRequiredTool = true
+				requestedTools = append(requestedTools, tl.Name)
 			}
 		}
 
-		// Set tool_choice based on Required
-		if hasRequiredTool {
-			req.ToolChoice = "required"
-		} else {
-			req.ToolChoice = "auto"
+		// Set tool_choice
+		req.ToolChoice = request.ToolChoiceForced // to force "none" or a specific tool
+		if req.ToolChoice == "" {
+			if len(requestedTools) > 0 {
+				// TODO implement specific tool call
+				var toolChoiceArray []map[string]interface{}
+				for _, toolName := range requestedTools {
+					toolChoiceArray = append(toolChoiceArray, map[string]interface{}{
+						"type": "function",
+						"name": toolName,
+					})
+				}
+				req.ToolChoice = toolChoiceArray
+			} else {
+				req.ToolChoice = "auto" // Model decides whether to call tools
+			}
 		}
 	}
 

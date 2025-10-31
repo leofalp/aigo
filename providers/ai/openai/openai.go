@@ -16,8 +16,6 @@ const (
 
 // OpenAIProvider implements the Provider interface for OpenAI API
 type OpenAIProvider struct {
-	model   string
-	models  []string
 	apiKey  string
 	baseURL string
 	client  *http.Client
@@ -56,26 +54,6 @@ func (p *OpenAIProvider) WithHttpClient(httpClient *http.Client) ai.Provider {
 	return p
 }
 
-// GetModelName returns the current model name
-func (p *OpenAIProvider) GetModelName() string {
-	return p.model
-}
-
-// WithModel sets the model to use for requests
-func (p *OpenAIProvider) WithModel(model string) ai.Provider {
-	p.model = model
-	return p
-}
-
-// WithModels sets the backup models to use for requests
-// this method is specific to OpenAI provider, so it returns *OpenAIProvider
-// and must be called before calling any other builder method that are part of ai.Provider interface
-// because OpenAIProvider is an ai.Provider but not vice versa
-func (p *OpenAIProvider) WithModels(models []string) *OpenAIProvider {
-	p.models = models
-	return p
-}
-
 // SendMessage implements the Provider interface
 func (p *OpenAIProvider) SendMessage(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
 	// check API key
@@ -84,8 +62,6 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, request ai.ChatRequest
 	}
 
 	req := requestFromGeneric(request)
-	req.Model = p.model
-	req.Models = p.models
 	httpResponse, resp, err := utils.DoPostSync[response](*p.client, p.baseURL+chatCompletionsEndpoint, p.apiKey, req)
 	if err != nil {
 		return nil, err

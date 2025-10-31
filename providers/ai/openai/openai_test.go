@@ -144,7 +144,7 @@ func TestSendMessageWithTools(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		respBytes, _ := json.Marshal(response)
+		respBytes, _ := json.MarshalIndent(response, "", "  ")
 		t.Logf("server response JSON: %s", string(respBytes))
 		err = json.NewEncoder(w).Encode(response)
 		if err != nil {
