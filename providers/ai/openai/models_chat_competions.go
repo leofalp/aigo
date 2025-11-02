@@ -4,6 +4,8 @@ import (
 	"aigo/internal/jsonschema"
 	"aigo/providers/ai"
 	"encoding/json"
+	"log/slog"
+	"strings"
 )
 
 /*
@@ -321,7 +323,7 @@ func chatCompletionToGeneric(resp chatCompletionResponse) *ai.ChatResponse {
 		FinishReason: choice.FinishReason,
 	}
 
-	// Convert tool calls
+	// Convert tool calls from standard format
 	if len(choice.Message.ToolCalls) > 0 {
 		for _, tc := range choice.Message.ToolCalls {
 			chatResp.ToolCalls = append(chatResp.ToolCalls, ai.ToolCall{
@@ -331,6 +333,17 @@ func chatCompletionToGeneric(resp chatCompletionResponse) *ai.ChatResponse {
 					Arguments: tc.Function.Arguments,
 				},
 			})
+		}
+	} else if choice.Message.Content != "" {
+		// Fallback: Try to parse tool calls from content
+		// Some providers (e.g., OpenRouter with certain models) put tool calls in content
+		parsed := parseChatCompletionToolCallsFromContent(choice.Message.Content)
+		if len(parsed) > 0 {
+			chatResp.ToolCalls = parsed
+			// Update finish reason to indicate tool calls
+			if chatResp.FinishReason == "stop" {
+				chatResp.FinishReason = "tool_calls"
+			}
 		}
 	}
 
@@ -347,26 +360,81 @@ func chatCompletionToGeneric(resp chatCompletionResponse) *ai.ChatResponse {
 }
 
 // parseChatCompletionToolCallsFromContent attempts to parse tool calls from content
-// This is a fallback for providers that don't properly format tool_calls
+// This is a fallback for providers that don't properly format tool_calls in the standard field.
+// It handles multiple formats:
+// 1. <TOOLCALL>[{...}]</TOOLCALL> (some OpenRouter models)
+// 2. Plain JSON array [{...}]
 func parseChatCompletionToolCallsFromContent(content string) []ai.ToolCall {
 	var toolCalls []ai.ToolCall
 
-	// Try to parse as JSON array of tool calls
+	// Strategy 1: Extract content between <TOOLCALL> tags
+	if strings.Contains(content, "<TOOLCALL>") && strings.Contains(content, "</TOOLCALL>") {
+		start := strings.Index(content, "<TOOLCALL>")
+		end := strings.Index(content, "</TOOLCALL>")
+		if start != -1 && end > start {
+			jsonContent := content[start+10 : end] // +10 to skip "<TOOLCALL>"
+			toolCalls = parseToolCallsJSON(jsonContent)
+			if len(toolCalls) > 0 {
+				return toolCalls
+			}
+		}
+	}
+
+	// Strategy 2: Try to parse entire content as JSON array
+	toolCalls = parseToolCallsJSON(content)
+	if len(toolCalls) > 0 {
+		return toolCalls
+	}
+
+	// Strategy 3: Try to find JSON array within content
+	start := strings.Index(content, "[")
+	end := strings.LastIndex(content, "]")
+	if start != -1 && end > start {
+		jsonContent := content[start : end+1]
+		toolCalls = parseToolCallsJSON(jsonContent)
+		if len(toolCalls) > 0 {
+			return toolCalls
+		}
+	}
+
+	return toolCalls
+}
+
+// parseToolCallsJSON attempts to parse a JSON string into tool calls
+func parseToolCallsJSON(jsonStr string) []ai.ToolCall {
+	var toolCalls []ai.ToolCall
+
+	// Try format: [{\"name\": \"...\", \"arguments\": {...}}]
 	var calls []struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
 	}
 
-	if err := json.Unmarshal([]byte(content), &calls); err == nil {
+	if err := json.Unmarshal([]byte(jsonStr), &calls); err == nil && len(calls) > 0 {
 		for _, call := range calls {
+			// Validate that we have at least a name
+			if call.Name == "" {
+				continue
+			}
+
+			// Convert arguments to JSON string
+			var argsStr string
+			if len(call.Arguments) > 0 {
+				argsStr = string(call.Arguments)
+			} else {
+				argsStr = "{}"
+			}
+
 			toolCalls = append(toolCalls, ai.ToolCall{
 				Type: "function",
 				Function: ai.ToolCallFunction{
 					Name:      call.Name,
-					Arguments: string(call.Arguments),
+					Arguments: argsStr,
 				},
 			})
 		}
+	} else {
+		slog.Warn("Failed to parse json tool calls from content", "content", jsonStr)
 	}
 
 	return toolCalls

@@ -228,13 +228,23 @@ func (p *OpenAIProvider) IsStopMessage(message *ai.ChatResponse) bool {
 	if message == nil {
 		return true
 	}
-	// Prefer explicit finish reason from API
+
+	// IMPORTANT: Tool calls take priority over finish_reason
+	// Some providers (e.g., OpenRouter with certain models) return finish_reason="stop"
+	// even when they want to call tools, so we must check tool calls first
+	if len(message.ToolCalls) > 0 {
+		return false // Not stopped - tools need to be executed
+	}
+
+	// Check explicit finish reasons that indicate completion
 	if message.FinishReason == "stop" || message.FinishReason == "length" || message.FinishReason == "content_filter" {
 		return true
 	}
+
 	// If there's no content and no tool calls, treat as stop
-	if message.Content == "" && len(message.ToolCalls) == 0 {
+	if message.Content == "" {
 		return true
 	}
+
 	return false
 }
