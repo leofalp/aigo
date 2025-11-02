@@ -7,7 +7,7 @@ import (
 )
 
 func TestArrayMemory_AppendAndAllMessages(t *testing.T) {
-	m := NewArrayMemory()
+	m := New()
 	if m.Count() != 0 {
 		t.Fatalf("expected empty memory")
 	}
@@ -32,7 +32,7 @@ func TestArrayMemory_AppendAndAllMessages(t *testing.T) {
 }
 
 func TestArrayMemory_LastMessages(t *testing.T) {
-	m := NewArrayMemory()
+	m := New()
 	for i := 0; i < 5; i++ {
 		m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleUser, Content: string(rune('a' + i))})
 	}
@@ -57,7 +57,7 @@ func TestArrayMemory_LastMessages(t *testing.T) {
 }
 
 func TestArrayMemory_PopLastAndClear(t *testing.T) {
-	m := NewArrayMemory()
+	m := New()
 	if got := m.PopLastMessage(); got != nil {
 		t.Fatalf("expected nil pop on empty")
 	}
@@ -80,7 +80,7 @@ func TestArrayMemory_PopLastAndClear(t *testing.T) {
 }
 
 func TestArrayMemory_FilterByRole(t *testing.T) {
-	m := NewArrayMemory()
+	m := New()
 	m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleUser, Content: "u1"})
 	m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleAssistant, Content: "a1"})
 	m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleUser, Content: "u2"})
@@ -100,7 +100,7 @@ func TestArrayMemory_FilterByRole(t *testing.T) {
 }
 
 func TestArrayMemory_AppendNilDoesNothing(t *testing.T) {
-	m := NewArrayMemory()
+	m := New()
 
 	// append nil on empty
 	m.AppendMessage(context.Background(), nil)

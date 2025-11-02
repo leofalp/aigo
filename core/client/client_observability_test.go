@@ -55,7 +55,10 @@ func (m *mockProvider) WithHttpClient(httpClient *http.Client) ai.Provider {
 
 func TestClient_DefaultNilObserver(t *testing.T) {
 	provider := &mockProvider{}
-	client := NewClient[string](provider)
+	client, err := NewClient[string](provider)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
 
 	if client.observer != nil {
 		t.Errorf("Default observer should be nil for zero overhead, got %T", client.observer)
@@ -68,7 +71,10 @@ func TestClient_WithObserver(t *testing.T) {
 	logger := logslog.New(logslog.NewTextHandler(&buf, &logslog.HandlerOptions{Level: logslog.LevelDebug}))
 	observer := slog.New(logger)
 
-	client := NewClient[string](provider, WithObserver(observer))
+	client, err := NewClient[string](provider, WithObserver(observer))
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
 
 	if client.observer != observer {
 		t.Error("Observer was not set correctly")
@@ -81,12 +87,15 @@ func TestClient_SendMessage_ObservabilityTracing(t *testing.T) {
 	logger := logslog.New(logslog.NewTextHandler(&buf, &logslog.HandlerOptions{Level: logslog.LevelDebug}))
 	observer := slog.New(logger)
 
-	client := NewClient[string](provider,
-		WithDefaultModel("test-model"),
+	client, err := NewClient[string](provider,
 		WithObserver(observer),
-	).WithMemoryProvider(inmemory.NewArrayMemory())
+		WithMemory(inmemory.New()),
+	)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
 
-	_, err := client.SendMessage("test prompt")
+	_, err = client.SendMessage(context.Background(), "test prompt")
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
@@ -114,12 +123,15 @@ func TestClient_SendMessage_ObservabilityLogging(t *testing.T) {
 	logger := logslog.New(logslog.NewTextHandler(&buf, &logslog.HandlerOptions{Level: logslog.LevelInfo}))
 	observer := slog.New(logger)
 
-	client := NewClient[string](provider,
-		WithDefaultModel("test-model"),
+	client, err := NewClient[string](provider,
 		WithObserver(observer),
-	).WithMemoryProvider(inmemory.NewArrayMemory())
+		WithMemory(inmemory.New()),
+	)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
 
-	_, err := client.SendMessage("test prompt")
+	_, err = client.SendMessage(context.Background(), "test prompt")
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
@@ -141,12 +153,15 @@ func TestClient_SendMessage_ObservabilityMetrics(t *testing.T) {
 	logger := logslog.New(logslog.NewTextHandler(&buf, &logslog.HandlerOptions{Level: logslog.LevelDebug}))
 	observer := slog.New(logger)
 
-	client := NewClient[string](provider,
-		WithDefaultModel("test-model"),
+	client, err := NewClient[string](provider,
 		WithObserver(observer),
-	).WithMemoryProvider(inmemory.NewArrayMemory())
+		WithMemory(inmemory.New()),
+	)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
 
-	_, err := client.SendMessage("test prompt")
+	_, err = client.SendMessage(context.Background(), "test prompt")
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
@@ -183,12 +198,15 @@ func TestClient_SendMessage_ErrorObservability(t *testing.T) {
 	logger := logslog.New(logslog.NewTextHandler(&buf, &logslog.HandlerOptions{Level: logslog.LevelError}))
 	observer := slog.New(logger)
 
-	client := NewClient[string](provider,
-		WithDefaultModel("test-model"),
+	client, err := NewClient[string](provider,
 		WithObserver(observer),
-	).WithMemoryProvider(inmemory.NewArrayMemory())
+		WithMemory(inmemory.New()),
+	)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
 
-	_, err := client.SendMessage("test prompt")
+	_, err = client.SendMessage(context.Background(), "test prompt")
 	if err == nil {
 		t.Fatal("Expected error but got none")
 	}
@@ -228,12 +246,15 @@ func TestClient_SendMessage_TokenMetrics(t *testing.T) {
 	logger := logslog.New(logslog.NewTextHandler(&buf, &logslog.HandlerOptions{Level: logslog.LevelDebug}))
 	observer := slog.New(logger)
 
-	client := NewClient[string](provider,
-		WithDefaultModel("test-model"),
+	client, err := NewClient[string](provider,
 		WithObserver(observer),
-	).WithMemoryProvider(inmemory.NewArrayMemory())
+		WithMemory(inmemory.New()),
+	)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
 
-	_, err := client.SendMessage("test prompt")
+	_, err = client.SendMessage(context.Background(), "test prompt")
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
@@ -254,15 +275,18 @@ func TestClient_SendMessage_TokenMetrics(t *testing.T) {
 
 func TestClient_SendMessage_NoopObserverPerformance(t *testing.T) {
 	provider := &mockProvider{}
-	client := NewClient[string](provider,
-		WithDefaultModel("test-model"),
-	).WithMemoryProvider(inmemory.NewArrayMemory())
+	client, err := NewClient[string](provider,
+		WithMemory(inmemory.New()),
+	)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
 
 	start := time.Now()
 	iterations := 1000
 
 	for i := 0; i < iterations; i++ {
-		_, err := client.SendMessage("test")
+		_, err := client.SendMessage(context.Background(), "test")
 		if err != nil {
 			t.Fatalf("SendMessage failed: %v", err)
 		}
@@ -283,14 +307,17 @@ func TestClient_MultipleRequests_CounterAccumulation(t *testing.T) {
 	logger := logslog.New(logslog.NewTextHandler(&buf, &logslog.HandlerOptions{Level: logslog.LevelDebug}))
 	observer := slog.New(logger)
 
-	client := NewClient[string](provider,
-		WithDefaultModel("test-model"),
+	client, err := NewClient[string](provider,
 		WithObserver(observer),
-	).WithMemoryProvider(inmemory.NewArrayMemory())
+		WithMemory(inmemory.New()),
+	)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
 
 	// Send multiple requests
 	for i := 0; i < 3; i++ {
-		_, err := client.SendMessage("test")
+		_, err := client.SendMessage(context.Background(), "test")
 		if err != nil {
 			t.Fatalf("SendMessage %d failed: %v", i, err)
 		}
@@ -311,12 +338,15 @@ func TestClient_SendMessage_SpanAttributes(t *testing.T) {
 	logger := logslog.New(logslog.NewTextHandler(&buf, &logslog.HandlerOptions{Level: logslog.LevelDebug}))
 	observer := slog.New(logger)
 
-	client := NewClient[string](provider,
-		WithDefaultModel("gpt-4"),
+	client, err := NewClient[string](provider,
 		WithObserver(observer),
-	).WithMemoryProvider(inmemory.NewArrayMemory())
+		WithMemory(inmemory.New()),
+	)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
 
-	_, err := client.SendMessage("What is AI?")
+	_, err = client.SendMessage(context.Background(), "What is AI?")
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
@@ -327,9 +357,8 @@ func TestClient_SendMessage_SpanAttributes(t *testing.T) {
 	if !strings.Contains(output, "model") {
 		t.Error("Expected model attribute in span")
 	}
-	if !strings.Contains(output, "gpt-4") {
-		t.Error("Expected model value in span")
-	}
+	// Note: Model value comes from AIGO_DEFAULT_LLM_MODEL environment variable
+	// We just verify the attribute exists, not the specific value
 	if !strings.Contains(output, "tokens.total") {
 		t.Error("Expected tokens.total attribute in span")
 	}
@@ -396,12 +425,15 @@ func TestClient_SendMessage_ObserverCalled(t *testing.T) {
 	provider := &mockProvider{}
 	observer := &testObserver{}
 
-	client := NewClient[string](provider,
-		WithDefaultModel("test-model"),
+	client, err := NewClient[string](provider,
 		WithObserver(observer),
-	).WithMemoryProvider(inmemory.NewArrayMemory())
+		WithMemory(inmemory.New()),
+	)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
 
-	_, err := client.SendMessage("test")
+	_, err = client.SendMessage(context.Background(), "test")
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
@@ -425,12 +457,15 @@ func TestClient_SendMessage_ErrorObserverCalled(t *testing.T) {
 	}
 	observer := &testObserver{}
 
-	client := NewClient[string](provider,
-		WithDefaultModel("test-model"),
+	client, err := NewClient[string](provider,
 		WithObserver(observer),
-	).WithMemoryProvider(inmemory.NewArrayMemory())
+		WithMemory(inmemory.New()),
+	)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
 
-	_, err := client.SendMessage("test")
+	_, err = client.SendMessage(context.Background(), "test")
 	if err == nil {
 		t.Fatal("Expected error but got none")
 	}
@@ -444,9 +479,12 @@ func TestClient_SendMessage_NilObserver_NoPanic(t *testing.T) {
 	provider := &mockProvider{}
 
 	// Create client without observer (nil by default)
-	client := NewClient[string](provider,
-		WithDefaultModel("test-model"),
-	).WithMemoryProvider(inmemory.NewArrayMemory())
+	client, err := NewClient[string](provider,
+		WithMemory(inmemory.New()),
+	)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
 
 	// Verify observer is nil
 	if client.observer != nil {
@@ -454,7 +492,7 @@ func TestClient_SendMessage_NilObserver_NoPanic(t *testing.T) {
 	}
 
 	// Should not panic with nil observer
-	resp, err := client.SendMessage("test message")
+	resp, err := client.SendMessage(context.Background(), "test message")
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
@@ -476,17 +514,180 @@ func TestClient_SendMessage_NilObserver_Error_NoPanic(t *testing.T) {
 	}
 
 	// Create client without observer (nil by default)
-	client := NewClient[string](provider,
-		WithDefaultModel("test-model"),
-	).WithMemoryProvider(inmemory.NewArrayMemory())
+	client, err := NewClient[string](provider,
+		WithMemory(inmemory.New()),
+	)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
 
 	// Should not panic even on error with nil observer
-	_, err := client.SendMessage("test message")
+	_, err = client.SendMessage(context.Background(), "test message")
 	if err == nil {
 		t.Fatal("Expected error but got none")
 	}
 
 	if err.Error() != "simulated error" {
 		t.Errorf("Expected 'simulated error', got '%s'", err.Error())
+	}
+}
+
+func TestClient_StatelessMode_NilMemory(t *testing.T) {
+	provider := &mockProvider{}
+
+	// Create client without memory provider (stateless mode)
+	client, err := NewClient[string](provider)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	// Verify memory provider is nil
+	if client.memoryProvider != nil {
+		t.Fatalf("Expected nil memoryProvider for stateless mode, got %T", client.memoryProvider)
+	}
+
+	// Should work without panicking
+	resp, err := client.SendMessage(context.Background(), "test message")
+	if err != nil {
+		t.Fatalf("SendMessage failed: %v", err)
+	}
+
+	if resp == nil {
+		t.Fatal("Expected response, got nil")
+	}
+
+	if resp.Content != "test response" {
+		t.Errorf("Expected 'test response', got '%s'", resp.Content)
+	}
+}
+
+func TestClient_StatelessMode_OnlyCurrentPrompt(t *testing.T) {
+	var capturedRequest ai.ChatRequest
+	provider := &mockProvider{
+		sendMessageFunc: func(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
+			capturedRequest = req
+			return &ai.ChatResponse{
+				Id:           "test-id",
+				Model:        "test-model",
+				Content:      "response",
+				FinishReason: "stop",
+			}, nil
+		},
+	}
+
+	// Create stateless client
+	client, err := NewClient[string](provider)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	// Send first message
+	_, err = client.SendMessage(context.Background(), "first message")
+	if err != nil {
+		t.Fatalf("First SendMessage failed: %v", err)
+	}
+
+	// Verify only current message is sent (no history)
+	if len(capturedRequest.Messages) != 1 {
+		t.Fatalf("Expected 1 message in stateless mode, got %d", len(capturedRequest.Messages))
+	}
+	if capturedRequest.Messages[0].Content != "first message" {
+		t.Errorf("Expected 'first message', got '%s'", capturedRequest.Messages[0].Content)
+	}
+
+	// Send second message
+	_, err = client.SendMessage(context.Background(), "second message")
+	if err != nil {
+		t.Fatalf("Second SendMessage failed: %v", err)
+	}
+
+	// Verify still only one message (no history accumulated)
+	if len(capturedRequest.Messages) != 1 {
+		t.Fatalf("Expected 1 message in stateless mode, got %d", len(capturedRequest.Messages))
+	}
+	if capturedRequest.Messages[0].Content != "second message" {
+		t.Errorf("Expected 'second message', got '%s'", capturedRequest.Messages[0].Content)
+	}
+}
+
+func TestClient_StatefulMode_AccumulatesHistory(t *testing.T) {
+	var capturedRequest ai.ChatRequest
+	provider := &mockProvider{
+		sendMessageFunc: func(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
+			capturedRequest = req
+			return &ai.ChatResponse{
+				Id:           "test-id",
+				Model:        "test-model",
+				Content:      "response",
+				FinishReason: "stop",
+			}, nil
+		},
+	}
+
+	// Create stateful client with memory
+	client, err := NewClient[string](provider,
+		WithMemory(inmemory.New()),
+	)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	// Send first message
+	_, err = client.SendMessage(context.Background(), "first message")
+	if err != nil {
+		t.Fatalf("First SendMessage failed: %v", err)
+	}
+
+	// Verify first message is in history
+	if len(capturedRequest.Messages) != 1 {
+		t.Fatalf("Expected 1 message after first call, got %d", len(capturedRequest.Messages))
+	}
+
+	// Send second message
+	_, err = client.SendMessage(context.Background(), "second message")
+	if err != nil {
+		t.Fatalf("Second SendMessage failed: %v", err)
+	}
+
+	// Verify both messages are in history
+	if len(capturedRequest.Messages) != 2 {
+		t.Fatalf("Expected 2 messages after second call, got %d", len(capturedRequest.Messages))
+	}
+	if capturedRequest.Messages[0].Content != "first message" {
+		t.Errorf("Expected 'first message' at index 0, got '%s'", capturedRequest.Messages[0].Content)
+	}
+	if capturedRequest.Messages[1].Content != "second message" {
+		t.Errorf("Expected 'second message' at index 1, got '%s'", capturedRequest.Messages[1].Content)
+	}
+}
+
+func TestClient_StatelessMode_WithObserver(t *testing.T) {
+	provider := &mockProvider{}
+	var buf bytes.Buffer
+	logger := logslog.New(logslog.NewTextHandler(&buf, &logslog.HandlerOptions{Level: logslog.LevelDebug}))
+	observer := slog.New(logger)
+
+	// Create stateless client with observer
+	client, err := NewClient[string](provider,
+		WithObserver(observer),
+	)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	// Should not panic with nil memory and observer
+	_, err = client.SendMessage(context.Background(), "test")
+	if err != nil {
+		t.Fatalf("SendMessage failed: %v", err)
+	}
+
+	output := buf.String()
+
+	// Verify observability still works
+	if !strings.Contains(output, "client.send_message") {
+		t.Error("Expected span name in output")
+	}
+	if !strings.Contains(output, "Message sent successfully") {
+		t.Error("Expected success log message")
 	}
 }

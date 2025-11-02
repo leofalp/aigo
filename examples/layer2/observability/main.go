@@ -5,6 +5,7 @@ import (
 	"aigo/providers/ai/openai"
 	"aigo/providers/memory/inmemory"
 	"aigo/providers/observability/slog"
+	"context"
 	"fmt"
 	"log"
 	logslog "log/slog"
@@ -29,14 +30,16 @@ func main() {
 
 func exampleNilObserver() {
 	// Default behavior - nil observer (zero overhead, no observability)
-	c := client.NewClient[string](
+	c, err := client.NewClient[string](
 		openai.NewOpenAIProvider(),
-		client.WithDefaultModel("nvidia/nemotron-nano-9b-v2:free"),
-	).
-		WithMemoryProvider(inmemory.NewArrayMemory()).
-		AddSystemPrompt("You are a helpful assistant.")
+		client.WithSystemPrompt("You are a helpful assistant."),
+	)
+	if err != nil {
+		log.Printf("Error creating client: %v\n", err)
+		return
+	}
 
-	resp, err := c.SendMessage("What is 2+2?")
+	resp, err := c.SendMessage(context.Background(), "What is 2+2?")
 	if err != nil {
 		log.Printf("Error: %v\n", err)
 		return
@@ -52,15 +55,18 @@ func exampleSlogObserverDebug() {
 	}))
 
 	// Create client with slog observer
-	c := client.NewClient[string](
+	c, err := client.NewClient[string](
 		openai.NewOpenAIProvider(),
-		client.WithDefaultModel("nvidia/nemotron-nano-9b-v2:free"),
 		client.WithObserver(slog.New(logger)),
-	).
-		WithMemoryProvider(inmemory.NewArrayMemory()).
-		AddSystemPrompt("You are a helpful assistant.")
+		client.WithMemory(inmemory.New()),
+		client.WithSystemPrompt("You are a helpful assistant."),
+	)
+	if err != nil {
+		log.Printf("Error creating client: %v\n", err)
+		return
+	}
 
-	resp, err := c.SendMessage("What is the capital of France?")
+	resp, err := c.SendMessage(context.Background(), "What is the capital of France?")
 	if err != nil {
 		log.Printf("Error: %v\n", err)
 		return
@@ -75,15 +81,18 @@ func exampleSlogObserverInfo() {
 	}))
 
 	// Create client with slog observer
-	c := client.NewClient[string](
+	c, err := client.NewClient[string](
 		openai.NewOpenAIProvider(),
-		client.WithDefaultModel("nvidia/nemotron-nano-9b-v2:free"),
 		client.WithObserver(slog.New(logger)),
-	).
-		WithMemoryProvider(inmemory.NewArrayMemory()).
-		AddSystemPrompt("You are a helpful assistant.")
+		client.WithMemory(inmemory.New()),
+		client.WithSystemPrompt("You are a helpful assistant."),
+	)
+	if err != nil {
+		log.Printf("Error creating client: %v\n", err)
+		return
+	}
 
-	resp, err := c.SendMessage("Tell me a fun fact about Go programming language")
+	resp, err := c.SendMessage(context.Background(), "Tell me a fun fact about Go programming language")
 	if err != nil {
 		log.Printf("Error: %v\n", err)
 		return
