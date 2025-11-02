@@ -3,7 +3,6 @@ package main
 import (
 	"aigo/core/client"
 	"aigo/providers/ai/openai"
-	"aigo/providers/tool"
 	"aigo/providers/tool/duckduckgo"
 	"context"
 	"encoding/json"
@@ -71,14 +70,17 @@ func exampleDirectAdvanced() {
 }
 
 func exampleAIBase() {
-	c := client.NewClient[string](
+	c, err := client.NewClient[string](
 		openai.NewOpenAIProvider(),
-		client.WithDefaultModel("nvidia/nemotron-nano-9b-v2:free"),
-	).
-		AddTools([]tool.GenericTool{duckduckgo.NewDuckDuckGoSearchTool()}).
-		AddSystemPrompt("You are a helpful assistant. Use the search tool to find information.")
+		client.WithTools(duckduckgo.NewDuckDuckGoSearchTool()),
+		client.WithSystemPrompt("You are a helpful assistant. Use the search tool to find information."),
+	)
+	if err != nil {
+		fmt.Printf("Error creating client: %v\n", err)
+		return
+	}
 
-	resp, err := c.SendMessage("What is Go programming language?")
+	resp, err := c.SendMessage(context.Background(), "What is Go programming language?")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -87,12 +89,17 @@ func exampleAIBase() {
 }
 
 func exampleAIAdvanced() {
-	c := client.NewClient[string](openai.NewOpenAIProvider(),
-		client.WithDefaultModel("nvidia/nemotron-nano-9b-v2:free")).
-		AddTools([]tool.GenericTool{duckduckgo.NewDuckDuckGoSearchAdvancedTool()}).
-		AddSystemPrompt("You are a helpful assistant. Use the advanced search to get detailed structured data with sources.")
+	c, err := client.NewClient[string](
+		openai.NewOpenAIProvider(),
+		client.WithTools(duckduckgo.NewDuckDuckGoSearchAdvancedTool()),
+		client.WithSystemPrompt("You are a helpful assistant. Use the advanced search to get detailed structured data with sources."),
+	)
+	if err != nil {
+		fmt.Printf("Error creating client: %v\n", err)
+		return
+	}
 
-	resp, err := c.SendMessage("Tell me about Albert Einstein with sources")
+	resp, err := c.SendMessage(context.Background(), "Tell me about Albert Einstein with sources")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return

@@ -15,7 +15,8 @@ type ArrayMemory struct {
 	messages []ai.Message
 }
 
-func NewArrayMemory() *ArrayMemory {
+// New creates a new in-memory message store.
+func New() *ArrayMemory {
 	return &ArrayMemory{
 		messages: []ai.Message{},
 	}

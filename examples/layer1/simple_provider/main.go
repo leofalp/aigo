@@ -20,7 +20,7 @@ func main() {
 	ctx := context.Background()
 
 	response, err := testProvider.SendMessage(ctx, ai.ChatRequest{
-		Model:        "nvidia/nemotron-nano-9b-v2:free",
+		Model:        os.Getenv("AIGO_DEFAULT_LLM_MODEL"),
 		SystemPrompt: "You are a helpful assistant.",
 		Messages: []ai.Message{
 			{Role: "user", Content: "What is the capital of France?"},
@@ -58,7 +58,7 @@ func main() {
 	}
 
 	response2, err := testProvider.SendMessage(ctx, ai.ChatRequest{
-		Model:        "nvidia/nemotron-nano-9b-v2:free",
+		Model:        os.Getenv("AIGO_DEFAULT_LLM_MODEL"),
 		SystemPrompt: "You are a helpful assistant.",
 		Messages: []ai.Message{
 			{Role: "user", Content: "What's the weather like in Paris?"},

@@ -8,83 +8,149 @@ import (
 	"aigo/providers/tool"
 	"context"
 	"encoding/json"
+	"errors"
+	"os"
 	"reflect"
 	"strconv"
 	"time"
 )
 
+const (
+	envDefaultModel = "AIGO_DEFAULT_LLM_MODEL"
+)
+
+// Client is an immutable orchestrator for LLM interactions.
+// All configuration must be provided at construction time via Options.
 type Client[T any] struct {
-	systemPrompt   string
-	defaultModel   string
-	llmProvider    ai.Provider //TODO: Enforce requirement of llmProvider
-	memoryProvider memory.Provider
-	observer       observability.Provider // nil if not set (zero overhead)
-	// for fast accessing tool by name
-	toolCatalog map[string]tool.GenericTool
-	// for passing tool info to LLM without processing all tools each time
+	systemPrompt     string
+	defaultModel     string
+	llmProvider      ai.Provider
+	memoryProvider   memory.Provider
+	observer         observability.Provider // nil if not set (zero overhead)
+	toolCatalog      map[string]tool.GenericTool
 	toolDescriptions []ai.ToolDescription
 	outputSchema     *jsonschema.Schema
 }
 
-type funcClientOptions struct {
-	DefaultModel string
-	Observer     observability.Provider
+// ClientOptions contains all configuration for a Client.
+type ClientOptions struct {
+	// Required
+	LlmProvider ai.Provider
+
+	// Optional with sensible defaults
+	DefaultModel   string                 // Model to use for requests (can be overridden per-request in future)
+	MemoryProvider memory.Provider        // Optional: if nil, client operates in stateless mode
+	Observer       observability.Provider // Defaults to nil (zero overhead)
+	SystemPrompt   string                 // System prompt for all requests
+	Tools          []tool.GenericTool     // Tools available to the LLM
 }
 
-func WithDefaultModel(defaultModel string) func(tool *funcClientOptions) {
-	return func(tool *funcClientOptions) {
-		tool.DefaultModel = defaultModel
+// Functional option pattern for ergonomic API
+
+func WithDefaultModel(model string) func(*ClientOptions) {
+	return func(o *ClientOptions) {
+		o.DefaultModel = model
 	}
 }
 
-func WithObserver(observer observability.Provider) func(tool *funcClientOptions) {
-	return func(tool *funcClientOptions) {
-		tool.Observer = observer
+func WithMemory(memProvider memory.Provider) func(*ClientOptions) {
+	return func(o *ClientOptions) {
+		o.MemoryProvider = memProvider
 	}
 }
 
-func NewClient[T any](llmProvider ai.Provider, options ...func(tool *funcClientOptions)) *Client[T] {
-	toolOptions := &funcClientOptions{}
-	for _, o := range options {
-		o(toolOptions)
+func WithObserver(observer observability.Provider) func(*ClientOptions) {
+	return func(o *ClientOptions) {
+		o.Observer = observer
+	}
+}
+
+func WithSystemPrompt(prompt string) func(*ClientOptions) {
+	return func(o *ClientOptions) {
+		o.SystemPrompt = prompt
+	}
+}
+
+func WithTools(tools ...tool.GenericTool) func(*ClientOptions) {
+	return func(o *ClientOptions) {
+		o.Tools = append(o.Tools, tools...)
+	}
+}
+
+// NewClient creates a new immutable Client instance.
+// The llmProvider is required as the first argument.
+// All other configuration is provided via functional options.
+//
+// Example:
+//
+//	client, err := NewClient[MyResponse](
+//	    openaiProvider,
+//	    WithDefaultModel("gpt-4"),
+//	    WithObserver(myObserver),
+//	    WithSystemPrompt("You are a helpful assistant"),
+//	    WithTools(tool1, tool2),
+//	)
+func NewClient[T any](llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client[T], error) {
+	options := &ClientOptions{
+		LlmProvider: llmProvider,
+		// MemoryProvider is optional (nil = stateless mode)
+	}
+
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	// Validation
+	if options.LlmProvider == nil {
+		return nil, errors.New("llmProvider is required and cannot be nil")
+	}
+
+	// Use default model from environment if not specified
+	if options.DefaultModel == "" {
+		options.DefaultModel = os.Getenv(envDefaultModel)
+	}
+
+	// Build tool catalog and descriptions
+	toolCatalog := make(map[string]tool.GenericTool, len(options.Tools))
+	toolDescriptions := make([]ai.ToolDescription, 0, len(options.Tools))
+
+	for i, t := range options.Tools {
+		info := t.ToolInfo()
+		toolCatalog[info.Name] = options.Tools[i]
+		toolDescriptions = append(toolDescriptions, info)
 	}
 
 	return &Client[T]{
-		defaultModel: toolOptions.DefaultModel,
-		llmProvider:  llmProvider,
-		observer:     toolOptions.Observer, // can be nil (zero overhead)
-		toolCatalog:  map[string]tool.GenericTool{},
-		outputSchema: jsonschema.GenerateJSONSchema[T](),
-	}
+		systemPrompt:     options.SystemPrompt,
+		defaultModel:     options.DefaultModel,
+		llmProvider:      options.LlmProvider,
+		memoryProvider:   options.MemoryProvider,
+		observer:         options.Observer,
+		toolCatalog:      toolCatalog,
+		toolDescriptions: toolDescriptions,
+		outputSchema:     jsonschema.GenerateJSONSchema[T](),
+	}, nil
 }
 
-func (c *Client[T]) WithLlmProvider(llmProvider ai.Provider) *Client[T] {
-	c.llmProvider = llmProvider
-	return c
-}
-
-func (c *Client[T]) WithMemoryProvider(memoryProvider memory.Provider) *Client[T] {
-	c.memoryProvider = memoryProvider
-	return c
-}
-
-func (c *Client[T]) AddSystemPrompt(content string) *Client[T] {
-	c.systemPrompt += content + "\n"
-	return c
-}
-
-func (c *Client[T]) AddTools(tools []tool.GenericTool) *Client[T] {
-	for i, t := range tools {
-		c.toolCatalog[t.ToolInfo().Name] = tools[i]
-		c.toolDescriptions = append(c.toolDescriptions, t.ToolInfo())
-	}
-
-	return c
-}
-
-func (c *Client[T]) SendMessage(prompt string) (*ai.ChatResponse, error) {
-	ctx := context.Background()
-
+// SendMessage sends a user message to the LLM and returns the response.
+// This is a basic orchestration method that:
+// 1. Appends the user message to memory (if memory provider is set)
+// 2. Sends messages + tools + schema to the LLM provider
+// 3. Records observability data
+// 4. Returns the raw response
+//
+// If no memory provider is configured, the client operates in stateless mode,
+// sending only the current prompt as a single user message.
+//
+// TODO: Future enhancements:
+// - Accept per-request options (model override, temperature, etc.)
+// - Support streaming responses
+// - Add timeout/cancellation handling
+// - Support context propagation for distributed tracing
+//
+// Note: This method does NOT execute tool calls automatically.
+// Tool execution loops should be implemented as higher-level patterns.
+func (c *Client[T]) SendMessage(ctx context.Context, prompt string) (*ai.ChatResponse, error) {
 	// Start tracing span (only if observer is set)
 	var span observability.Span
 	if c.observer != nil {
@@ -105,10 +171,37 @@ func (c *Client[T]) SendMessage(prompt string) (*ai.ChatResponse, error) {
 
 	start := time.Now()
 
-	c.memoryProvider.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: prompt})
-	response, err := c.llmProvider.SendMessage(ctx, ai.ChatRequest{
-		// TODO
-	})
+	// Build messages list based on memory provider availability
+	var messages []ai.Message
+	if c.memoryProvider != nil {
+		// Stateful mode: append to memory and use all messages
+		c.memoryProvider.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: prompt})
+		messages = c.memoryProvider.AllMessages()
+	} else {
+		// Stateless mode: use only the current prompt
+		messages = []ai.Message{
+			{Role: ai.RoleUser, Content: prompt},
+		}
+	}
+
+	// Build complete request with all configuration
+	request := ai.ChatRequest{
+		Model:        c.defaultModel,
+		Messages:     messages,
+		SystemPrompt: c.systemPrompt,
+		Tools:        c.toolDescriptions,
+	}
+
+	// Add response format if output schema is defined (for structured output)
+	if c.outputSchema != nil {
+		request.ResponseFormat = &ai.ResponseFormat{
+			Type:         "json_schema",
+			OutputSchema: c.outputSchema,
+		}
+	}
+
+	// Send to LLM provider
+	response, err := c.llmProvider.SendMessage(ctx, request)
 
 	duration := time.Since(start)
 
@@ -131,8 +224,8 @@ func (c *Client[T]) SendMessage(prompt string) (*ai.ChatResponse, error) {
 		return nil, err
 	}
 
+	// Record success metrics and observability
 	if c.observer != nil {
-		// Record metrics
 		c.observer.Histogram(observability.MetricClientRequestDuration).Record(ctx, duration.Seconds(),
 			observability.String(observability.AttrLLMModel, c.defaultModel),
 		)
@@ -172,6 +265,9 @@ func (c *Client[T]) SendMessage(prompt string) (*ai.ChatResponse, error) {
 	return c.responseParser(response)
 }
 
+// responseParser validates and parses the response content according to the generic type T.
+// It attempts to parse the response into the expected type, providing a fallback with warning
+// if parsing fails.
 func (c *Client[T]) responseParser(response *ai.ChatResponse) (*ai.ChatResponse, error) {
 	var typedVar T
 	var err error
@@ -190,7 +286,7 @@ func (c *Client[T]) responseParser(response *ai.ChatResponse) (*ai.ChatResponse,
 	}
 
 	if err != nil {
-		response.Content = "[Waring] Could not parse response: " + err.Error() + " --> providing raw response content as fallback.\n\n" + response.Content
+		response.Content = "[Warning] Could not parse response: " + err.Error() + " --> providing raw response content as fallback.\n\n" + response.Content
 	}
 
 	return response, nil
