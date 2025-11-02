@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -67,6 +68,7 @@ type Histogram interface {
 
 // Logger provides structured logging capabilities
 type Logger interface {
+	Trace(ctx context.Context, msg string, attrs ...Attribute)
 	Debug(ctx context.Context, msg string, attrs ...Attribute)
 	Info(ctx context.Context, msg string, attrs ...Attribute)
 	Warn(ctx context.Context, msg string, attrs ...Attribute)
@@ -117,4 +119,27 @@ func Error(err error) Attribute {
 		return Attribute{Key: "error", Value: ""}
 	}
 	return Attribute{Key: "error", Value: err.Error()}
+}
+
+// --- UTILITIES ---
+
+const (
+	// DefaultMaxStringLength is the default maximum length for truncated strings
+	DefaultMaxStringLength = 500
+)
+
+// TruncateString truncates a string to maxLen characters, adding a suffix with the original length
+func TruncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 0 {
+		maxLen = DefaultMaxStringLength
+	}
+	return fmt.Sprintf("%s... (truncated, total: %d chars)", s[:maxLen], len(s))
+}
+
+// TruncateStringDefault truncates a string using DefaultMaxStringLength
+func TruncateStringDefault(s string) string {
+	return TruncateString(s, DefaultMaxStringLength)
 }

@@ -385,6 +385,7 @@ func (o *testObserver) Histogram(name string) observability.Histogram {
 	return &testHistogram{observer: o}
 }
 
+func (o *testObserver) Trace(ctx context.Context, msg string, attrs ...observability.Attribute) {}
 func (o *testObserver) Debug(ctx context.Context, msg string, attrs ...observability.Attribute) {}
 func (o *testObserver) Info(ctx context.Context, msg string, attrs ...observability.Attribute)  {}
 func (o *testObserver) Warn(ctx context.Context, msg string, attrs ...observability.Attribute)  {}

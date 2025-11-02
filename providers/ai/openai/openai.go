@@ -75,6 +75,8 @@ func (p *OpenAIProvider) GetCapabilities() Capabilities {
 func (p *OpenAIProvider) SendMessage(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
 	// Enrich span if present in context
 	span := observability.SpanFromContext(ctx)
+	observer := observability.ObserverFromContext(ctx)
+
 	if span != nil {
 		span.AddEvent(observability.EventLLMRequestStart)
 		span.SetAttributes(
@@ -83,6 +85,17 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, request ai.ChatRequest
 			observability.String(observability.AttrLLMModel, request.Model),
 		)
 		defer span.AddEvent(observability.EventLLMRequestEnd)
+	}
+
+	// TRACE: Log provider-level details
+	if observer != nil {
+		observer.Trace(ctx, "OpenAI provider preparing request",
+			observability.String(observability.AttrLLMProvider, "openai"),
+			observability.String(observability.AttrLLMEndpoint, p.baseURL),
+			observability.String(observability.AttrLLMModel, request.Model),
+			observability.Int(observability.AttrRequestMessagesCount, len(request.Messages)),
+			observability.Int(observability.AttrRequestToolsCount, len(request.Tools)),
+		)
 	}
 
 	// Check API key
@@ -100,15 +113,28 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, request ai.ChatRequest
 // SendMessageViaResponses uses the /v1/responses endpoint (OpenAI only)
 func (p *OpenAIProvider) SendMessageViaResponses(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
 	span := observability.SpanFromContext(ctx)
+	observer := observability.ObserverFromContext(ctx)
+
 	if span != nil {
 		span.SetAttributes(
 			observability.String(observability.AttrLLMEndpointType, "responses"),
 		)
 	}
 
+	if observer != nil {
+		observer.Trace(ctx, "Using /v1/responses endpoint",
+			observability.String(observability.AttrLLMEndpoint, p.baseURL+responsesEndpoint),
+		)
+	}
+
 	req := requestToResponses(request)
-	httpResponse, resp, err := utils.DoPostSync[responseCreateResponse](*p.client, p.baseURL+responsesEndpoint, p.apiKey, req)
+	httpResponse, resp, err := utils.DoPostSync[responseCreateResponse](ctx, *p.client, p.baseURL+responsesEndpoint, p.apiKey, req)
 	if err != nil {
+		if observer != nil {
+			observer.Trace(ctx, "HTTP request failed",
+				observability.Error(err),
+			)
+		}
 		return nil, err
 	}
 
@@ -141,6 +167,8 @@ func (p *OpenAIProvider) SendMessageViaResponses(ctx context.Context, request ai
 // SendMessageViaChatCompletions uses the /v1/chat/completions endpoint (universal)
 func (p *OpenAIProvider) SendMessageViaChatCompletions(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
 	span := observability.SpanFromContext(ctx)
+	observer := observability.ObserverFromContext(ctx)
+
 	if span != nil {
 		span.SetAttributes(
 			observability.String(observability.AttrLLMEndpointType, "chat_completions"),
@@ -150,9 +178,21 @@ func (p *OpenAIProvider) SendMessageViaChatCompletions(ctx context.Context, requ
 	// Determine if we should use legacy functions format
 	useLegacyFunctions := (p.capabilities.ToolCallMode == ToolCallModeFunctions)
 
+	if observer != nil {
+		observer.Trace(ctx, "Using /v1/chat/completions endpoint",
+			observability.String(observability.AttrLLMEndpoint, p.baseURL+chatCompletionsEndpoint),
+			observability.Bool(observability.AttrUseLegacyFunctions, useLegacyFunctions),
+		)
+	}
+
 	req := requestToChatCompletion(request, useLegacyFunctions)
-	httpResponse, resp, err := utils.DoPostSync[chatCompletionResponse](*p.client, p.baseURL+chatCompletionsEndpoint, p.apiKey, req)
+	httpResponse, resp, err := utils.DoPostSync[chatCompletionResponse](ctx, *p.client, p.baseURL+chatCompletionsEndpoint, p.apiKey, req)
 	if err != nil {
+		if observer != nil {
+			observer.Trace(ctx, "HTTP request failed",
+				observability.Error(err),
+			)
+		}
 		return nil, err
 	}
 
