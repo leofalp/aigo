@@ -33,3 +33,4 @@ go.work.sum
 aigo.iml
 
 *.env
+.DS_Store
