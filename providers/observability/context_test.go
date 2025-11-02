@@ -6,7 +6,7 @@ import (
 )
 
 func TestSpanFromContext_Nil(t *testing.T) {
-	span := SpanFromContext(nil)
+	span := SpanFromContext(context.Background())
 	if span != nil {
 		t.Errorf("Expected nil span from nil context, got %v", span)
 	}
@@ -38,7 +38,7 @@ func TestSpanFromContext_WithSpan(t *testing.T) {
 
 func TestContextWithSpan_NilContext(t *testing.T) {
 	mockSpan := &mockSpan{name: "test-span"}
-	ctx := ContextWithSpan(nil, mockSpan)
+	ctx := ContextWithSpan(context.Background(), mockSpan)
 
 	if ctx == nil {
 		t.Fatal("Expected non-nil context, got nil")

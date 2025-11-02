@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"aigo/providers/observability"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -8,14 +9,27 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"time"
 )
 
-func DoPostSync[OutputStruct any](client http.Client, url string, apiKey string, body any) (*http.Response, *OutputStruct, error) {
+func DoPostSync[OutputStruct any](ctx context.Context, client http.Client, url string, apiKey string, body any) (*http.Response, *OutputStruct, error) {
+	// Get observer from context if available
+	span := observability.SpanFromContext(ctx)
+
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error marshaling body: %w", err)
 	}
-	req, err := http.NewRequestWithContext(context.Background(), "POST", url, bytes.NewReader(jsonBody))
+
+	if span != nil {
+		span.AddEvent("http.request.prepared",
+			observability.String(observability.AttrHTTPMethod, "POST"),
+			observability.String(observability.AttrHTTPURL, url),
+			observability.Int(observability.AttrHTTPRequestBodySize, len(jsonBody)),
+		)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
 	if err != nil {
 		return nil, nil, fmt.Errorf("error creating request: %w", err)
 	}
@@ -23,8 +37,17 @@ func DoPostSync[OutputStruct any](client http.Client, url string, apiKey string,
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
+	requestStart := time.Now()
 	res, err := client.Do(req)
+	requestDuration := time.Since(requestStart)
+
 	if err != nil {
+		if span != nil {
+			span.AddEvent("http.request.error",
+				observability.Error(err),
+				observability.Duration("http.request.duration", requestDuration),
+			)
+		}
 		return res, nil, fmt.Errorf("error sending request: %w", err)
 	}
 	defer func(Body io.ReadCloser) {
@@ -37,6 +60,14 @@ func DoPostSync[OutputStruct any](client http.Client, url string, apiKey string,
 	respBody, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error reading response body: %w", err)
+	}
+
+	if span != nil {
+		span.AddEvent("http.response.received",
+			observability.Int(observability.AttrHTTPStatusCode, res.StatusCode),
+			observability.Int(observability.AttrHTTPResponseBodySize, len(respBody)),
+			observability.Duration("http.request.duration", requestDuration),
+		)
 	}
 
 	// Check status code

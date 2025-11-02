@@ -70,6 +70,22 @@ const (
 	AttrToolError = "tool.error"
 )
 
+// --- Request/Response Attributes ---
+
+const (
+	// AttrRequestMessagesCount is the number of messages in the request
+	AttrRequestMessagesCount = "request.messages_count"
+
+	// AttrRequestToolsCount is the number of tools in the request
+	AttrRequestToolsCount = "request.tools_count"
+
+	// AttrResponseContent is the response content from LLM
+	AttrResponseContent = "response.content"
+
+	// AttrUseLegacyFunctions indicates if legacy functions format is used
+	AttrUseLegacyFunctions = "use_legacy_functions"
+)
+
 // --- HTTP Attributes ---
 
 const (

@@ -72,7 +72,8 @@ func (s *slogSpan) End() {
 	for _, attr := range s.attrs {
 		logAttrs = append(logAttrs, slog.Any(attr.Key, attr.Value))
 	}
-	s.logger.LogAttrs(context.Background(), slog.LevelDebug, "Span ended", logAttrs...)
+	// Use Info level for span end to make it visible at INFO level
+	s.logger.LogAttrs(context.Background(), slog.LevelInfo, "Span ended", logAttrs...)
 }
 
 func (s *slogSpan) SetAttributes(attrs ...observability.Attribute) {
@@ -247,6 +248,11 @@ func (h *slogHistogram) Record(ctx context.Context, value float64, attrs ...obse
 }
 
 // --- LOGGING ---
+
+func (o *Observer) Trace(ctx context.Context, msg string, attrs ...observability.Attribute) {
+	// Trace is more verbose than Debug, use Debug-4 (which is typically filtered out unless explicitly enabled)
+	o.log(ctx, slog.LevelDebug-4, msg, attrs...)
+}
 
 func (o *Observer) Debug(ctx context.Context, msg string, attrs ...observability.Attribute) {
 	o.log(ctx, slog.LevelDebug, msg, attrs...)

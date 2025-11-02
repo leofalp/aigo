@@ -154,18 +154,28 @@ func (c *Client[T]) SendMessage(ctx context.Context, prompt string) (*ai.ChatRes
 	// Start tracing span (only if observer is set)
 	var span observability.Span
 	if c.observer != nil {
+		// Truncate prompt for span attributes to avoid huge attribute values
+		truncatedPrompt := observability.TruncateStringDefault(prompt)
+
 		ctx, span = c.observer.StartSpan(ctx, observability.SpanClientSendMessage,
 			observability.String(observability.AttrLLMModel, c.defaultModel),
-			observability.String(observability.AttrClientPrompt, prompt),
+			observability.String(observability.AttrClientPrompt, truncatedPrompt),
 		)
 		defer span.End()
 
-		// Put span in context for downstream propagation
+		// Put span and observer in context for downstream propagation
 		ctx = observability.ContextWithSpan(ctx, span)
+		ctx = observability.ContextWithObserver(ctx, c.observer)
 
-		c.observer.Debug(ctx, "Sending message to LLM",
+		// INFO: High-level operation starting
+		c.observer.Info(ctx, "Sending message to LLM",
 			observability.String(observability.AttrLLMModel, c.defaultModel),
 			observability.Int(observability.AttrClientToolsCount, len(c.toolDescriptions)),
+		)
+
+		// DEBUG: Include truncated prompt content for debugging
+		c.observer.Debug(ctx, "Message content",
+			observability.String(observability.AttrClientPrompt, truncatedPrompt),
 		)
 	}
 
@@ -177,10 +187,20 @@ func (c *Client[T]) SendMessage(ctx context.Context, prompt string) (*ai.ChatRes
 		// Stateful mode: append to memory and use all messages
 		c.memoryProvider.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: prompt})
 		messages = c.memoryProvider.AllMessages()
+
+		if c.observer != nil {
+			c.observer.Debug(ctx, "Using stateful mode with memory",
+				observability.Int(observability.AttrMemoryTotalMessages, len(messages)),
+			)
+		}
 	} else {
 		// Stateless mode: use only the current prompt
 		messages = []ai.Message{
 			{Role: ai.RoleUser, Content: prompt},
+		}
+
+		if c.observer != nil {
+			c.observer.Debug(ctx, "Using stateless mode (no memory)")
 		}
 	}
 
@@ -210,11 +230,14 @@ func (c *Client[T]) SendMessage(ctx context.Context, prompt string) (*ai.ChatRes
 			span.RecordError(err)
 			span.SetStatus(observability.StatusError, "Failed to send message")
 
+			// ERROR: Operation failed
 			c.observer.Error(ctx, "Failed to send message to LLM",
 				observability.Error(err),
 				observability.Duration(observability.AttrDuration, duration),
+				observability.String(observability.AttrLLMModel, c.defaultModel),
 			)
 
+			// Metrics at DEBUG level
 			c.observer.Counter(observability.MetricClientRequestCount).Add(ctx, 1,
 				observability.String(observability.AttrStatus, "error"),
 				observability.String(observability.AttrLLMModel, c.defaultModel),
@@ -226,6 +249,7 @@ func (c *Client[T]) SendMessage(ctx context.Context, prompt string) (*ai.ChatRes
 
 	// Record success metrics and observability
 	if c.observer != nil {
+		// DEBUG: Detailed metrics
 		c.observer.Histogram(observability.MetricClientRequestDuration).Record(ctx, duration.Seconds(),
 			observability.String(observability.AttrLLMModel, c.defaultModel),
 		)
@@ -246,18 +270,35 @@ func (c *Client[T]) SendMessage(ctx context.Context, prompt string) (*ai.ChatRes
 				observability.String(observability.AttrLLMModel, c.defaultModel),
 			)
 
+			// Set span attributes for token usage
 			span.SetAttributes(
+				observability.Int(observability.AttrLLMTokensTotal, response.Usage.TotalTokens),
+				observability.Int(observability.AttrLLMTokensPrompt, response.Usage.PromptTokens),
+				observability.Int(observability.AttrLLMTokensCompletion, response.Usage.CompletionTokens),
+			)
+
+			// DEBUG: Token usage details
+			c.observer.Debug(ctx, "Token usage",
 				observability.Int(observability.AttrLLMTokensTotal, response.Usage.TotalTokens),
 				observability.Int(observability.AttrLLMTokensPrompt, response.Usage.PromptTokens),
 				observability.Int(observability.AttrLLMTokensCompletion, response.Usage.CompletionTokens),
 			)
 		}
 
+		// INFO: Operation completed successfully with key summary info
 		c.observer.Info(ctx, "Message sent successfully",
+			observability.String(observability.AttrLLMModel, c.defaultModel),
 			observability.String(observability.AttrLLMFinishReason, response.FinishReason),
 			observability.Duration(observability.AttrDuration, duration),
 			observability.Int(observability.AttrClientToolCalls, len(response.ToolCalls)),
 		)
+
+		// DEBUG: Include truncated response content
+		if response.Content != "" {
+			c.observer.Debug(ctx, "Response content",
+				observability.String(observability.AttrResponseContent, observability.TruncateStringDefault(response.Content)),
+			)
+		}
 
 		span.SetStatus(observability.StatusOK, "Message sent successfully")
 	}
