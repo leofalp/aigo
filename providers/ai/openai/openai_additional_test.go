@@ -323,4 +323,13 @@ func TestIsStopMessageBehavior(t *testing.T) {
 	if p.IsStopMessage(&ai.ChatResponse{ToolCalls: []ai.ToolCall{{Type: "function", Function: ai.ToolCallFunction{Name: "x", Arguments: "{}"}}}}) {
 		t.Fatal("tool calls present should not be stop")
 	}
+	// CRITICAL: Tool calls take priority over finish_reason
+	// This is the case where some providers (e.g., OpenRouter) return finish_reason="stop" even with tool calls
+	if p.IsStopMessage(&ai.ChatResponse{
+		FinishReason: "stop",
+		Content:      "some content",
+		ToolCalls:    []ai.ToolCall{{Type: "function", Function: ai.ToolCallFunction{Name: "calculator", Arguments: "{}"}}},
+	}) {
+		t.Fatal("tool calls present should not be stop, even if finish_reason is 'stop'")
+	}
 }
