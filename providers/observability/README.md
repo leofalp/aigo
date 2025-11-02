@@ -172,6 +172,7 @@ Use standardized attribute names for consistency:
 observability.AttrLLMProvider      // "llm.provider"
 observability.AttrLLMModel          // "llm.model"
 observability.AttrLLMEndpoint       // "llm.endpoint"
+observability.AttrLLMEndpointType   // "llm.endpoint.type"
 observability.AttrLLMRequestID      // "llm.request.id"
 observability.AttrLLMResponseID     // "llm.response.id"
 observability.AttrLLMFinishReason   // "llm.finish_reason"
@@ -208,6 +209,32 @@ observability.AttrHTTPRequestBodySize // "http.request.body.size"
 observability.AttrHTTPResponseBodySize// "http.response.body.size"
 ```
 
+### Memory Attributes
+
+```go
+observability.AttrMemoryMessageRole    // "memory.message.role"
+observability.AttrMemoryMessageLength  // "memory.message.length"
+observability.AttrMemoryTotalMessages  // "memory.total_messages"
+```
+
+### Client Attributes
+
+```go
+observability.AttrClientPrompt      // "client.prompt"
+observability.AttrClientToolsCount  // "client.tools_count"
+observability.AttrClientToolCalls   // "client.tool_calls"
+```
+
+### General Attributes
+
+```go
+observability.AttrError             // "error"
+observability.AttrErrorType         // "error.type"
+observability.AttrDuration          // "duration"
+observability.AttrStatus            // "status"
+observability.AttrStatusDescription // "status_description"
+```
+
 ### Event Names
 
 ```go
@@ -216,6 +243,8 @@ observability.EventLLMRequestEnd        // "llm.request.end"
 observability.EventToolExecutionStart   // "tool.execution.start"
 observability.EventToolExecutionEnd     // "tool.execution.end"
 observability.EventTokensReceived       // "llm.tokens.received"
+observability.EventMemoryAppend         // "memory.append"
+observability.EventMemoryClear          // "memory.clear"
 ```
 
 ### Span Names
@@ -231,7 +260,22 @@ observability.SpanMemoryOperation   // "memory.operation"
 
 ### Metrics (Emitted by Client)
 
+Use the predefined metric name constants for consistency:
+
 **Counters:**
+```go
+observability.MetricClientRequestCount       // "aigo.client.request.count"
+observability.MetricClientTokensTotal        // "aigo.client.tokens.total"
+observability.MetricClientTokensPrompt       // "aigo.client.tokens.prompt"
+observability.MetricClientTokensCompletion   // "aigo.client.tokens.completion"
+```
+
+**Histograms:**
+```go
+observability.MetricClientRequestDuration    // "aigo.client.request.duration"
+```
+
+**Counter Details:**
 - `aigo.client.request.count` - Total number of requests
   - Attributes: `status` (success/error), `llm.model`
 - `aigo.client.tokens.total` - Total tokens used
@@ -241,7 +285,7 @@ observability.SpanMemoryOperation   // "memory.operation"
 - `aigo.client.tokens.completion` - Completion tokens used
   - Attributes: `llm.model`
 
-**Histograms:**
+**Histogram Details:**
 - `aigo.client.request.duration` - Request duration in seconds
   - Attributes: `llm.model`
 
@@ -587,6 +631,6 @@ No breaking changes required - gracefully degrades if no span present!
 - [context.go](./context.go) - Context helpers for span propagation
 - [semconv.go](./semconv.go) - Semantic conventions (constants)
 - [ARCHITECTURE.md](../../ARCHITECTURE.md) - Overall project architecture
-- [examples/observability/main.go](../../examples/observability/main.go) - Complete examples
+- [examples/observability/main.go](../../examples/layer2/observability/main.go) - Complete examples
 - [OpenTelemetry Context Propagation](https://opentelemetry.io/docs/instrumentation/go/manual/#context-propagation)
 - [Go's log/slog](https://pkg.go.dev/log/slog) documentation

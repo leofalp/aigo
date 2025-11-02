@@ -102,7 +102,7 @@ func (p *OpenAIProvider) SendMessageViaResponses(ctx context.Context, request ai
 	span := observability.SpanFromContext(ctx)
 	if span != nil {
 		span.SetAttributes(
-			observability.String("llm.endpoint.type", "responses"),
+			observability.String(observability.AttrLLMEndpointType, "responses"),
 		)
 	}
 
@@ -143,7 +143,7 @@ func (p *OpenAIProvider) SendMessageViaChatCompletions(ctx context.Context, requ
 	span := observability.SpanFromContext(ctx)
 	if span != nil {
 		span.SetAttributes(
-			observability.String("llm.endpoint.type", "chat_completions"),
+			observability.String(observability.AttrLLMEndpointType, "chat_completions"),
 		)
 	}
 

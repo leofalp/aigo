@@ -34,9 +34,9 @@ func (m *ArrayMemory) AppendMessage(ctx context.Context, message *ai.Message) {
 	span := observability.SpanFromContext(ctx)
 
 	if span != nil {
-		span.AddEvent("memory.append",
-			observability.String("message.role", string(message.Role)),
-			observability.Int("message.length", len(message.Content)),
+		span.AddEvent(observability.EventMemoryAppend,
+			observability.String(observability.AttrMemoryMessageRole, string(message.Role)),
+			observability.Int(observability.AttrMemoryMessageLength, len(message.Content)),
 		)
 	}
 
@@ -47,7 +47,7 @@ func (m *ArrayMemory) AppendMessage(ctx context.Context, message *ai.Message) {
 
 	if span != nil {
 		span.SetAttributes(
-			observability.Int("memory.total_messages", totalMessages),
+			observability.Int(observability.AttrMemoryTotalMessages, totalMessages),
 		)
 	}
 }
@@ -113,7 +113,7 @@ func (m *ArrayMemory) ClearMessages(ctx context.Context) {
 	span := observability.SpanFromContext(ctx)
 
 	if span != nil {
-		span.AddEvent("memory.clear")
+		span.AddEvent(observability.EventMemoryClear)
 	}
 
 	m.mu.Lock()

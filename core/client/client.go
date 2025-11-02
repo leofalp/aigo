@@ -90,7 +90,7 @@ func (c *Client[T]) SendMessage(prompt string) (*ai.ChatResponse, error) {
 	if c.observer != nil {
 		ctx, span = c.observer.StartSpan(ctx, observability.SpanClientSendMessage,
 			observability.String(observability.AttrLLMModel, c.defaultModel),
-			observability.String("prompt", prompt),
+			observability.String(observability.AttrClientPrompt, prompt),
 		)
 		defer span.End()
 
@@ -99,7 +99,7 @@ func (c *Client[T]) SendMessage(prompt string) (*ai.ChatResponse, error) {
 
 		c.observer.Debug(ctx, "Sending message to LLM",
 			observability.String(observability.AttrLLMModel, c.defaultModel),
-			observability.Int("tools_count", len(c.toolDescriptions)),
+			observability.Int(observability.AttrClientToolsCount, len(c.toolDescriptions)),
 		)
 	}
 
@@ -119,12 +119,12 @@ func (c *Client[T]) SendMessage(prompt string) (*ai.ChatResponse, error) {
 
 			c.observer.Error(ctx, "Failed to send message to LLM",
 				observability.Error(err),
-				observability.Duration("duration", duration),
+				observability.Duration(observability.AttrDuration, duration),
 			)
 
-			c.observer.Counter("aigo.client.request.count").Add(ctx, 1,
-				observability.String("status", "error"),
-				observability.String("model", c.defaultModel),
+			c.observer.Counter(observability.MetricClientRequestCount).Add(ctx, 1,
+				observability.String(observability.AttrStatus, "error"),
+				observability.String(observability.AttrLLMModel, c.defaultModel),
 			)
 		}
 
@@ -133,23 +133,23 @@ func (c *Client[T]) SendMessage(prompt string) (*ai.ChatResponse, error) {
 
 	if c.observer != nil {
 		// Record metrics
-		c.observer.Histogram("aigo.client.request.duration").Record(ctx, duration.Seconds(),
-			observability.String("model", c.defaultModel),
+		c.observer.Histogram(observability.MetricClientRequestDuration).Record(ctx, duration.Seconds(),
+			observability.String(observability.AttrLLMModel, c.defaultModel),
 		)
 
-		c.observer.Counter("aigo.client.request.count").Add(ctx, 1,
-			observability.String("status", "success"),
-			observability.String("model", c.defaultModel),
+		c.observer.Counter(observability.MetricClientRequestCount).Add(ctx, 1,
+			observability.String(observability.AttrStatus, "success"),
+			observability.String(observability.AttrLLMModel, c.defaultModel),
 		)
 
 		if response.Usage != nil {
-			c.observer.Counter("aigo.client.tokens.total").Add(ctx, int64(response.Usage.TotalTokens),
+			c.observer.Counter(observability.MetricClientTokensTotal).Add(ctx, int64(response.Usage.TotalTokens),
 				observability.String(observability.AttrLLMModel, c.defaultModel),
 			)
-			c.observer.Counter("aigo.client.tokens.prompt").Add(ctx, int64(response.Usage.PromptTokens),
+			c.observer.Counter(observability.MetricClientTokensPrompt).Add(ctx, int64(response.Usage.PromptTokens),
 				observability.String(observability.AttrLLMModel, c.defaultModel),
 			)
-			c.observer.Counter("aigo.client.tokens.completion").Add(ctx, int64(response.Usage.CompletionTokens),
+			c.observer.Counter(observability.MetricClientTokensCompletion).Add(ctx, int64(response.Usage.CompletionTokens),
 				observability.String(observability.AttrLLMModel, c.defaultModel),
 			)
 
@@ -161,9 +161,9 @@ func (c *Client[T]) SendMessage(prompt string) (*ai.ChatResponse, error) {
 		}
 
 		c.observer.Info(ctx, "Message sent successfully",
-			observability.String("finish_reason", response.FinishReason),
-			observability.Duration("duration", duration),
-			observability.Int("tool_calls", len(response.ToolCalls)),
+			observability.String(observability.AttrLLMFinishReason, response.FinishReason),
+			observability.Duration(observability.AttrDuration, duration),
+			observability.Int(observability.AttrClientToolCalls, len(response.ToolCalls)),
 		)
 
 		span.SetStatus(observability.StatusOK, "Message sent successfully")
