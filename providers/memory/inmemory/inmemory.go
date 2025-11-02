@@ -3,6 +3,8 @@ package inmemory
 import (
 	"aigo/providers/ai"
 	"aigo/providers/memory"
+	"aigo/providers/observability"
+	"context"
 	"sync"
 )
 
@@ -23,13 +25,31 @@ func NewArrayMemory() *ArrayMemory {
 var _ memory.Provider = (*ArrayMemory)(nil)
 
 // AppendMessage stores a copy of the provided message at the end of the history.
-func (m *ArrayMemory) AppendMessage(message *ai.Message) {
+func (m *ArrayMemory) AppendMessage(ctx context.Context, message *ai.Message) {
 	if message == nil {
 		return
 	}
+
+	// Extract span from context for observability
+	span := observability.SpanFromContext(ctx)
+
+	if span != nil {
+		span.AddEvent("memory.append",
+			observability.String("message.role", string(message.Role)),
+			observability.Int("message.length", len(message.Content)),
+		)
+	}
+
 	m.mu.Lock()
 	m.messages = append(m.messages, *message)
+	totalMessages := len(m.messages)
 	m.mu.Unlock()
+
+	if span != nil {
+		span.SetAttributes(
+			observability.Int("memory.total_messages", totalMessages),
+		)
+	}
 }
 
 // Count returns the number of messages stored.
@@ -88,7 +108,14 @@ func (m *ArrayMemory) PopLastMessage() *ai.Message {
 }
 
 // ClearMessages removes all messages while retaining underlying capacity for efficiency.
-func (m *ArrayMemory) ClearMessages() {
+func (m *ArrayMemory) ClearMessages(ctx context.Context) {
+	// Extract span from context for observability
+	span := observability.SpanFromContext(ctx)
+
+	if span != nil {
+		span.AddEvent("memory.clear")
+	}
+
 	m.mu.Lock()
 	m.messages = m.messages[:0]
 	m.mu.Unlock()

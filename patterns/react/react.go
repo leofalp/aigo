@@ -28,9 +28,10 @@ func (p *ReactPattern) Execute(llmProvider ai.Provider, memoryProviderPtr *memor
 		option(&opts)
 	}
 
+	ctx := context.Background()
 	stop := false
 	for !stop {
-		response, err = llmProvider.SendMessage(context.Background(), ai.ChatRequest{
+		response, err = llmProvider.SendMessage(ctx, ai.ChatRequest{
 			Model:        opts.Model,
 			SystemPrompt: opts.SystemPrompt,
 			Messages:     memoryProvider.AllMessages(),
@@ -43,15 +44,15 @@ func (p *ReactPattern) Execute(llmProvider ai.Provider, memoryProviderPtr *memor
 			return nil, err
 		}
 
-		memoryProvider.AppendMessage(&ai.Message{Role: ai.RoleAssistant, Content: response.Content})
+		memoryProvider.AppendMessage(ctx, &ai.Message{Role: ai.RoleAssistant, Content: response.Content})
 
 		for _, t := range response.ToolCalls {
-			output, err := opts.ToolCatalog[t.Function.Name].Call(t.Function.Arguments)
+			output, err := opts.ToolCatalog[t.Function.Name].Call(ctx, t.Function.Arguments)
 			if err != nil {
 				return nil, err
 			}
 
-			memoryProvider.AppendMessage(&ai.Message{Role: ai.RoleTool, Content: output})
+			memoryProvider.AppendMessage(ctx, &ai.Message{Role: ai.RoleTool, Content: output})
 		}
 
 		if len(response.ToolCalls) > 0 {

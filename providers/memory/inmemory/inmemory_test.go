@@ -2,6 +2,7 @@ package inmemory
 
 import (
 	"aigo/providers/ai"
+	"context"
 	"testing"
 )
 
@@ -11,8 +12,8 @@ func TestArrayMemory_AppendAndAllMessages(t *testing.T) {
 		t.Fatalf("expected empty memory")
 	}
 
-	m.AppendMessage(&ai.Message{Role: ai.RoleUser, Content: "hi"})
-	m.AppendMessage(&ai.Message{Role: ai.RoleAssistant, Content: "hello"})
+	m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleUser, Content: "hi"})
+	m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleAssistant, Content: "hello"})
 
 	if m.Count() != 2 {
 		t.Fatalf("expected 2 messages, got %d", m.Count())
@@ -33,7 +34,7 @@ func TestArrayMemory_AppendAndAllMessages(t *testing.T) {
 func TestArrayMemory_LastMessages(t *testing.T) {
 	m := NewArrayMemory()
 	for i := 0; i < 5; i++ {
-		m.AppendMessage(&ai.Message{Role: ai.RoleUser, Content: string(rune('a' + i))})
+		m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleUser, Content: string(rune('a' + i))})
 	}
 
 	last := m.LastMessages(2)
@@ -61,8 +62,8 @@ func TestArrayMemory_PopLastAndClear(t *testing.T) {
 		t.Fatalf("expected nil pop on empty")
 	}
 
-	m.AppendMessage(&ai.Message{Role: ai.RoleUser, Content: "1"})
-	m.AppendMessage(&ai.Message{Role: ai.RoleUser, Content: "2"})
+	m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleUser, Content: "1"})
+	m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleUser, Content: "2"})
 
 	last := m.PopLastMessage()
 	if last == nil || last.Content != "2" {
@@ -72,7 +73,7 @@ func TestArrayMemory_PopLastAndClear(t *testing.T) {
 		t.Fatalf("expected 1 message left, got %d", m.Count())
 	}
 
-	m.ClearMessages()
+	m.ClearMessages(context.Background())
 	if m.Count() != 0 {
 		t.Fatalf("expected 0 after clear, got %d", m.Count())
 	}
@@ -80,9 +81,9 @@ func TestArrayMemory_PopLastAndClear(t *testing.T) {
 
 func TestArrayMemory_FilterByRole(t *testing.T) {
 	m := NewArrayMemory()
-	m.AppendMessage(&ai.Message{Role: ai.RoleUser, Content: "u1"})
-	m.AppendMessage(&ai.Message{Role: ai.RoleAssistant, Content: "a1"})
-	m.AppendMessage(&ai.Message{Role: ai.RoleUser, Content: "u2"})
+	m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleUser, Content: "u1"})
+	m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleAssistant, Content: "a1"})
+	m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleUser, Content: "u2"})
 
 	users := m.FilterByRole(ai.RoleUser)
 	if len(users) != 2 {
@@ -102,17 +103,17 @@ func TestArrayMemory_AppendNilDoesNothing(t *testing.T) {
 	m := NewArrayMemory()
 
 	// append nil on empty
-	m.AppendMessage(nil)
+	m.AppendMessage(context.Background(), nil)
 	if m.Count() != 0 {
 		t.Fatalf("expected count 0 after appending nil on empty, got %d", m.Count())
 	}
 
 	// append valid, then nil, ensure count not incremented by nil
-	m.AppendMessage(&ai.Message{Role: ai.RoleUser, Content: "hello"})
+	m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleUser, Content: "hello"})
 	if m.Count() != 1 {
 		t.Fatalf("expected count 1 after valid append, got %d", m.Count())
 	}
-	m.AppendMessage(nil)
+	m.AppendMessage(context.Background(), nil)
 	if m.Count() != 1 {
 		t.Fatalf("expected count to remain 1 after appending nil, got %d", m.Count())
 	}

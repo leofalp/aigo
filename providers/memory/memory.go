@@ -1,11 +1,14 @@
 package memory
 
-import "aigo/providers/ai"
+import (
+	"aigo/providers/ai"
+	"context"
+)
 
 // Provider defines memory operations for chat sessions and tool calls.
 type Provider interface {
 	// Core chat history
-	AppendMessage(message *ai.Message)
+	AppendMessage(ctx context.Context, message *ai.Message)
 
 	// Introspection
 	Count() int
@@ -14,7 +17,7 @@ type Provider interface {
 	PopLastMessage() *ai.Message
 
 	// clear
-	ClearMessages()
+	ClearMessages(ctx context.Context)
 
 	// Token-aware retrieval and compaction
 	//GetForTokenBudget(maxTokens int, tokenizer ai.Tokenizer) []ai.Message

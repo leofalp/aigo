@@ -3,8 +3,10 @@ package tool
 import (
 	"aigo/internal/jsonschema"
 	"aigo/providers/ai"
+	"aigo/providers/observability"
 	"context"
 	"encoding/json"
+	"time"
 )
 
 type Tool[I, O any] struct {
@@ -18,7 +20,7 @@ type Tool[I, O any] struct {
 
 type GenericTool interface {
 	ToolInfo() ai.ToolDescription
-	Call(inputJson string) (string, error)
+	Call(ctx context.Context, inputJson string) (string, error)
 }
 
 type funcToolOptions struct {
@@ -63,22 +65,59 @@ func (t *Tool[I, O]) ToolInfo() ai.ToolDescription {
 	}
 }
 
-func (t *Tool[I, O]) Call(inputJson string) (string, error) {
+func (t *Tool[I, O]) Call(ctx context.Context, inputJson string) (string, error) {
+	// Extract span from context for observability
+	span := observability.SpanFromContext(ctx)
+
+	if span != nil {
+		span.AddEvent(observability.EventToolExecutionStart,
+			observability.String(observability.AttrToolName, t.Name),
+			observability.String(observability.AttrToolInput, inputJson),
+		)
+		defer span.AddEvent(observability.EventToolExecutionEnd)
+	}
+
+	start := time.Now()
 	var parsedInput I
 
 	err := json.Unmarshal([]byte(inputJson), &parsedInput)
 	if err != nil {
+		if span != nil {
+			span.RecordError(err)
+			span.SetAttributes(
+				observability.String(observability.AttrToolError, err.Error()),
+			)
+		}
 		return "", err
 	}
 
-	output, err := t.Function(context.Background(), parsedInput)
+	output, err := t.Function(ctx, parsedInput)
+	duration := time.Since(start)
+
 	if err != nil {
+		if span != nil {
+			span.RecordError(err)
+			span.SetAttributes(
+				observability.String(observability.AttrToolError, err.Error()),
+				observability.Duration(observability.AttrToolDuration, duration),
+			)
+		}
 		return "", err
 	}
 
 	outputBytes, err := json.Marshal(output)
 	if err != nil {
+		if span != nil {
+			span.RecordError(err)
+		}
 		return "", err
+	}
+
+	if span != nil {
+		span.SetAttributes(
+			observability.String(observability.AttrToolOutput, string(outputBytes)),
+			observability.Duration(observability.AttrToolDuration, duration),
+		)
 	}
 
 	return string(outputBytes), nil

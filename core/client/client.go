@@ -105,7 +105,7 @@ func (c *Client[T]) SendMessage(prompt string) (*ai.ChatResponse, error) {
 
 	start := time.Now()
 
-	c.memoryProvider.AppendMessage(&ai.Message{Role: ai.RoleUser, Content: prompt})
+	c.memoryProvider.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: prompt})
 	response, err := c.llmProvider.SendMessage(ctx, ai.ChatRequest{
 		// TODO
 	})
