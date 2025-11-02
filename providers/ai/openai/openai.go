@@ -3,6 +3,7 @@ package openai
 import (
 	"aigo/internal/utils"
 	"aigo/providers/ai"
+	"aigo/providers/observability"
 	"context"
 	"fmt"
 	"net/http"
@@ -72,6 +73,18 @@ func (p *OpenAIProvider) GetCapabilities() Capabilities {
 // SendMessage implements the Provider interface
 // It automatically chooses the best endpoint based on capabilities
 func (p *OpenAIProvider) SendMessage(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
+	// Enrich span if present in context
+	span := observability.SpanFromContext(ctx)
+	if span != nil {
+		span.AddEvent(observability.EventLLMRequestStart)
+		span.SetAttributes(
+			observability.String(observability.AttrLLMProvider, "openai"),
+			observability.String(observability.AttrLLMEndpoint, p.baseURL),
+			observability.String(observability.AttrLLMModel, request.Model),
+		)
+		defer span.AddEvent(observability.EventLLMRequestEnd)
+	}
+
 	// Check API key
 	if p.apiKey == "" {
 		return nil, fmt.Errorf("API key is not set")
@@ -86,6 +99,13 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, request ai.ChatRequest
 
 // SendMessageViaResponses uses the /v1/responses endpoint (OpenAI only)
 func (p *OpenAIProvider) SendMessageViaResponses(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
+	span := observability.SpanFromContext(ctx)
+	if span != nil {
+		span.SetAttributes(
+			observability.String("llm.endpoint.type", "responses"),
+		)
+	}
+
 	req := requestToResponses(request)
 	httpResponse, resp, err := utils.DoPostSync[responseCreateResponse](*p.client, p.baseURL+responsesEndpoint, p.apiKey, req)
 	if err != nil {
@@ -100,11 +120,33 @@ func (p *OpenAIProvider) SendMessageViaResponses(ctx context.Context, request ai
 		return nil, fmt.Errorf("no output items in response")
 	}
 
-	return responsesToGeneric(*resp), nil
+	result := responsesToGeneric(*resp)
+
+	// Enrich span with response details
+	if span != nil && result != nil {
+		span.SetAttributes(
+			observability.String(observability.AttrLLMResponseID, result.Id),
+			observability.String(observability.AttrLLMFinishReason, result.FinishReason),
+		)
+		if result.Usage != nil {
+			span.AddEvent(observability.EventTokensReceived,
+				observability.Int(observability.AttrLLMTokensTotal, result.Usage.TotalTokens),
+			)
+		}
+	}
+
+	return result, nil
 }
 
 // SendMessageViaChatCompletions uses the /v1/chat/completions endpoint (universal)
 func (p *OpenAIProvider) SendMessageViaChatCompletions(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
+	span := observability.SpanFromContext(ctx)
+	if span != nil {
+		span.SetAttributes(
+			observability.String("llm.endpoint.type", "chat_completions"),
+		)
+	}
+
 	// Determine if we should use legacy functions format
 	useLegacyFunctions := (p.capabilities.ToolCallMode == ToolCallModeFunctions)
 
@@ -122,7 +164,23 @@ func (p *OpenAIProvider) SendMessageViaChatCompletions(ctx context.Context, requ
 		return nil, fmt.Errorf("no choices in response")
 	}
 
-	return chatCompletionToGeneric(*resp), nil
+	result := chatCompletionToGeneric(*resp)
+
+	// Enrich span with response details
+	if span != nil && result != nil {
+		span.SetAttributes(
+			observability.String(observability.AttrLLMResponseID, result.Id),
+			observability.String(observability.AttrLLMFinishReason, result.FinishReason),
+			observability.Int(observability.AttrHTTPStatusCode, httpResponse.StatusCode),
+		)
+		if result.Usage != nil {
+			span.AddEvent(observability.EventTokensReceived,
+				observability.Int(observability.AttrLLMTokensTotal, result.Usage.TotalTokens),
+			)
+		}
+	}
+
+	return result, nil
 }
 
 // IsStopMessage reports whether the given chat response should be treated as a stop/end signal.
