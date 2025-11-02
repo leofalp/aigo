@@ -30,6 +30,9 @@ const (
 
 	// AttrLLMMaxTokens is the maximum tokens allowed
 	AttrLLMMaxTokens = "llm.max_tokens"
+
+	// AttrLLMEndpointType is the type of endpoint used (e.g., "responses", "chat_completions")
+	AttrLLMEndpointType = "llm.endpoint.type"
 )
 
 // --- Token Usage Attributes ---
@@ -86,6 +89,32 @@ const (
 	AttrHTTPResponseBodySize = "http.response.body.size"
 )
 
+// --- Memory Attributes ---
+
+const (
+	// AttrMemoryMessageRole is the role of the message being stored
+	AttrMemoryMessageRole = "memory.message.role"
+
+	// AttrMemoryMessageLength is the length of the message content
+	AttrMemoryMessageLength = "memory.message.length"
+
+	// AttrMemoryTotalMessages is the total number of messages in memory
+	AttrMemoryTotalMessages = "memory.total_messages"
+)
+
+// --- Client Attributes ---
+
+const (
+	// AttrClientPrompt is the user prompt/input
+	AttrClientPrompt = "client.prompt"
+
+	// AttrClientToolsCount is the number of tools available
+	AttrClientToolsCount = "client.tools_count"
+
+	// AttrClientToolCalls is the number of tool calls in response
+	AttrClientToolCalls = "client.tool_calls"
+)
+
 // --- General Attributes ---
 
 const (
@@ -100,6 +129,9 @@ const (
 
 	// AttrStatus is the operation status
 	AttrStatus = "status"
+
+	// AttrStatusDescription is the status description
+	AttrStatusDescription = "status_description"
 )
 
 // --- Span Names ---
@@ -135,4 +167,29 @@ const (
 
 	// EventTokensReceived marks when tokens are received from LLM
 	EventTokensReceived = "llm.tokens.received"
+
+	// EventMemoryAppend marks when a message is appended to memory
+	EventMemoryAppend = "memory.append"
+
+	// EventMemoryClear marks when memory is cleared
+	EventMemoryClear = "memory.clear"
+)
+
+// --- Metric Names ---
+
+const (
+	// MetricClientRequestCount is the counter for client requests
+	MetricClientRequestCount = "aigo.client.request.count"
+
+	// MetricClientRequestDuration is the histogram for request duration
+	MetricClientRequestDuration = "aigo.client.request.duration"
+
+	// MetricClientTokensTotal is the counter for total tokens
+	MetricClientTokensTotal = "aigo.client.tokens.total"
+
+	// MetricClientTokensPrompt is the counter for prompt tokens
+	MetricClientTokensPrompt = "aigo.client.tokens.prompt"
+
+	// MetricClientTokensCompletion is the counter for completion tokens
+	MetricClientTokensCompletion = "aigo.client.tokens.completion"
 )

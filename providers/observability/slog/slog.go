@@ -95,9 +95,9 @@ func (s *slogSpan) SetStatus(code observability.StatusCode, description string) 
 		statusStr = "unset"
 	}
 
-	s.attrs = append(s.attrs, observability.String("status", statusStr))
+	s.attrs = append(s.attrs, observability.String(observability.AttrStatus, statusStr))
 	if description != "" {
-		s.attrs = append(s.attrs, observability.String("status_description", description))
+		s.attrs = append(s.attrs, observability.String(observability.AttrStatusDescription, description))
 	}
 }
 
