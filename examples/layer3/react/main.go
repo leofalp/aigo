@@ -5,6 +5,7 @@ import (
 	"aigo/patterns/react"
 	"aigo/providers/ai/openai"
 	"aigo/providers/memory/inmemory"
+	"aigo/providers/observability"
 	"aigo/providers/observability/slogobs"
 	"aigo/providers/tool/calculator"
 	"context"
@@ -89,10 +90,7 @@ func main() {
 	messages := memory.AllMessages()
 	fmt.Printf("Total messages in memory: %d\n\n", len(messages))
 	for i, msg := range messages {
-		content := msg.Content
-		if len(content) > 100 {
-			content = content[:100] + "..."
-		}
+		content := observability.TruncateString(msg.Content, 100)
 		fmt.Printf("%d. [%s] %s\n", i+1, msg.Role, content)
 	}
 }

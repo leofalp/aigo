@@ -3,6 +3,7 @@ package main
 import (
 	"aigo/core/client"
 	"aigo/providers/ai/openai"
+	"aigo/providers/observability"
 	"aigo/providers/tool/duckduckgo"
 	"context"
 	"encoding/json"
@@ -55,7 +56,7 @@ func exampleDirectAdvanced() {
 	// Show structured output
 	fmt.Printf("Query: %s\n", output.Query)
 	if output.Abstract != "" {
-		fmt.Printf("Abstract: %s\n", truncate(output.Abstract, 150))
+		fmt.Printf("Abstract: %s\n", observability.TruncateString(output.Abstract, 150))
 		fmt.Printf("Source: %s (%s)\n", output.AbstractSource, output.AbstractURL)
 	}
 	if output.Image != "" {
@@ -65,7 +66,7 @@ func exampleDirectAdvanced() {
 
 	// Also show complete JSON (optional)
 	if jsonBytes, err := json.MarshalIndent(output, "", "  "); err == nil {
-		fmt.Printf("\nComplete JSON (first 500 chars):\n%s...\n", truncate(string(jsonBytes), 500))
+		fmt.Printf("\nComplete JSON (first 500 chars):\n%s...\n", observability.TruncateString(string(jsonBytes), 500))
 	}
 }
 
@@ -105,11 +106,4 @@ func exampleAIAdvanced() {
 		return
 	}
 	fmt.Println(resp.Content)
-}
-
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen]
 }
