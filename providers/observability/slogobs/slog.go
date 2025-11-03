@@ -103,8 +103,8 @@ func (s *slogSpan) End() {
 	for _, attr := range s.attrs {
 		logAttrs = append(logAttrs, slog.Any(attr.Key, attr.Value))
 	}
-	// Use Info level for span end to make it visible at INFO level
-	s.logger.LogAttrs(context.Background(), slog.LevelInfo, "Span ended", logAttrs...)
+	// Use Debug level for span end to reduce log verbosity
+	s.logger.LogAttrs(context.Background(), slog.LevelDebug, "Span ended", logAttrs...)
 }
 
 func (s *slogSpan) SetAttributes(attrs ...observability.Attribute) {

@@ -248,14 +248,10 @@ func (c *Client[T]) SendMessage(ctx context.Context, prompt string) (*ai.ChatRes
 		ctx = observability.ContextWithSpan(ctx, span)
 		ctx = observability.ContextWithObserver(ctx, c.observer)
 
-		// INFO: High-level operation starting
-		c.observer.Info(ctx, "Sending message to LLM",
+		// DEBUG: Operation starting with prompt
+		c.observer.Debug(ctx, "Sending message to LLM",
 			observability.String(observability.AttrLLMModel, c.defaultModel),
 			observability.Int(observability.AttrClientToolsCount, len(c.toolDescriptions)),
-		)
-
-		// DEBUG: Include truncated prompt content for debugging
-		c.observer.Debug(ctx, "Message content",
 			observability.String(observability.AttrClientPrompt, truncatedPrompt),
 		)
 	}
@@ -330,7 +326,7 @@ func (c *Client[T]) SendMessage(ctx context.Context, prompt string) (*ai.ChatRes
 
 	// Record success metrics and observability
 	if c.observer != nil {
-		// DEBUG: Detailed metrics
+		// Record metrics
 		c.observer.Histogram(observability.MetricClientRequestDuration).Record(ctx, duration.Seconds(),
 			observability.String(observability.AttrLLMModel, c.defaultModel),
 		)
@@ -340,6 +336,15 @@ func (c *Client[T]) SendMessage(ctx context.Context, prompt string) (*ai.ChatRes
 			observability.String(observability.AttrLLMModel, c.defaultModel),
 		)
 
+		// Prepare compact log attributes
+		logAttrs := []observability.Attribute{
+			observability.String(observability.AttrLLMModel, c.defaultModel),
+			observability.String(observability.AttrLLMFinishReason, response.FinishReason),
+			observability.Duration(observability.AttrDuration, duration),
+			observability.Int(observability.AttrClientToolCalls, len(response.ToolCalls)),
+		}
+
+		// Add token usage if available
 		if response.Usage != nil {
 			c.observer.Counter(observability.MetricClientTokensTotal).Add(ctx, int64(response.Usage.TotalTokens),
 				observability.String(observability.AttrLLMModel, c.defaultModel),
@@ -351,35 +356,39 @@ func (c *Client[T]) SendMessage(ctx context.Context, prompt string) (*ai.ChatRes
 				observability.String(observability.AttrLLMModel, c.defaultModel),
 			)
 
-			// Set span attributes for token usage
 			span.SetAttributes(
 				observability.Int(observability.AttrLLMTokensTotal, response.Usage.TotalTokens),
 				observability.Int(observability.AttrLLMTokensPrompt, response.Usage.PromptTokens),
 				observability.Int(observability.AttrLLMTokensCompletion, response.Usage.CompletionTokens),
 			)
 
-			// DEBUG: Token usage details
-			c.observer.Debug(ctx, "Token usage",
-				observability.Int(observability.AttrLLMTokensTotal, response.Usage.TotalTokens),
+			logAttrs = append(logAttrs,
 				observability.Int(observability.AttrLLMTokensPrompt, response.Usage.PromptTokens),
 				observability.Int(observability.AttrLLMTokensCompletion, response.Usage.CompletionTokens),
+				observability.Int(observability.AttrLLMTokensTotal, response.Usage.TotalTokens),
 			)
 		}
 
-		// INFO: Operation completed successfully with key summary info
-		c.observer.Info(ctx, "Message sent successfully",
-			observability.String(observability.AttrLLMModel, c.defaultModel),
-			observability.String(observability.AttrLLMFinishReason, response.FinishReason),
-			observability.Duration(observability.AttrDuration, duration),
-			observability.Int(observability.AttrClientToolCalls, len(response.ToolCalls)),
-		)
+		// Add tool call names if present
+		if len(response.ToolCalls) > 0 {
+			toolNames := make([]string, len(response.ToolCalls))
+			for i, tc := range response.ToolCalls {
+				toolNames[i] = tc.Function.Name
+			}
+			logAttrs = append(logAttrs,
+				observability.StringSlice("tool_calls", toolNames),
+			)
+		}
 
-		// DEBUG: Include truncated response content
+		// Add response content preview if present
 		if response.Content != "" {
-			c.observer.Debug(ctx, "Response content",
-				observability.String(observability.AttrResponseContent, observability.TruncateStringDefault(response.Content)),
+			logAttrs = append(logAttrs,
+				observability.String("response", observability.TruncateString(response.Content, 100)),
 			)
 		}
+
+		// Single INFO log with all information
+		c.observer.Info(ctx, "LLM call completed", logAttrs...)
 
 		span.SetStatus(observability.StatusOK, "Message sent successfully")
 	}

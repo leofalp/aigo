@@ -113,6 +113,11 @@ func Duration(key string, value time.Duration) Attribute {
 	return Attribute{Key: key, Value: value}
 }
 
+// StringSlice creates a string slice attribute
+func StringSlice(key string, value []string) Attribute {
+	return Attribute{Key: key, Value: value}
+}
+
 // Error creates an error attribute
 func Error(err error) Attribute {
 	if err == nil {
