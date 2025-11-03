@@ -83,10 +83,22 @@ func NewReactPattern[T any](baseClient *client.Client[T], opts ...Option) (*Reac
 	return rc, nil
 }
 
-// Execute runs the ReAct pattern loop:
-// 1. Send user prompt to LLM
-// 2. If LLM requests tool calls, execute them and add results to memory
-// 3. Repeat until LLM provides final answer or max iterations reached
+// Execute runs the ReAct (Reasoning + Acting) pattern loop:
+//
+// 1. First iteration: Send user prompt to LLM using SendMessage()
+// 2. LLM analyzes and decides if it needs tools to answer
+// 3. If LLM requests tool calls:
+//   - Execute each tool and append results to memory
+//   - Use ContinueConversation() to let LLM process tool results
+//   - LLM may request more tools or provide final answer
+//
+// 4. Repeat steps 3 until LLM provides final answer (no tool calls) or max iterations reached
+//
+// Key implementation detail:
+//   - First iteration uses SendMessage(ctx, prompt) to add user message
+//   - Subsequent iterations use ContinueConversation(ctx) to process tool results
+//     without adding new user messages
+//   - This maintains proper conversation flow: user → assistant+tools → tool results → assistant
 //
 // Returns the final response from the LLM after the reasoning loop completes.
 func (r *ReactPattern[T]) Execute(ctx context.Context, prompt string) (*ai.ChatResponse, error) {
@@ -132,17 +144,18 @@ func (r *ReactPattern[T]) Execute(ctx context.Context, prompt string) (*ai.ChatR
 			)
 		}
 
-		// Step 1: Send message to LLM (first iteration uses prompt, subsequent use empty string)
+		// Step 1: Send message to LLM
+		// First iteration: SendMessage adds user message to memory
+		// Subsequent iterations: ContinueConversation processes tool results without new user message
 		iterationStart := time.Now()
-		var message string
 		if iteration == 1 {
-			message = prompt
+			response, err = r.client.SendMessage(ctx, prompt)
 		} else {
-			// Empty message allows LLM to process tool results from reactMemory
-			message = ""
+			// Continue conversation to allow LLM to process tool results from reactMemory.
+			// ContinueConversation() sends all messages (including tool results) to the LLM
+			// without adding a new user message, maintaining proper conversation flow.
+			response, err = r.client.ContinueConversation(ctx)
 		}
-
-		response, err = r.client.SendMessage(ctx, message)
 		iterationDuration := time.Since(iterationStart)
 
 		if err != nil {

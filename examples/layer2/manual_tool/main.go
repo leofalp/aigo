@@ -17,11 +17,17 @@ import (
 
 func main() {
 	fmt.Println("=== Manual Tool Calling with Proper Message Linking ===")
-	fmt.Println("This example demonstrates the new Message structure with:")
-	fmt.Println("- ToolCallID: Links tool responses to their requests")
-	fmt.Println("- Name: Specifies which tool generated the response")
-	fmt.Println("- ToolCalls: Stores assistant's tool requests")
+	fmt.Println("This example demonstrates:")
+	fmt.Println("- How to manually execute tool calls from the LLM")
+	fmt.Println("- Using ContinueConversation() to process tool results")
+	fmt.Println("- Proper message linking with ToolCallID and Name fields")
 	fmt.Println("- Structured ToolResult for consistent error/success reporting")
+	fmt.Println()
+	fmt.Println("Key Pattern:")
+	fmt.Println("1. Send user message with SendMessage()")
+	fmt.Println("2. LLM responds with tool calls")
+	fmt.Println("3. Execute tools and append results to memory")
+	fmt.Println("4. Use ContinueConversation() to let LLM process results")
 	fmt.Println()
 
 	// Create memory provider
@@ -43,6 +49,7 @@ func main() {
 	fmt.Printf("User: %s\n\n", userPrompt)
 
 	// Step 1: Send message to LLM
+	// The LLM will analyze the question and decide if it needs to use tools
 	fmt.Println("--- Step 1: LLM Response ---")
 	resp, err := c.SendMessage(ctx, userPrompt)
 	if err != nil {
@@ -60,16 +67,21 @@ func main() {
 
 	// Step 3: Save assistant message WITH tool calls (NEW!)
 	fmt.Println("--- Step 2: Saving Assistant Message with ToolCalls ---")
+	// Important: Save the assistant's response including the tool calls
+	// This maintains the complete conversation history for proper context
 	assistantMsg := &ai.Message{
 		Role:      ai.RoleAssistant,
 		Content:   resp.Content,
-		ToolCalls: resp.ToolCalls, // ← NEW: Include tool calls
+		ToolCalls: resp.ToolCalls, // Include tool call requests
 	}
 	memory.AppendMessage(ctx, assistantMsg)
 	fmt.Printf("✓ Saved assistant message with %d tool call(s)\n\n", len(assistantMsg.ToolCalls))
 
 	// Step 4: Execute tools and add results with proper linking
 	fmt.Println("--- Step 3: Executing Tools with Proper Linking ---")
+	// For each tool call, execute it and save the result with:
+	// - ToolCallID: Links this result to the specific tool call
+	// - Name: Identifies which tool generated this result
 
 	toolCatalog := tool.NewCatalogWithTools(calculator.NewCalculatorTool())
 
@@ -91,12 +103,12 @@ func main() {
 			)
 			resultJSON, _ := toolResult.ToJSON()
 
-			// Add error to memory with proper linking (NEW!)
+			// Add error to memory with proper linking
 			memory.AppendMessage(ctx, &ai.Message{
 				Role:       ai.RoleTool,
 				Content:    resultJSON,
-				ToolCallID: toolCall.ID,            // ← NEW: Links to request
-				Name:       toolCall.Function.Name, // ← NEW: Tool name
+				ToolCallID: toolCall.ID,            // Links this response to the tool call request
+				Name:       toolCall.Function.Name, // Tool that generated this response
 			})
 			continue
 		}
@@ -110,31 +122,39 @@ func main() {
 			toolResult := ai.NewToolResultError("tool_execution_failed", err.Error())
 			resultJSON, _ := toolResult.ToJSON()
 
-			// Add error to memory with proper linking (NEW!)
+			// Add error to memory with proper linking
 			memory.AppendMessage(ctx, &ai.Message{
 				Role:       ai.RoleTool,
 				Content:    resultJSON,
-				ToolCallID: toolCall.ID,            // ← NEW: Links to request
-				Name:       toolCall.Function.Name, // ← NEW: Tool name
+				ToolCallID: toolCall.ID,            // Links this response to the tool call request
+				Name:       toolCall.Function.Name, // Tool that generated this response
 			})
 			continue
 		}
 
 		fmt.Printf("  ✓ Result:  %s\n\n", result)
 
-		// Add success result to memory with proper linking (NEW!)
+		// Add success result to memory with proper linking
 		memory.AppendMessage(ctx, &ai.Message{
 			Role:       ai.RoleTool,
 			Content:    result,
-			ToolCallID: toolCall.ID,            // ← NEW: Links to request
-			Name:       toolCall.Function.Name, // ← NEW: Tool name
+			ToolCallID: toolCall.ID,            // Links this response to the tool call request
+			Name:       toolCall.Function.Name, // Tool that generated this response
 		})
 	}
 
-	// Step 5: Send empty message to get final answer (continue conversation)
+	// Step 5: Continue conversation to get final answer
 	fmt.Println("--- Step 4: Getting Final Answer ---")
-	fmt.Println("(Sending empty message to continue conversation with tool results)")
-	finalResp, err := c.SendMessage(ctx, "")
+	fmt.Println("(Continuing conversation to process tool results)")
+	// ContinueConversation() sends all messages in memory to the LLM
+	// WITHOUT adding a new user message. This allows the LLM to process
+	// the tool results and generate a final answer.
+	//
+	// Key difference from SendMessage(""):
+	// - SendMessage("") would return an error
+	// - ContinueConversation() is explicit and validated
+	// - Only works with memory provider (stateful mode)
+	finalResp, err := c.ContinueConversation(ctx)
 	if err != nil {
 		log.Fatalf("Failed to get final response: %v", err)
 	}
@@ -188,13 +208,14 @@ func main() {
 	}
 
 	// Summary
-	fmt.Println("\n\n=== Summary ===")
+	fmt.Println("=== Summary ===")
 	fmt.Println("✓ Assistant message saved with ToolCalls field")
 	fmt.Println("✓ Tool responses linked via ToolCallID")
 	fmt.Println("✓ Tool names specified via Name field")
 	fmt.Println("✓ Errors returned as structured ToolResult")
 	fmt.Println("✓ Reasoning extracted from <think> tags (if present)")
-	fmt.Println("✓ Empty message continues conversation without adding user input")
+	fmt.Println("✓ ContinueConversation() explicitly continues without new user message")
+	fmt.Println("✓ SendMessage(\"\") now returns clear error suggesting ContinueConversation()")
 	fmt.Println("✓ Complete request-response traceability")
 	fmt.Println("\nThis enables:")
 	fmt.Println("- Proper conversation history replay")
