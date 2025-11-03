@@ -263,12 +263,16 @@ func (c *Client[T]) SendMessage(ctx context.Context, prompt string) (*ai.ChatRes
 	var messages []ai.Message
 	if c.memoryProvider != nil {
 		// Stateful mode: append to memory and use all messages
-		c.memoryProvider.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: prompt})
+		// Only append non-empty prompts (empty string means "continue conversation")
+		if prompt != "" {
+			c.memoryProvider.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: prompt})
+		}
 		messages = c.memoryProvider.AllMessages()
 
 		if c.observer != nil {
 			c.observer.Debug(ctx, "Using stateful mode with memory",
 				observability.Int(observability.AttrMemoryTotalMessages, len(messages)),
+				observability.Bool(observability.AttrClientContinuingConversation, prompt == ""),
 			)
 		}
 	} else {

@@ -195,11 +195,13 @@ func (r *ReactPattern[T]) Execute(ctx context.Context, prompt string) (*ai.ChatR
 			)
 		}
 
-		// Add assistant message to memory (with tool calls)
+		// Add assistant message to memory (with tool calls, reasoning, and refusal)
 		reactMemory.AppendMessage(ctx, &ai.Message{
 			Role:      ai.RoleAssistant,
 			Content:   response.Content,
 			ToolCalls: response.ToolCalls,
+			Reasoning: response.Reasoning,
+			Refusal:   response.Refusal,
 		})
 
 		toolsExecuted := 0

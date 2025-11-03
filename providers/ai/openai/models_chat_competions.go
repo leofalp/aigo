@@ -339,13 +339,23 @@ func chatCompletionToGeneric(resp chatCompletionResponse) *ai.ChatResponse {
 
 	choice := resp.Choices[0]
 
+	// Extract reasoning from <think> tags if present
+	content := choice.Message.Content
+	reasoning := extractReasoningFromThinkTags(content)
+
+	// Clean content from <think> tags
+	if reasoning != "" {
+		content = cleanThinkTags(content)
+	}
+
 	chatResp := &ai.ChatResponse{
 		Id:           resp.ID,
 		Model:        resp.Model,
 		Object:       resp.Object,
 		Created:      resp.Created,
-		Content:      choice.Message.Content,
+		Content:      content,
 		Refusal:      choice.Message.Refusal,
+		Reasoning:    reasoning,
 		FinishReason: choice.FinishReason,
 	}
 
@@ -576,4 +586,47 @@ func parseToolCallsJSON(jsonStr string) []ai.ToolCall {
 	}
 
 	return toolCalls
+}
+
+// extractReasoningFromThinkTags extracts reasoning content from <think>...</think> tags.
+// Some models (like DeepSeek) use these tags to show chain-of-thought reasoning.
+// Returns the extracted reasoning text, or empty string if no tags found.
+func extractReasoningFromThinkTags(content string) string {
+	startTag := "<think>"
+	endTag := "</think>"
+
+	start := strings.Index(content, startTag)
+	if start == -1 {
+		return ""
+	}
+
+	end := strings.Index(content, endTag)
+	if end == -1 || end <= start {
+		return ""
+	}
+
+	// Extract content between tags
+	reasoning := content[start+len(startTag) : end]
+	return strings.TrimSpace(reasoning)
+}
+
+// cleanThinkTags removes <think>...</think> tags and their content from the text.
+// This leaves only the final answer/response without the reasoning part.
+func cleanThinkTags(content string) string {
+	startTag := "<think>"
+	endTag := "</think>"
+
+	start := strings.Index(content, startTag)
+	if start == -1 {
+		return content
+	}
+
+	end := strings.Index(content, endTag)
+	if end == -1 || end <= start {
+		return content
+	}
+
+	// Remove everything from start tag to end tag (inclusive)
+	cleaned := content[:start] + content[end+len(endTag):]
+	return strings.TrimSpace(cleaned)
 }
