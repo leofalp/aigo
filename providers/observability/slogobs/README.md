@@ -4,31 +4,29 @@ A lightweight observability provider implementation using Go's standard library 
 
 ## Features
 
-- **Zero External Dependencies**: Uses only Go standard library
-- **Thread-Safe**: Safe for concurrent use
-- **Structured Logging**: Key-value pairs for easy parsing
-- **Multiple Formats**: Text or JSON output
-- **Level Filtering**: TRACE, DEBUG, INFO, WARN, ERROR
-- **In-Memory Metrics**: Thread-safe counters and histograms
+- **Zero external dependencies** - uses only Go's standard library
+- **Multiple output formats** - compact, pretty, and JSON formats
+- **Configurable log levels** - supports TRACE, DEBUG, INFO, WARN, ERROR via environment variables
+- **Environment-based configuration** - automatic setup via `AIGO_LOG_FORMAT` and `AIGO_LOG_LEVEL`
+- **Color support** - automatic TTY detection for colored output
+- **Metrics tracking** - in-memory counters and histograms
+- **Span tracing** - basic distributed tracing support
+- **Thread-safe** - safe for concurrent use
 
 ## Quick Start
+
+### Using Environment Variables (Recommended)
 
 ```go
 import (
     "aigo/core/client"
     "aigo/providers/ai/openai"
     "aigo/providers/observability/slogobs"
-    "log/slog"
-    "os"
 )
 
-// Create logger with desired level and format
-logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-    Level: slog.LevelInfo,
-}))
-
-// Create observer
-observer := slog.New(logger)
+// Uses AIGO_LOG_FORMAT and AIGO_LOG_LEVEL from environment
+// Defaults: format=compact, level=INFO
+observer := slogobs.New()
 
 // Use with client
 client, err := client.NewClient[string](
@@ -50,18 +48,20 @@ Use for:
 - Low-level protocol debugging
 
 Example output:
+**Example**:
 ```
-time=2025-11-02T17:28:57.310+01:00 level=DEBUG-4 msg="OpenAI provider preparing request" llm.provider=openai llm.endpoint=https://api.openai.com/v1 request.messages_count=3
-time=2025-11-02T17:28:57.310+01:00 level=DEBUG-4 msg="Using /v1/chat/completions endpoint" llm.endpoint=https://api.openai.com/v1/chat/completions
+2025-11-03 10:40:35 🔍 TRACE  Using /v1/chat/completions endpoint
+                   └─ llm.endpoint: https://api.openai.com/v1
 ```
 
-**Note**: TRACE uses `slog.LevelDebug-4`, which means you need to set your handler level to a lower value to see these logs:
+To see TRACE logs:
 
 ```go
 // To see TRACE logs
-logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-    Level: slog.LevelDebug - 4, // Enable TRACE
-}))
+observer := slogobs.New(
+    slogobs.WithFormat(slogobs.FormatPretty),
+    slogobs.WithLevel(slog.LevelDebug - 4), // Enable TRACE
+)
 ```
 
 ### DEBUG
@@ -117,34 +117,36 @@ time=2025-11-02T17:28:57.310+01:00 level=ERROR msg="Failed to send message to LL
 ## Output Formats
 
 ### Text Format
+### Development
 
-Human-readable format, great for development:
+For local development, use **compact** format with **DEBUG** level:
 
-```go
-logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-    Level: slog.LevelInfo,
-}))
+```bash
+export AIGO_LOG_FORMAT=compact
+export AIGO_LOG_LEVEL=DEBUG
 ```
 
-Output:
-```
-time=2025-11-02T17:28:57.310+01:00 level=INFO msg="Message sent" model=gpt-4 duration=1.234s
-```
+Or for maximum verbosity during debugging, use **pretty** format:
 
-### JSON Format
-
-Machine-readable format, ideal for production and log aggregation:
-
-```go
-logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-    Level: slog.LevelInfo,
-}))
+```bash
+export AIGO_LOG_FORMAT=pretty
+export AIGO_LOG_LEVEL=DEBUG
 ```
 
-Output:
-```json
-{"time":"2025-11-02T17:28:57.310+01:00","level":"INFO","msg":"Message sent","model":"gpt-4","duration":1.234}
+### Production
+
+For production deployments, use **JSON** format with **INFO** level:
+
+```bash
+export AIGO_LOG_FORMAT=json
+export AIGO_LOG_LEVEL=INFO
 ```
+
+This provides:
+- Structured logs for aggregation tools
+- Minimal verbosity
+- Easy parsing and filtering
+- No ANSI colors
 
 ## Metrics
 
@@ -224,74 +226,86 @@ All operations are thread-safe:
 ## Level Configuration
 
 ### Development
+### Development - Maximum Verbosity
 
-Show everything for debugging:
+Show everything including TRACE logs:
 
 ```go
-logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-    Level: slog.LevelDebug - 4, // Shows TRACE, DEBUG, INFO, WARN, ERROR
-}))
+observer := slogobs.New(
+    slogobs.WithFormat(slogobs.FormatPretty),
+    slogobs.WithLevel(slog.LevelDebug - 4), // TRACE level
+)
 ```
 
-### Production
-
-Show only important events:
-
-```go
-logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-    Level: slog.LevelInfo, // Shows INFO, WARN, ERROR only
-}))
+Or via environment:
+```bash
+export AIGO_LOG_FORMAT=pretty
+export AIGO_LOG_LEVEL=TRACE
 ```
 
-### Troubleshooting
+### Production - Minimal Output
 
-Enable DEBUG for more details:
+Show only important events in JSON format:
 
 ```go
-logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-    Level: slog.LevelDebug, // Shows DEBUG, INFO, WARN, ERROR
-}))
+observer := slogobs.New(
+    slogobs.WithFormat(slogobs.FormatJSON),
+    slogobs.WithLevel(slog.LevelInfo),
+)
+```
+
+Or via environment:
+```bash
+export AIGO_LOG_FORMAT=json
+export AIGO_LOG_LEVEL=INFO
+```
+
+### Staging - Balanced Approach
+
+Compact format with DEBUG level:
+
+```bash
+export AIGO_LOG_FORMAT=compact
+export AIGO_LOG_LEVEL=DEBUG
 ```
 
 ## Best Practices
 
-### 1. Use JSON in Production
+### Choose the Right Format
 
-JSON format is easier to parse, index, and query:
+- **Compact** - Default for development, single-line convenience with structured data
+- **Pretty** - Deep debugging sessions, maximum readability
+- **JSON** - Production environments, log aggregation tools (ELK, Splunk, etc.)
+
+### Color Support
+
+Colors are automatically enabled for TTY (terminal) output and disabled for pipes/files:
 
 ```go
-// Production
-logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-    Level: slog.LevelInfo,
-}))
+// Auto-detect (recommended)
+observer := slogobs.New(slogobs.WithFormat(slogobs.FormatCompact))
+
+// Force colors on/off
+observer := slogobs.New(
+    slogobs.WithFormat(slogobs.FormatCompact),
+    slogobs.WithColors(true),
+)
 ```
 
-### 2. Text for Development
-
-Text format is more readable during development:
+### Output Destination
 
 ```go
-// Development
-logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-    Level: slog.LevelDebug,
-}))
-```
+import "os"
 
-### 3. Level Selection
+// stdout - default, mixed with app output
+observer := slogobs.New(slogobs.WithOutput(os.Stdout))
 
-- **Production**: `LevelInfo` (or `LevelWarn` for high-volume systems)
-- **Staging**: `LevelDebug`
-- **Development**: `LevelDebug` or `LevelDebug-4` (TRACE)
-- **Troubleshooting**: Temporarily set to `LevelDebug` or `LevelDebug-4`
+// stderr - separate from app output (recommended for production)
+observer := slogobs.New(slogobs.WithOutput(os.Stderr))
 
-### 4. Output Destination
-
-Write to stderr in production to separate from application output:
-
-```go
-logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-    Level: slog.LevelInfo,
-}))
+// file - write to log file
+file, _ := os.OpenFile("app.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+observer := slogobs.New(slogobs.WithOutput(file))
 ```
 
 ### 5. Structured Fields
@@ -316,23 +330,27 @@ The slog provider works well with log aggregation systems:
 ### Elasticsearch / OpenSearch
 
 Use JSON handler and ship logs via Filebeat or Fluentd:
+### Containerized Environments
 
-```go
-file, _ := os.OpenFile("/var/log/aigo.json", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-logger := slog.New(slog.NewJSONHandler(file, &slog.HandlerOptions{
-    Level: slog.LevelInfo,
-}))
+Use JSON format with stdout - container runtime will capture and ship logs:
+
+```bash
+export AIGO_LOG_FORMAT=json
+export AIGO_LOG_LEVEL=INFO
 ```
 
-### CloudWatch / Datadog
-
-Use JSON handler with appropriate log shipping:
-
 ```go
-logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-    Level: slog.LevelInfo,
-}))
-// Logs are captured by container runtime and shipped
+// Logs written to stdout are captured by Docker/Kubernetes
+observer := slogobs.New() // Uses environment variables
+```
+
+### CI/CD Pipelines
+
+Use compact format for readable build logs:
+
+```bash
+export AIGO_LOG_FORMAT=compact
+export AIGO_LOG_LEVEL=INFO
 ```
 
 ## Limitations

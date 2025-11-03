@@ -14,11 +14,42 @@ type Observer struct {
 	metrics *metricsStore
 }
 
-// New creates a new slog-based observer
-func New(logger *slog.Logger) *Observer {
-	if logger == nil {
-		logger = slog.Default()
+// New creates a new slog-based observer with functional options.
+// If no options are provided, it uses environment variables for configuration
+// (AIGO_LOG_FORMAT and AIGO_LOG_LEVEL), defaulting to compact format and INFO level.
+//
+// Example usage:
+//
+//	// Use defaults from environment
+//	observer := slogobs.New()
+//
+//	// Explicit configuration
+//	observer := slogobs.New(
+//	    slogobs.WithFormat(slogobs.FormatCompact),
+//	    slogobs.WithLevel(slog.LevelDebug),
+//	)
+//
+//	// Use existing logger
+//	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+//	observer := slogobs.New(slogobs.WithLogger(logger))
+func New(opts ...Option) *Observer {
+	cfg := applyOptions(opts...)
+
+	var logger *slog.Logger
+	if cfg.logger != nil {
+		// Use provided logger
+		logger = cfg.logger
+	} else {
+		// Create custom handler with specified format
+		handler := NewHandler(&HandlerOptions{
+			Format: cfg.format,
+			Level:  cfg.level,
+			Output: cfg.output,
+			Colors: cfg.colors,
+		})
+		logger = slog.New(handler)
 	}
+
 	return &Observer{
 		logger:  logger,
 		metrics: newMetricsStore(),

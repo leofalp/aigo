@@ -16,22 +16,42 @@ func TestSlogObserver_Implements_Provider(t *testing.T) {
 }
 
 func TestSlogObserver_New(t *testing.T) {
-	obs := New(nil)
+	obs := New()
 	if obs == nil {
 		t.Fatal("New() returned nil")
 	}
 
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
-	obs = New(logger)
+	obs = New(WithLogger(logger))
 	if obs == nil {
 		t.Fatal("New() with custom logger returned nil")
+	}
+}
+
+func TestSlogObserver_NewWithOptions(t *testing.T) {
+	var buf bytes.Buffer
+	obs := New(
+		WithFormat(FormatCompact),
+		WithLevel(slog.LevelDebug),
+		WithOutput(&buf),
+	)
+	if obs == nil {
+		t.Fatal("New() with options returned nil")
+	}
+
+	// Test that it logs something
+	obs.Info(context.Background(), "test message", observability.String("key", "value"))
+
+	output := buf.String()
+	if !strings.Contains(output, "test message") {
+		t.Errorf("Expected log output to contain message, got: %s", output)
 	}
 }
 
 func TestSlogObserver_StartSpan(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 
 	ctx2, span := obs.StartSpan(ctx, "test-span",
@@ -58,7 +78,7 @@ func TestSlogObserver_StartSpan(t *testing.T) {
 func TestSlogObserver_Span_End(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 
 	_, span := obs.StartSpan(ctx, "test-span")
@@ -81,7 +101,7 @@ func TestSlogObserver_Span_End(t *testing.T) {
 func TestSlogObserver_Span_SetAttributes(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 
 	_, span := obs.StartSpan(ctx, "test-span")
@@ -105,7 +125,7 @@ func TestSlogObserver_Span_SetAttributes(t *testing.T) {
 func TestSlogObserver_Span_SetStatus(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 
 	_, span := obs.StartSpan(ctx, "test-span")
@@ -126,7 +146,7 @@ func TestSlogObserver_Span_SetStatus(t *testing.T) {
 func TestSlogObserver_Span_RecordError(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError}))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 
 	_, span := obs.StartSpan(ctx, "test-span")
@@ -145,7 +165,7 @@ func TestSlogObserver_Span_RecordError(t *testing.T) {
 func TestSlogObserver_Span_RecordError_Nil(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError}))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 
 	_, span := obs.StartSpan(ctx, "test-span")
@@ -160,7 +180,7 @@ func TestSlogObserver_Span_RecordError_Nil(t *testing.T) {
 func TestSlogObserver_Span_AddEvent(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 
 	_, span := obs.StartSpan(ctx, "test-span")
@@ -180,7 +200,7 @@ func TestSlogObserver_Span_AddEvent(t *testing.T) {
 func TestSlogObserver_Counter(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 
 	counter := obs.Counter("test-counter")
@@ -202,7 +222,7 @@ func TestSlogObserver_Counter(t *testing.T) {
 func TestSlogObserver_Counter_Accumulation(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 
 	counter := obs.Counter("test-counter")
@@ -218,7 +238,7 @@ func TestSlogObserver_Counter_Accumulation(t *testing.T) {
 }
 
 func TestSlogObserver_Counter_SameNameReturnsSameInstance(t *testing.T) {
-	obs := New(nil)
+	obs := New()
 	ctx := context.Background()
 
 	counter1 := obs.Counter("test-counter")
@@ -238,7 +258,7 @@ func TestSlogObserver_Counter_SameNameReturnsSameInstance(t *testing.T) {
 func TestSlogObserver_Histogram(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 
 	histogram := obs.Histogram("test-histogram")
@@ -263,7 +283,7 @@ func TestSlogObserver_Histogram(t *testing.T) {
 func TestSlogObserver_Logging_Debug(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 
 	obs.Debug(ctx, "debug message", observability.String("key", "value"))
@@ -280,7 +300,7 @@ func TestSlogObserver_Logging_Debug(t *testing.T) {
 func TestSlogObserver_Logging_Info(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 
 	obs.Info(ctx, "info message", observability.Int("count", 42))
@@ -297,7 +317,7 @@ func TestSlogObserver_Logging_Info(t *testing.T) {
 func TestSlogObserver_Logging_Warn(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 
 	obs.Warn(ctx, "warning message", observability.Bool("flag", true))
@@ -314,7 +334,7 @@ func TestSlogObserver_Logging_Warn(t *testing.T) {
 func TestSlogObserver_Logging_Error(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError}))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 
 	obs.Error(ctx, "error message", observability.Float64("value", 3.14))
@@ -332,7 +352,7 @@ func TestSlogObserver_Logging_FiltersByLevel(t *testing.T) {
 	var buf bytes.Buffer
 	// Set level to Info - Debug should be filtered out
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 
 	obs.Debug(ctx, "debug message")
@@ -350,7 +370,7 @@ func TestSlogObserver_Logging_FiltersByLevel(t *testing.T) {
 func TestSlogObserver_ConcurrentAccess(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 
 	done := make(chan bool)
@@ -386,7 +406,7 @@ func TestSlogObserver_ConcurrentAccess(t *testing.T) {
 
 func BenchmarkSlogObserver_StartSpan(b *testing.B) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 
 	b.ResetTimer()
@@ -398,7 +418,7 @@ func BenchmarkSlogObserver_StartSpan(b *testing.B) {
 
 func BenchmarkSlogObserver_Counter(b *testing.B) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 	counter := obs.Counter("test-counter")
 
@@ -410,7 +430,7 @@ func BenchmarkSlogObserver_Counter(b *testing.B) {
 
 func BenchmarkSlogObserver_Histogram(b *testing.B) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 	histogram := obs.Histogram("test-histogram")
 
@@ -422,7 +442,7 @@ func BenchmarkSlogObserver_Histogram(b *testing.B) {
 
 func BenchmarkSlogObserver_Logging(b *testing.B) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 
 	b.ResetTimer()
@@ -434,7 +454,7 @@ func BenchmarkSlogObserver_Logging(b *testing.B) {
 func TestSlogObserver_Span_Duration(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	obs := New(logger)
+	obs := New(WithLogger(logger))
 	ctx := context.Background()
 
 	_, span := obs.StartSpan(ctx, "timed-span")
