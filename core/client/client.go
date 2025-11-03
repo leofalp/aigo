@@ -267,6 +267,9 @@ func enrichSystemPromptWithOutputSchema[T any](basePrompt string) string {
 // 3. Records observability data
 // 4. Returns the raw response
 //
+// The prompt parameter must be non-empty. If you need to continue a conversation
+// without adding a new user message (e.g., after tool execution), use ContinueConversation() instead.
+//
 // If no memory provider is configured, the client operates in stateless mode,
 // sending only the current prompt as a single user message.
 //
@@ -279,6 +282,10 @@ func enrichSystemPromptWithOutputSchema[T any](basePrompt string) string {
 // Note: This method does NOT execute tool calls automatically.
 // Tool execution loops should be implemented as higher-level patterns.
 func (c *Client[T]) SendMessage(ctx context.Context, prompt string) (*ai.ChatResponse, error) {
+	// Validate prompt is non-empty
+	if prompt == "" {
+		return nil, errors.New("prompt cannot be empty; use ContinueConversation() to continue without adding a user message")
+	}
 	// Start tracing span (only if observer is set)
 	var span observability.Span
 	if c.observer != nil {
@@ -309,16 +316,12 @@ func (c *Client[T]) SendMessage(ctx context.Context, prompt string) (*ai.ChatRes
 	var messages []ai.Message
 	if c.memoryProvider != nil {
 		// Stateful mode: append to memory and use all messages
-		// Only append non-empty prompts (empty string means "continue conversation")
-		if prompt != "" {
-			c.memoryProvider.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: prompt})
-		}
+		c.memoryProvider.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: prompt})
 		messages = c.memoryProvider.AllMessages()
 
 		if c.observer != nil {
 			c.observer.Debug(ctx, "Using stateful mode with memory",
 				observability.Int(observability.AttrMemoryTotalMessages, len(messages)),
-				observability.Bool(observability.AttrClientContinuingConversation, prompt == ""),
 			)
 		}
 	} else {
@@ -442,6 +445,183 @@ func (c *Client[T]) SendMessage(ctx context.Context, prompt string) (*ai.ChatRes
 		c.observer.Info(ctx, "LLM call completed", logAttrs...)
 
 		span.SetStatus(observability.StatusOK, "Message sent successfully")
+	}
+
+	return c.responseParser(response)
+}
+
+// ContinueConversation continues the conversation without adding a new user message.
+// This is useful after tool execution to let the LLM process tool results that are
+// already in memory.
+//
+// This method only works in stateful mode (when a memory provider is configured).
+// It will return an error if called on a client without memory.
+//
+// Example usage in a tool execution loop:
+//
+//	// User asks a question
+//	resp1, _ := client.SendMessage(ctx, "What is 42 * 17?")
+//
+//	// LLM requests a tool call, execute it and add result to memory
+//	toolResult := executeTool(resp1.ToolCalls[0])
+//	client.Memory().AppendMessage(ctx, &ai.Message{
+//	    Role:       ai.RoleTool,
+//	    Content:    toolResult,
+//	    ToolCallID: resp1.ToolCalls[0].ID,
+//	    Name:       resp1.ToolCalls[0].Function.Name,
+//	})
+//
+//	// Continue conversation to let LLM process the tool result
+//	resp2, _ := client.ContinueConversation(ctx)
+//	// resp2 now contains the final answer using the tool result
+func (c *Client[T]) ContinueConversation(ctx context.Context) (*ai.ChatResponse, error) {
+	// Validate that memory provider is configured
+	if c.memoryProvider == nil {
+		return nil, errors.New("ContinueConversation requires a memory provider; create client with WithMemory() option")
+	}
+
+	// Start tracing span (only if observer is set)
+	var span observability.Span
+	if c.observer != nil {
+		ctx, span = c.observer.StartSpan(ctx, observability.SpanClientSendMessage,
+			observability.String(observability.AttrLLMModel, c.defaultModel),
+			observability.Bool(observability.AttrClientContinuingConversation, true),
+		)
+		defer span.End()
+
+		// Put span and observer in context for downstream propagation
+		ctx = observability.ContextWithSpan(ctx, span)
+		ctx = observability.ContextWithObserver(ctx, c.observer)
+
+		// DEBUG: Operation starting
+		c.observer.Debug(ctx, "Continuing conversation without new user message",
+			observability.String(observability.AttrLLMModel, c.defaultModel),
+			observability.Int(observability.AttrClientToolsCount, len(c.toolDescriptions)),
+		)
+	}
+
+	start := time.Now()
+
+	// Get all messages from memory
+	messages := c.memoryProvider.AllMessages()
+
+	if c.observer != nil {
+		c.observer.Debug(ctx, "Using stateful mode with memory",
+			observability.Int(observability.AttrMemoryTotalMessages, len(messages)),
+			observability.Bool(observability.AttrClientContinuingConversation, true),
+		)
+	}
+
+	// Build complete request with all configuration
+	request := ai.ChatRequest{
+		Model:        c.defaultModel,
+		Messages:     messages,
+		SystemPrompt: c.systemPrompt,
+		Tools:        c.toolDescriptions,
+	}
+
+	// Add response format if output schema is defined (for structured output)
+	if c.outputSchema != nil {
+		request.ResponseFormat = &ai.ResponseFormat{
+			Type:         "json_schema",
+			OutputSchema: c.outputSchema,
+		}
+	}
+
+	// Send to LLM provider
+	response, err := c.llmProvider.SendMessage(ctx, request)
+
+	duration := time.Since(start)
+
+	if err != nil {
+		if c.observer != nil {
+			span.RecordError(err)
+			span.SetStatus(observability.StatusError, "Failed to continue conversation")
+
+			// ERROR: Operation failed
+			c.observer.Error(ctx, "Failed to continue conversation with LLM",
+				observability.Error(err),
+				observability.Duration(observability.AttrDuration, duration),
+				observability.String(observability.AttrLLMModel, c.defaultModel),
+			)
+
+			// Metrics at DEBUG level
+			c.observer.Counter(observability.MetricClientRequestCount).Add(ctx, 1,
+				observability.String(observability.AttrStatus, "error"),
+				observability.String(observability.AttrLLMModel, c.defaultModel),
+			)
+		}
+
+		return nil, err
+	}
+
+	// Record success metrics and observability
+	if c.observer != nil {
+		// Record metrics
+		c.observer.Histogram(observability.MetricClientRequestDuration).Record(ctx, duration.Seconds(),
+			observability.String(observability.AttrLLMModel, c.defaultModel),
+		)
+
+		c.observer.Counter(observability.MetricClientRequestCount).Add(ctx, 1,
+			observability.String(observability.AttrStatus, "success"),
+			observability.String(observability.AttrLLMModel, c.defaultModel),
+		)
+
+		// Prepare compact log attributes
+		logAttrs := []observability.Attribute{
+			observability.String(observability.AttrLLMModel, c.defaultModel),
+			observability.String(observability.AttrLLMFinishReason, response.FinishReason),
+			observability.Duration(observability.AttrDuration, duration),
+			observability.Int(observability.AttrClientToolCalls, len(response.ToolCalls)),
+		}
+
+		// Add token usage if available
+		if response.Usage != nil {
+			c.observer.Counter(observability.MetricClientTokensTotal).Add(ctx, int64(response.Usage.TotalTokens),
+				observability.String(observability.AttrLLMModel, c.defaultModel),
+			)
+			c.observer.Counter(observability.MetricClientTokensPrompt).Add(ctx, int64(response.Usage.PromptTokens),
+				observability.String(observability.AttrLLMModel, c.defaultModel),
+			)
+			c.observer.Counter(observability.MetricClientTokensCompletion).Add(ctx, int64(response.Usage.CompletionTokens),
+				observability.String(observability.AttrLLMModel, c.defaultModel),
+			)
+
+			span.SetAttributes(
+				observability.Int(observability.AttrLLMTokensTotal, response.Usage.TotalTokens),
+				observability.Int(observability.AttrLLMTokensPrompt, response.Usage.PromptTokens),
+				observability.Int(observability.AttrLLMTokensCompletion, response.Usage.CompletionTokens),
+			)
+
+			logAttrs = append(logAttrs,
+				observability.Int(observability.AttrLLMTokensPrompt, response.Usage.PromptTokens),
+				observability.Int(observability.AttrLLMTokensCompletion, response.Usage.CompletionTokens),
+				observability.Int(observability.AttrLLMTokensTotal, response.Usage.TotalTokens),
+			)
+		}
+
+		// Add tool call names if present
+		if len(response.ToolCalls) > 0 {
+			toolNames := make([]string, len(response.ToolCalls))
+			for i, tc := range response.ToolCalls {
+				toolNames[i] = tc.Function.Name
+			}
+			logAttrs = append(logAttrs,
+				observability.StringSlice("tool_calls", toolNames),
+			)
+		}
+
+		// Add response content preview if present
+		if response.Content != "" {
+			logAttrs = append(logAttrs,
+				observability.String("response", observability.TruncateString(response.Content, 100)),
+			)
+		}
+
+		// Single INFO log with all information
+		c.observer.Info(ctx, "LLM call completed (continued conversation)", logAttrs...)
+
+		span.SetStatus(observability.StatusOK, "Conversation continued successfully")
 	}
 
 	return c.responseParser(response)
