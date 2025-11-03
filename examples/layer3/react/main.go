@@ -1,16 +1,17 @@
 package main
 
 import (
-	"aigo/core/client"
-	"aigo/patterns/react"
-	"aigo/providers/ai/openai"
-	"aigo/providers/memory/inmemory"
-	"aigo/providers/observability"
-	"aigo/providers/observability/slogobs"
-	"aigo/providers/tool/calculator"
 	"context"
 	"fmt"
 	"log"
+
+	"github.com/leofalp/aigo/core/client"
+	"github.com/leofalp/aigo/patterns/react"
+	"github.com/leofalp/aigo/providers/ai/openai"
+	"github.com/leofalp/aigo/providers/memory/inmemory"
+	"github.com/leofalp/aigo/providers/observability"
+	"github.com/leofalp/aigo/providers/observability/slogobs"
+	"github.com/leofalp/aigo/providers/tool/calculator"
 
 	_ "github.com/joho/godotenv/autoload"
 )
@@ -90,7 +91,7 @@ func main() {
 	messages := memory.AllMessages()
 	fmt.Printf("Total messages in memory: %d\n\n", len(messages))
 	for i, msg := range messages {
-		content := observability.TruncateString(msg.Content, 100)
+		content := observability.TruncateString(msg.Content, 5000)
 		fmt.Printf("%d. [%s] %s\n", i+1, msg.Role, content)
 	}
 }

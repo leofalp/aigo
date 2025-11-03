@@ -1,11 +1,12 @@
 package slogobs
 
 import (
-	"aigo/providers/observability"
 	"context"
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/leofalp/aigo/providers/observability"
 )
 
 // Observer implements observability.Provider using Go's standard library slog

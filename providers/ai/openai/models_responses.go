@@ -1,9 +1,10 @@
 package openai
 
 import (
-	"aigo/internal/jsonschema"
-	"aigo/providers/ai"
 	"encoding/json"
+
+	"github.com/leofalp/aigo/internal/jsonschema"
+	"github.com/leofalp/aigo/providers/ai"
 )
 
 /*

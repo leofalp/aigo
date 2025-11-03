@@ -1,9 +1,10 @@
 package inmemory
 
 import (
-	"aigo/providers/ai"
 	"context"
 	"testing"
+
+	"github.com/leofalp/aigo/providers/ai"
 )
 
 func TestArrayMemory_AppendAndAllMessages(t *testing.T) {

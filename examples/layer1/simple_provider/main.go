@@ -1,13 +1,14 @@
 package main
 
 import (
-	"aigo/internal/jsonschema"
-	"aigo/providers/ai"
-	"aigo/providers/ai/openai"
 	"context"
 	"fmt"
 	"log/slog"
 	"os"
+
+	"github.com/leofalp/aigo/internal/jsonschema"
+	"github.com/leofalp/aigo/providers/ai"
+	"github.com/leofalp/aigo/providers/ai/openai"
 
 	_ "github.com/joho/godotenv/autoload"
 )

@@ -1,7 +1,6 @@
 package slogobs
 
 import (
-	"aigo/providers/observability"
 	"bytes"
 	"context"
 	"errors"
@@ -9,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/leofalp/aigo/providers/observability"
 )
 
 func TestSlogObserver_Implements_Provider(t *testing.T) {

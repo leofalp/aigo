@@ -1,17 +1,18 @@
 package react
 
 import (
-	"aigo/core/client"
-	"aigo/providers/ai"
-	"aigo/providers/memory"
-	"aigo/providers/observability"
-	"aigo/providers/tool"
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 	"unsafe"
+
+	"github.com/leofalp/aigo/core/client"
+	"github.com/leofalp/aigo/providers/ai"
+	"github.com/leofalp/aigo/providers/memory"
+	"github.com/leofalp/aigo/providers/observability"
+	"github.com/leofalp/aigo/providers/tool"
 )
 
 // ReactPattern wraps a base client and adds ReAct pattern behavior:

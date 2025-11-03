@@ -1,8 +1,9 @@
 package memory
 
 import (
-	"aigo/providers/ai"
 	"context"
+
+	"github.com/leofalp/aigo/providers/ai"
 )
 
 // Provider defines memory operations for chat sessions and tool calls.

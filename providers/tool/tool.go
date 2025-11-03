@@ -1,12 +1,13 @@
 package tool
 
 import (
-	"aigo/internal/jsonschema"
-	"aigo/providers/ai"
-	"aigo/providers/observability"
 	"context"
 	"encoding/json"
 	"time"
+
+	"github.com/leofalp/aigo/internal/jsonschema"
+	"github.com/leofalp/aigo/providers/ai"
+	"github.com/leofalp/aigo/providers/observability"
 )
 
 type Tool[I, O any] struct {

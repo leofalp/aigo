@@ -1,17 +1,18 @@
 package main
 
 import (
-	"aigo/core/client"
-	"aigo/providers/ai"
-	"aigo/providers/ai/openai"
-	"aigo/providers/memory/inmemory"
-	"aigo/providers/observability"
-	"aigo/providers/tool"
-	"aigo/providers/tool/calculator"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+
+	"github.com/leofalp/aigo/core/client"
+	"github.com/leofalp/aigo/providers/ai"
+	"github.com/leofalp/aigo/providers/ai/openai"
+	"github.com/leofalp/aigo/providers/memory/inmemory"
+	"github.com/leofalp/aigo/providers/observability"
+	"github.com/leofalp/aigo/providers/tool"
+	"github.com/leofalp/aigo/providers/tool/calculator"
 
 	_ "github.com/joho/godotenv/autoload"
 )

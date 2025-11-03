@@ -1,10 +1,6 @@
 package client
 
 import (
-	"aigo/providers/ai"
-	"aigo/providers/memory/inmemory"
-	"aigo/providers/observability"
-	"aigo/providers/observability/slogobs"
 	"bytes"
 	"context"
 	"errors"
@@ -13,6 +9,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/leofalp/aigo/providers/ai"
+	"github.com/leofalp/aigo/providers/memory/inmemory"
+	"github.com/leofalp/aigo/providers/observability"
+	"github.com/leofalp/aigo/providers/observability/slogobs"
 )
 
 // mockProvider is a simple mock for testing observability integration

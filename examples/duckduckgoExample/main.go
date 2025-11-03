@@ -1,13 +1,14 @@
 package main
 
 import (
-	"aigo/core/client"
-	"aigo/providers/ai/openai"
-	"aigo/providers/observability"
-	"aigo/providers/tool/duckduckgo"
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/leofalp/aigo/core/client"
+	"github.com/leofalp/aigo/providers/ai/openai"
+	"github.com/leofalp/aigo/providers/observability"
+	"github.com/leofalp/aigo/providers/tool/duckduckgo"
 
 	_ "github.com/joho/godotenv/autoload"
 )
