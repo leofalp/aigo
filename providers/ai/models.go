@@ -2,6 +2,7 @@ package ai
 
 import (
 	"aigo/internal/jsonschema"
+	"encoding/json"
 )
 
 /*
@@ -28,10 +29,20 @@ type ToolDescription struct {
 
 // Message represents a single message in a conversation
 type Message struct {
-	// Common fields
+	// Core fields (always present)
 	Role    MessageRole `json:"role"`
 	Content string      `json:"content"`
-	// TODO support content types different than text in the future
+
+	// Tool calling fields
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // For role=assistant requesting tools
+	ToolCallID string     `json:"tool_call_id,omitempty"` // For role=tool, links to the tool call being responded to
+	Name       string     `json:"name,omitempty"`         // For role=tool, name of the tool that generated this response
+
+	// Extended fields
+	Refusal   string `json:"refusal,omitempty"`   // If model refuses to respond (safety/policy)
+	Reasoning string `json:"reasoning,omitempty"` // Chain-of-thought reasoning (o1/o3/gpt-5)
+
+	// TODO support content types different than text in the future (images, audio, etc.)
 }
 
 type GenerationConfig struct {
@@ -57,6 +68,10 @@ type Usage struct {
 	PromptTokens     int `json:"prompt_tokens,omitempty"`
 	CompletionTokens int `json:"completion_tokens,omitempty"`
 	TotalTokens      int `json:"total_tokens,omitempty"`
+
+	// Extended token metrics
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"` // Tokens used for reasoning (o1/o3/gpt-5)
+	CachedTokens    int `json:"cached_tokens,omitempty"`    // Cached prompt tokens
 }
 
 // ChatResponse represents the response from a chat completion
@@ -70,6 +85,10 @@ type ChatResponse struct {
 	FinishReason string     `json:"finish_reason,omitempty"`
 	Usage        *Usage     `json:"usage,omitempty"`
 
+	// Extended fields
+	Refusal   string `json:"refusal,omitempty"`   // If model refuses to respond (safety/policy)
+	Reasoning string `json:"reasoning,omitempty"` // Chain-of-thought reasoning (o1/o3/gpt-5)
+
 	// TODO observability and debugging
 	//HttpResponse *http.Response `json:"-"` // Raw HTTP response, if applicable
 }
@@ -80,13 +99,54 @@ type ChatResponse struct {
 
 // ToolCall represents a function/tool call request from the LLM
 type ToolCall struct {
-	Type     string           `json:"type"`
+	ID       string           `json:"id,omitempty"` // Unique identifier for this tool call
+	Type     string           `json:"type"`         // "function"
 	Function ToolCallFunction `json:"function"`
 }
 
 type ToolCallFunction struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"` // JSON string
+}
+
+// ToolResult represents a standardized tool execution result.
+// This structure provides consistent error handling and success reporting
+// for tool executions, making it easier for LLMs to understand outcomes.
+type ToolResult struct {
+	Success bool        `json:"success"`           // Whether the tool executed successfully
+	Error   string      `json:"error,omitempty"`   // Error type if success=false (e.g., "tool_not_found", "tool_execution_failed")
+	Message string      `json:"message,omitempty"` // Human-readable message or error description
+	Data    interface{} `json:"data,omitempty"`    // Actual result data if success=true
+}
+
+// NewToolResultSuccess creates a successful tool result.
+// The data parameter contains the actual result from the tool execution.
+func NewToolResultSuccess(data interface{}) ToolResult {
+	return ToolResult{
+		Success: true,
+		Data:    data,
+	}
+}
+
+// NewToolResultError creates a failed tool result with error details.
+// errorType should be a machine-readable error code (e.g., "tool_not_found", "tool_execution_failed")
+// message should be a human-readable description of what went wrong.
+func NewToolResultError(errorType, message string) ToolResult {
+	return ToolResult{
+		Success: false,
+		Error:   errorType,
+		Message: message,
+	}
+}
+
+// ToJSON converts the ToolResult to a JSON string.
+// Returns the JSON string and any marshaling error.
+func (tr ToolResult) ToJSON() (string, error) {
+	bytes, err := json.Marshal(tr)
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
 }
 
 // MessageRole represents the role of a message; compatible with string
