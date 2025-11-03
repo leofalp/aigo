@@ -5,6 +5,7 @@ import (
 	"aigo/providers/ai"
 	"aigo/providers/ai/openai"
 	"aigo/providers/memory/inmemory"
+	"aigo/providers/observability"
 	"aigo/providers/tool"
 	"aigo/providers/tool/calculator"
 	"context"
@@ -120,7 +121,7 @@ func main() {
 	fmt.Printf("\n=== Conversation History ===\n")
 	messages := memory.AllMessages()
 	for i, msg := range messages {
-		fmt.Printf("%d. [%s] %s\n", i+1, msg.Role, truncate(msg.Content, 100))
+		fmt.Printf("%d. [%s] %s\n", i+1, msg.Role, observability.TruncateString(msg.Content, 100))
 	}
 
 	// Summary
@@ -148,12 +149,4 @@ func formatToolResult(toolName string, result string) string {
 	}
 
 	return fmt.Sprintf("Tool '%s' returned:\n%s", toolName, string(formatted))
-}
-
-// truncate truncates a string to maxLen characters
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }
