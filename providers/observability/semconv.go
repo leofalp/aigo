@@ -129,6 +129,9 @@ const (
 
 	// AttrClientToolCalls is the number of tool calls in response
 	AttrClientToolCalls = "client.tool_calls"
+
+	// AttrClientContinuingConversation indicates if continuing a conversation in case of empty prompt
+	AttrClientContinuingConversation = "client.continuing_conversation"
 )
 
 // --- General Attributes ---
