@@ -1,4 +1,4 @@
-package slog
+package slogobs
 
 import (
 	"aigo/providers/observability"

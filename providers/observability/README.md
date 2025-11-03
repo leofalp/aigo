@@ -53,7 +53,7 @@ Uses Go's standard library `log/slog` for logging-based observability.
 
 ```go
 import (
-    "aigo/providers/observability/slog"
+    "aigo/providers/observability/slogobs"
     "log/slog"
     "os"
 )
@@ -61,7 +61,7 @@ import (
 logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
     Level: slog.LevelInfo,
 }))
-observer := slog.New(logger)
+observer := slogobs.New(logger)
 ```
 
 **Performance**: ~124ns for spans, ~22ns for metrics, ~558ns for logging
@@ -101,14 +101,14 @@ client := client.NewClient[string](
 import (
     "aigo/core/client"
     "aigo/providers/ai/openai"
-    "aigo/providers/observability/slog"
-    logslog "log/slog"
+    "aigo/providers/observability/slogobs"
+    "log/slog"
     "os"
 )
 
 // Create a logger
-logger := logslog.New(logslog.NewJSONHandler(os.Stdout, &logslog.HandlerOptions{
-    Level: logslog.LevelInfo,
+logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelInfo,
 }))
 
 // Create client with observability

@@ -5,12 +5,12 @@ import (
 	"aigo/patterns/react"
 	"aigo/providers/ai/openai"
 	"aigo/providers/memory/inmemory"
-	slogobservability "aigo/providers/observability/slog"
+	"aigo/providers/observability/slogobs"
 	"aigo/providers/tool/calculator"
 	"context"
 	"fmt"
 	"log"
-	logslog "log/slog"
+	"log/slog"
 	"os"
 
 	_ "github.com/joho/godotenv/autoload"
@@ -23,14 +23,14 @@ func main() {
 
 	// Create observability provider with configurable log level
 	// Set AIGO_LOG_LEVEL or LOG_LEVEL environment variable to: DEBUG, INFO, WARN, ERROR
-	logLevel := slogobservability.GetLogLevelFromEnv()
-	logger := logslog.New(logslog.NewTextHandler(os.Stdout, &logslog.HandlerOptions{
+	logLevel := slogobs.GetLogLevelFromEnv()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: logLevel,
 	}))
-	observer := slogobservability.New(logger)
+	observer := slogobs.New(logger)
 
 	fmt.Printf("Log Level: %s (set AIGO_LOG_LEVEL or LOG_LEVEL to change)\n\n",
-		slogobservability.LogLevelString(logLevel))
+		slogobs.LogLevelString(logLevel))
 
 	// Create memory provider
 	memory := inmemory.New()

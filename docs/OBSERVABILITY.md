@@ -34,17 +34,17 @@ client, err := client.NewClient[string](
 
 ```go
 import (
-    "aigo/providers/observability/slog"
-    logslog "log/slog"
+    "aigo/providers/observability/slogobs"
+	"log/slog"
 )
 
-logger := logslog.New(logslog.NewTextHandler(os.Stdout, &logslog.HandlerOptions{
-    Level: logslog.LevelInfo,
+logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelInfo,
 }))
 
 client, err := client.NewClient[string](
     openai.NewOpenAIProvider(),
-    client.WithObserver(slog.New(logger)),
+    client.WithObserver(slogobs.New(logger)),
 )
 ```
 
@@ -290,21 +290,21 @@ Uses Go's standard library `log/slog`:
 
 ```go
 import (
-    "aigo/providers/observability/slog"
-    logslog "log/slog"
+    "aigo/providers/observability/slogobs"
+    "log/slog"
 )
 
 // Text format
-logger := logslog.New(logslog.NewTextHandler(os.Stdout, &logslog.HandlerOptions{
-    Level: logslog.LevelInfo,
+logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelInfo,
 }))
 
 // JSON format
-logger := logslog.New(logslog.NewJSONHandler(os.Stdout, &logslog.HandlerOptions{
-    Level: logslog.LevelDebug,
+logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelDebug,
 }))
 
-observer := slog.New(logger)
+observer := slogobs.New(logger)
 ```
 
 **Features**:

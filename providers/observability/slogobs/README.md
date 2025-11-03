@@ -17,14 +17,14 @@ A lightweight observability provider implementation using Go's standard library 
 import (
     "aigo/core/client"
     "aigo/providers/ai/openai"
-    "aigo/providers/observability/slog"
-    logslog "log/slog"
+    "aigo/providers/observability/slogobs"
+    "log/slog"
     "os"
 )
 
 // Create logger with desired level and format
-logger := logslog.New(logslog.NewTextHandler(os.Stdout, &logslog.HandlerOptions{
-    Level: logslog.LevelInfo,
+logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelInfo,
 }))
 
 // Create observer
@@ -59,8 +59,8 @@ time=2025-11-02T17:28:57.310+01:00 level=DEBUG-4 msg="Using /v1/chat/completions
 
 ```go
 // To see TRACE logs
-logger := logslog.New(logslog.NewTextHandler(os.Stdout, &logslog.HandlerOptions{
-    Level: logslog.LevelDebug - 4, // Enable TRACE
+logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelDebug - 4, // Enable TRACE
 }))
 ```
 
@@ -121,8 +121,8 @@ time=2025-11-02T17:28:57.310+01:00 level=ERROR msg="Failed to send message to LL
 Human-readable format, great for development:
 
 ```go
-logger := logslog.New(logslog.NewTextHandler(os.Stdout, &logslog.HandlerOptions{
-    Level: logslog.LevelInfo,
+logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelInfo,
 }))
 ```
 
@@ -136,8 +136,8 @@ time=2025-11-02T17:28:57.310+01:00 level=INFO msg="Message sent" model=gpt-4 dur
 Machine-readable format, ideal for production and log aggregation:
 
 ```go
-logger := logslog.New(logslog.NewJSONHandler(os.Stdout, &logslog.HandlerOptions{
-    Level: logslog.LevelInfo,
+logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelInfo,
 }))
 ```
 
@@ -228,8 +228,8 @@ All operations are thread-safe:
 Show everything for debugging:
 
 ```go
-logger := logslog.New(logslog.NewTextHandler(os.Stdout, &logslog.HandlerOptions{
-    Level: logslog.LevelDebug - 4, // Shows TRACE, DEBUG, INFO, WARN, ERROR
+logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelDebug - 4, // Shows TRACE, DEBUG, INFO, WARN, ERROR
 }))
 ```
 
@@ -238,8 +238,8 @@ logger := logslog.New(logslog.NewTextHandler(os.Stdout, &logslog.HandlerOptions{
 Show only important events:
 
 ```go
-logger := logslog.New(logslog.NewJSONHandler(os.Stdout, &logslog.HandlerOptions{
-    Level: logslog.LevelInfo, // Shows INFO, WARN, ERROR only
+logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelInfo, // Shows INFO, WARN, ERROR only
 }))
 ```
 
@@ -248,8 +248,8 @@ logger := logslog.New(logslog.NewJSONHandler(os.Stdout, &logslog.HandlerOptions{
 Enable DEBUG for more details:
 
 ```go
-logger := logslog.New(logslog.NewJSONHandler(os.Stdout, &logslog.HandlerOptions{
-    Level: logslog.LevelDebug, // Shows DEBUG, INFO, WARN, ERROR
+logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelDebug, // Shows DEBUG, INFO, WARN, ERROR
 }))
 ```
 
@@ -261,8 +261,8 @@ JSON format is easier to parse, index, and query:
 
 ```go
 // Production
-logger := logslog.New(logslog.NewJSONHandler(os.Stdout, &logslog.HandlerOptions{
-    Level: logslog.LevelInfo,
+logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelInfo,
 }))
 ```
 
@@ -272,8 +272,8 @@ Text format is more readable during development:
 
 ```go
 // Development
-logger := logslog.New(logslog.NewTextHandler(os.Stdout, &logslog.HandlerOptions{
-    Level: logslog.LevelDebug,
+logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelDebug,
 }))
 ```
 
@@ -289,8 +289,8 @@ logger := logslog.New(logslog.NewTextHandler(os.Stdout, &logslog.HandlerOptions{
 Write to stderr in production to separate from application output:
 
 ```go
-logger := logslog.New(logslog.NewJSONHandler(os.Stderr, &logslog.HandlerOptions{
-    Level: logslog.LevelInfo,
+logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+    Level: slog.LevelInfo,
 }))
 ```
 
@@ -319,8 +319,8 @@ Use JSON handler and ship logs via Filebeat or Fluentd:
 
 ```go
 file, _ := os.OpenFile("/var/log/aigo.json", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-logger := logslog.New(logslog.NewJSONHandler(file, &logslog.HandlerOptions{
-    Level: logslog.LevelInfo,
+logger := slog.New(slog.NewJSONHandler(file, &slog.HandlerOptions{
+    Level: slog.LevelInfo,
 }))
 ```
 
@@ -329,8 +329,8 @@ logger := logslog.New(logslog.NewJSONHandler(file, &logslog.HandlerOptions{
 Use JSON handler with appropriate log shipping:
 
 ```go
-logger := logslog.New(logslog.NewJSONHandler(os.Stdout, &logslog.HandlerOptions{
-    Level: logslog.LevelInfo,
+logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelInfo,
 }))
 // Logs are captured by container runtime and shipped
 ```

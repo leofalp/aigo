@@ -4,11 +4,11 @@ import (
 	"aigo/core/client"
 	"aigo/providers/ai/openai"
 	"aigo/providers/memory/inmemory"
-	"aigo/providers/observability/slog"
+	"aigo/providers/observability/slogobs"
 	"context"
 	"fmt"
 	"log"
-	logslog "log/slog"
+	"log/slog"
 	"os"
 
 	_ "github.com/joho/godotenv/autoload"
@@ -22,7 +22,7 @@ func main() {
 	exampleNilObserver()
 
 	fmt.Println("\n--- Example 2: Slog Observability (Debug Level) ---")
-	exampleSlogObserverDebug()
+	exampleSlogObserverTrace()
 
 	fmt.Println("\n--- Example 3: Slog Observability (Info Level) ---")
 	exampleSlogObserverInfo()
@@ -51,16 +51,16 @@ func exampleNilObserver() {
 	fmt.Println("(No observability output - observer is nil)")
 }
 
-func exampleSlogObserverDebug() {
+func exampleSlogObserverTrace() {
 	// Create a debug-level logger
-	logger := logslog.New(logslog.NewTextHandler(os.Stdout, &logslog.HandlerOptions{
-		Level: logslog.LevelDebug,
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelDebug - 4,
 	}))
 
 	// Create client with slog observer
 	c, err := client.NewClient[string](
 		openai.NewOpenAIProvider(),
-		client.WithObserver(slog.New(logger)),
+		client.WithObserver(slogobs.New(logger)),
 		client.WithMemory(inmemory.New()),
 		client.WithSystemPrompt("You are a helpful assistant."),
 	)
@@ -79,14 +79,14 @@ func exampleSlogObserverDebug() {
 
 func exampleSlogObserverInfo() {
 	// Create an info-level logger (no debug traces)
-	logger := logslog.New(logslog.NewJSONHandler(os.Stdout, &logslog.HandlerOptions{
-		Level: logslog.LevelInfo,
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
 	}))
 
 	// Create client with slog observer
 	c, err := client.NewClient[string](
 		openai.NewOpenAIProvider(),
-		client.WithObserver(slog.New(logger)),
+		client.WithObserver(slogobs.New(logger)),
 		client.WithMemory(inmemory.New()),
 		client.WithSystemPrompt("You are a helpful assistant."),
 	)
@@ -106,17 +106,17 @@ func exampleSlogObserverInfo() {
 func exampleEnvBasedLogLevel() {
 	// Get log level from environment variable AIGO_LOG_LEVEL or LOG_LEVEL
 	// Supported values: DEBUG, INFO, WARN, ERROR (default: INFO)
-	logLevel := slog.GetLogLevelFromEnv()
-	fmt.Printf("Using log level from environment: %s\n", slog.LogLevelString(logLevel))
+	logLevel := slogobs.GetLogLevelFromEnv()
+	fmt.Printf("Using log level from environment: %s\n", slogobs.LogLevelString(logLevel))
 	fmt.Println("Set AIGO_LOG_LEVEL or LOG_LEVEL to: DEBUG, INFO, WARN, or ERROR")
 
-	logger := logslog.New(logslog.NewTextHandler(os.Stdout, &logslog.HandlerOptions{
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: logLevel,
 	}))
 
 	c, err := client.NewClient[string](
 		openai.NewOpenAIProvider(),
-		client.WithObserver(slog.New(logger)),
+		client.WithObserver(slogobs.New(logger)),
 		client.WithMemory(inmemory.New()),
 		client.WithSystemPrompt("You are a helpful assistant."),
 	)
