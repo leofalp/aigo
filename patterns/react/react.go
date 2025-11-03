@@ -89,18 +89,16 @@ func NewReactPattern[T any](baseClient *client.Client[T], opts ...Option) (*Reac
 //
 // Returns the final response from the LLM after the reasoning loop completes.
 func (r *ReactPattern[T]) Execute(ctx context.Context, prompt string) (*ai.ChatResponse, error) {
+	// Get memory and tool catalog from client
+	reactMemory := r.client.Memory()
+	toolCatalog := r.client.ToolCatalog()
+
+	// Start top-level ReAct span
 	observer := r.client.Observer()
 	if observer == nil {
 		observer = observability.ObserverFromContext(ctx)
 	}
-
 	var span observability.Span
-
-	// Get memory and tool catalog from client
-	memory := r.client.Memory()
-	toolCatalog := r.client.ToolCatalog()
-
-	// Start top-level ReAct span
 	if observer != nil {
 		ctx, span = observer.StartSpan(ctx, "react.execute",
 			observability.String("pattern", "react"),
@@ -139,7 +137,7 @@ func (r *ReactPattern[T]) Execute(ctx context.Context, prompt string) (*ai.ChatR
 		if iteration == 1 {
 			message = prompt
 		} else {
-			// Empty message allows LLM to process tool results from memory
+			// Empty message allows LLM to process tool results from reactMemory
 			message = ""
 		}
 
@@ -197,14 +195,15 @@ func (r *ReactPattern[T]) Execute(ctx context.Context, prompt string) (*ai.ChatR
 		}
 
 		// Add assistant message to memory (with tool calls)
-		memory.AppendMessage(ctx, &ai.Message{
-			Role:    ai.RoleAssistant,
-			Content: response.Content,
+		reactMemory.AppendMessage(ctx, &ai.Message{
+			Role:      ai.RoleAssistant,
+			Content:   response.Content,
+			ToolCalls: response.ToolCalls,
 		})
 
 		toolsExecuted := 0
 		for _, toolCall := range response.ToolCalls {
-			err := r.executeToolCall(ctx, observer, memory, toolCatalog, toolCall)
+			err := r.executeToolCall(ctx, observer, reactMemory, toolCatalog, toolCall)
 			if err != nil {
 				if r.stopOnError {
 					if observer != nil {
@@ -219,7 +218,7 @@ func (r *ReactPattern[T]) Execute(ctx context.Context, prompt string) (*ai.ChatR
 					return nil, fmt.Errorf("tool execution failed at iteration %d: %w", iteration, err)
 				}
 
-				// Continue with error message in memory
+				// Continue with error message in reactMemory
 				if observer != nil {
 					observer.Warn(ctx, "Tool execution failed, continuing",
 						observability.Error(err),
@@ -296,14 +295,19 @@ func (r *ReactPattern[T]) executeToolCall(
 			)
 		}
 
-		// Add error message to memory as plain text
-		errorMsg := fmt.Sprintf("Error: Tool '%s' not found. Available tools: %s",
-			toolCall.Function.Name,
-			strings.Join(getToolNames(toolCatalog), ", "),
+		// Add error as structured ToolResult to memory
+		toolResult := ai.NewToolResultError(
+			"tool_not_found",
+			fmt.Sprintf("Tool '%s' not found. Available tools: %s",
+				toolCall.Function.Name,
+				strings.Join(getToolNames(toolCatalog), ", ")),
 		)
+		resultJSON, _ := toolResult.ToJSON()
 		mem.AppendMessage(ctx, &ai.Message{
-			Role:    ai.RoleTool,
-			Content: errorMsg,
+			Role:       ai.RoleTool,
+			Content:    resultJSON,
+			ToolCallID: toolCall.ID,
+			Name:       toolCall.Function.Name,
 		})
 
 		return err
@@ -339,11 +343,14 @@ func (r *ReactPattern[T]) executeToolCall(
 			observer.Error(ctx, "Tool call failed", logAttrs...)
 		}
 
-		// Add error result to memory as plain text (not fake JSON)
-		errorMsg := fmt.Sprintf("Error executing tool '%s': %s", toolCall.Function.Name, err.Error())
+		// Add error as structured ToolResult to memory
+		toolResult := ai.NewToolResultError("tool_execution_failed", err.Error())
+		resultJSON, _ := toolResult.ToJSON()
 		mem.AppendMessage(ctx, &ai.Message{
-			Role:    ai.RoleTool,
-			Content: errorMsg,
+			Role:       ai.RoleTool,
+			Content:    resultJSON,
+			ToolCallID: toolCall.ID,
+			Name:       toolCall.Function.Name,
 		})
 
 		return err
@@ -351,8 +358,10 @@ func (r *ReactPattern[T]) executeToolCall(
 
 	// Add successful result to memory
 	mem.AppendMessage(ctx, &ai.Message{
-		Role:    ai.RoleTool,
-		Content: result,
+		Role:       ai.RoleTool,
+		Content:    result,
+		ToolCallID: toolCall.ID,
+		Name:       toolCall.Function.Name,
 	})
 
 	// Parse and add result as structured attributes if it's JSON

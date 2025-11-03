@@ -176,10 +176,35 @@ func requestToChatCompletion(request ai.ChatRequest, useLegacyFunctions bool) ch
 	}
 
 	for _, msg := range request.Messages {
-		req.Messages = append(req.Messages, chatMessage{
+		chatMsg := chatMessage{
 			Role:    string(msg.Role),
 			Content: msg.Content,
-		})
+		}
+
+		// Map tool-related fields
+		if len(msg.ToolCalls) > 0 {
+			// Convert ai.ToolCall to chatToolCall
+			for _, tc := range msg.ToolCalls {
+				chatMsg.ToolCalls = append(chatMsg.ToolCalls, chatToolCall{
+					ID:   tc.ID,
+					Type: tc.Type,
+					Function: chatToolCallFunction{
+						Name:      tc.Function.Name,
+						Arguments: tc.Function.Arguments,
+					},
+				})
+			}
+		}
+
+		// Map tool response fields
+		if msg.ToolCallID != "" {
+			chatMsg.ToolCallID = msg.ToolCallID
+		}
+		if msg.Name != "" {
+			chatMsg.Name = msg.Name
+		}
+
+		req.Messages = append(req.Messages, chatMsg)
 	}
 
 	// Map GenerationConfig
@@ -319,6 +344,7 @@ func chatCompletionToGeneric(resp chatCompletionResponse) *ai.ChatResponse {
 		Object:       resp.Object,
 		Created:      resp.Created,
 		Content:      choice.Message.Content,
+		Refusal:      choice.Message.Refusal,
 		FinishReason: choice.FinishReason,
 	}
 
@@ -326,6 +352,7 @@ func chatCompletionToGeneric(resp chatCompletionResponse) *ai.ChatResponse {
 	if len(choice.Message.ToolCalls) > 0 {
 		for _, tc := range choice.Message.ToolCalls {
 			chatResp.ToolCalls = append(chatResp.ToolCalls, ai.ToolCall{
+				ID:   tc.ID,
 				Type: tc.Type,
 				Function: ai.ToolCallFunction{
 					Name:      tc.Function.Name,
@@ -348,11 +375,21 @@ func chatCompletionToGeneric(resp chatCompletionResponse) *ai.ChatResponse {
 
 	// Map usage
 	if resp.Usage != nil {
-		chatResp.Usage = &ai.Usage{
+		usage := &ai.Usage{
 			PromptTokens:     resp.Usage.PromptTokens,
 			CompletionTokens: resp.Usage.CompletionTokens,
 			TotalTokens:      resp.Usage.TotalTokens,
 		}
+
+		// Map extended token metrics
+		if resp.Usage.CompletionTokensDetails != nil {
+			usage.ReasoningTokens = resp.Usage.CompletionTokensDetails.ReasoningTokens
+		}
+		if resp.Usage.PromptTokensDetails != nil {
+			usage.CachedTokens = resp.Usage.PromptTokensDetails.CachedTokens
+		}
+
+		chatResp.Usage = usage
 	}
 
 	return chatResp
@@ -491,6 +528,7 @@ func parseToolCallsJSON(jsonStr string) []ai.ToolCall {
 			}
 
 			toolCalls = append(toolCalls, ai.ToolCall{
+				ID:   "", // Parsed tool calls don't have IDs
 				Type: "function",
 				Function: ai.ToolCallFunction{
 					Name:      call.Name,
@@ -524,6 +562,7 @@ func parseToolCallsJSON(jsonStr string) []ai.ToolCall {
 						argsStr = "{}"
 					}
 					toolCalls = append(toolCalls, ai.ToolCall{
+						ID:   "", // Parsed tool calls don't have IDs
 						Type: "function",
 						Function: ai.ToolCallFunction{
 							Name:      call.Name,
