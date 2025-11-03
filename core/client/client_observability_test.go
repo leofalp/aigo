@@ -4,11 +4,11 @@ import (
 	"aigo/providers/ai"
 	"aigo/providers/memory/inmemory"
 	"aigo/providers/observability"
-	"aigo/providers/observability/slog"
+	"aigo/providers/observability/slogobs"
 	"bytes"
 	"context"
 	"errors"
-	logslog "log/slog"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -68,8 +68,8 @@ func TestClient_DefaultNilObserver(t *testing.T) {
 func TestClient_WithObserver(t *testing.T) {
 	provider := &mockProvider{}
 	var buf bytes.Buffer
-	logger := logslog.New(logslog.NewTextHandler(&buf, &logslog.HandlerOptions{Level: logslog.LevelDebug}))
-	observer := slog.New(logger)
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	observer := slogobs.New(logger)
 
 	client, err := NewClient[string](provider, WithObserver(observer))
 	if err != nil {
@@ -84,8 +84,8 @@ func TestClient_WithObserver(t *testing.T) {
 func TestClient_SendMessage_ObservabilityTracing(t *testing.T) {
 	provider := &mockProvider{}
 	var buf bytes.Buffer
-	logger := logslog.New(logslog.NewTextHandler(&buf, &logslog.HandlerOptions{Level: logslog.LevelDebug}))
-	observer := slog.New(logger)
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	observer := slogobs.New(logger)
 
 	client, err := NewClient[string](provider,
 		WithObserver(observer),
@@ -120,8 +120,8 @@ func TestClient_SendMessage_ObservabilityTracing(t *testing.T) {
 func TestClient_SendMessage_ObservabilityLogging(t *testing.T) {
 	provider := &mockProvider{}
 	var buf bytes.Buffer
-	logger := logslog.New(logslog.NewTextHandler(&buf, &logslog.HandlerOptions{Level: logslog.LevelInfo}))
-	observer := slog.New(logger)
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	observer := slogobs.New(logger)
 
 	client, err := NewClient[string](provider,
 		WithObserver(observer),
@@ -150,8 +150,8 @@ func TestClient_SendMessage_ObservabilityLogging(t *testing.T) {
 func TestClient_SendMessage_ObservabilityMetrics(t *testing.T) {
 	provider := &mockProvider{}
 	var buf bytes.Buffer
-	logger := logslog.New(logslog.NewTextHandler(&buf, &logslog.HandlerOptions{Level: logslog.LevelDebug}))
-	observer := slog.New(logger)
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	observer := slogobs.New(logger)
 
 	client, err := NewClient[string](provider,
 		WithObserver(observer),
@@ -195,8 +195,8 @@ func TestClient_SendMessage_ErrorObservability(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	logger := logslog.New(logslog.NewTextHandler(&buf, &logslog.HandlerOptions{Level: logslog.LevelError}))
-	observer := slog.New(logger)
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError}))
+	observer := slogobs.New(logger)
 
 	client, err := NewClient[string](provider,
 		WithObserver(observer),
@@ -243,8 +243,8 @@ func TestClient_SendMessage_TokenMetrics(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	logger := logslog.New(logslog.NewTextHandler(&buf, &logslog.HandlerOptions{Level: logslog.LevelDebug}))
-	observer := slog.New(logger)
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	observer := slogobs.New(logger)
 
 	client, err := NewClient[string](provider,
 		WithObserver(observer),
@@ -304,8 +304,8 @@ func TestClient_SendMessage_NoopObserverPerformance(t *testing.T) {
 func TestClient_MultipleRequests_CounterAccumulation(t *testing.T) {
 	provider := &mockProvider{}
 	var buf bytes.Buffer
-	logger := logslog.New(logslog.NewTextHandler(&buf, &logslog.HandlerOptions{Level: logslog.LevelDebug}))
-	observer := slog.New(logger)
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	observer := slogobs.New(logger)
 
 	client, err := NewClient[string](provider,
 		WithObserver(observer),
@@ -335,8 +335,8 @@ func TestClient_MultipleRequests_CounterAccumulation(t *testing.T) {
 func TestClient_SendMessage_SpanAttributes(t *testing.T) {
 	provider := &mockProvider{}
 	var buf bytes.Buffer
-	logger := logslog.New(logslog.NewTextHandler(&buf, &logslog.HandlerOptions{Level: logslog.LevelDebug}))
-	observer := slog.New(logger)
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	observer := slogobs.New(logger)
 
 	client, err := NewClient[string](provider,
 		WithObserver(observer),
@@ -665,8 +665,8 @@ func TestClient_StatefulMode_AccumulatesHistory(t *testing.T) {
 func TestClient_StatelessMode_WithObserver(t *testing.T) {
 	provider := &mockProvider{}
 	var buf bytes.Buffer
-	logger := logslog.New(logslog.NewTextHandler(&buf, &logslog.HandlerOptions{Level: logslog.LevelDebug}))
-	observer := slog.New(logger)
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	observer := slogobs.New(logger)
 
 	// Create stateless client with observer
 	client, err := NewClient[string](provider,

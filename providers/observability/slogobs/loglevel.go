@@ -1,4 +1,4 @@
-package slog
+package slogobs
 
 import (
 	"fmt"
@@ -28,6 +28,8 @@ func GetLogLevelFromEnv() slog.Level {
 // Returns INFO for unknown values and prints a warning to stderr.
 func ParseLogLevel(level string) slog.Level {
 	switch strings.ToUpper(strings.TrimSpace(level)) {
+	case "TRACE":
+		return slog.LevelDebug - 4 // No TRACE level in slog, map to DEBUG-4
 	case "DEBUG":
 		return slog.LevelDebug
 	case "INFO":
@@ -37,7 +39,7 @@ func ParseLogLevel(level string) slog.Level {
 	case "ERROR":
 		return slog.LevelError
 	default:
-		fmt.Fprintf(os.Stderr, "Warning: Unknown log level '%s', using INFO\n", level)
+		_, _ = fmt.Fprintf(os.Stderr, "Warning: Unknown log level '%s', using INFO\n", level)
 		return slog.LevelInfo
 	}
 }
@@ -45,6 +47,8 @@ func ParseLogLevel(level string) slog.Level {
 // LogLevelString returns a human-readable string for the log level.
 func LogLevelString(level slog.Level) string {
 	switch level {
+	case slog.LevelDebug - 4:
+		return "TRACE"
 	case slog.LevelDebug:
 		return "DEBUG"
 	case slog.LevelInfo:
