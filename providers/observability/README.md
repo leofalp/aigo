@@ -1,582 +1,353 @@
 # Observability
 
-The observability package provides a comprehensive system for monitoring AI applications through **tracing**, **metrics**, and **logging**. It follows aigo's layered architecture with pluggable implementations and zero overhead by default.
-
-## Philosophy
-
-- **No lock-in**: Generic interface with pluggable implementations
-- **Zero overhead by default**: Observer is `nil` if not specified (literally zero cost)
-- **Thread-safe**: All implementations are safe for concurrent use
-- **Composable**: Works seamlessly across all layers
-- **Context-based propagation**: Spans flow through layers via `context.Context`
-
-## Table of Contents
-
-- [The Three Pillars](#the-three-pillars)
-- [Available Implementations](#available-implementations)
-- [Quick Start](#quick-start)
-- [Span Propagation Pattern](#span-propagation-pattern)
-- [Semantic Conventions](#semantic-conventions)
-- [Standard Metrics & Spans](#standard-metrics--spans)
-- [Usage Examples](#usage-examples)
-- [Best Practices](#best-practices)
-- [Performance](#performance)
-- [Testing](#testing)
-
-## The Three Pillars
-
-### 1. Tracing (Distributed Tracing)
-Track execution flow and performance with spans:
-- Start/end spans to measure operation duration
-- Add attributes for context (model, tokens, etc.)
-- Record errors and events
-- Nest spans for hierarchical tracing
-- **Propagate spans via context** for fine-grained visibility
-
-### 2. Metrics (Counters & Histograms)
-Collect quantitative data about your application:
-- **Counters**: Monotonically increasing values (request count, token usage)
-- **Histograms**: Distribution of values (latencies, response sizes)
-
-### 3. Logging (Structured Logging)
-Emit structured log messages at different levels:
-- Debug, Info, Warn, Error levels
-- Attach key-value attributes for context
-- Context-aware (can include trace IDs, etc.)
-
-## Available Implementations
-
-### 1. Slog Observer
-**Location**: `providers/observability/slog`
-
-Uses Go's standard library `log/slog` for logging-based observability.
-
-```go
-import (
-    "aigo/providers/observability/slogobs"
-    "log/slog"
-    "os"
-)
-
-logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-    Level: slog.LevelInfo,
-}))
-observer := slogobs.New(logger)
-```
-
-**Performance**: ~124ns for spans, ~22ns for metrics, ~558ns for logging
-
-**Features**:
-- Uses standard library (no external dependencies)
-- Thread-safe metric storage
-- Respects log levels
-- JSON or text output formats
-
-### 2. OpenTelemetry Observer (Future)
-**Location**: `providers/observability/otel` (not yet implemented)
-
-Full OpenTelemetry integration for enterprise observability with exporters to Jaeger, Prometheus, DataDog, etc.
+AIGO provides a comprehensive, lightweight observability system supporting tracing, metrics, and structured logging. The system is **optional** (zero overhead when disabled), **provider-agnostic**, and **OpenTelemetry-compatible**.
 
 ## Quick Start
 
-### No Observability (Default - Zero Overhead)
+### No Observability (Default)
 
 ```go
-import (
-    "aigo/core/client"
-    "aigo/providers/ai/openai"
-)
-
-// Default behavior - nil observer (zero overhead)
-client := client.NewClient[string](
+client, err := client.NewClient[string](
     openai.NewOpenAIProvider(),
-    client.WithDefaultModel("gpt-4"),
 )
-// client.observer is nil - no observability overhead at all
+// Zero overhead - no observability
 ```
 
 ### With Slog Observer
 
 ```go
 import (
-    "aigo/core/client"
-    "aigo/providers/ai/openai"
     "aigo/providers/observability/slogobs"
     "log/slog"
-    "os"
 )
 
-// Create a logger
-logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-    Level: slog.LevelInfo,
-}))
+observer := slogobs.New(
+    slogobs.WithFormat(slogobs.FormatCompact),
+    slogobs.WithLevel(slog.LevelInfo),
+)
 
-// Create client with observability
-client := client.NewClient[string](
+client, err := client.NewClient[string](
     openai.NewOpenAIProvider(),
-    client.WithDefaultModel("gpt-4"),
-    client.WithObserver(slog.New(logger)),
+    client.WithObserver(observer),
+)
+```
+
+## The Three Pillars
+
+### 1. Tracing (Distributed Tracing)
+
+Track request flow across components with spans:
+
+```go
+ctx, span := observer.StartSpan(ctx, "operation")
+defer span.End()
+
+span.SetAttributes(observability.String("key", "value"))
+span.AddEvent("checkpoint")
+```
+
+### 2. Metrics (Counters & Histograms)
+
+Track quantitative data:
+
+```go
+observer.Counter("requests").Add(ctx, 1)
+observer.Histogram("duration").Record(ctx, 1.234)
+```
+
+### 3. Logging (Structured Logging)
+
+Emit structured log messages at different levels:
+
+```go
+observer.Trace(ctx, "Protocol details", attrs...)  // Very verbose
+observer.Debug(ctx, "Debug info", attrs...)         // Technical details
+observer.Info(ctx, "Operation status", attrs...)    // High-level events
+observer.Warn(ctx, "Warning", attrs...)             // Issues
+observer.Error(ctx, "Error occurred", attrs...)     // Failures
+```
+
+## Logging Levels
+
+| Level | Purpose | Use Cases | When to Enable |
+|-------|---------|-----------|----------------|
+| **TRACE** | Protocol/transport details | HTTP requests, raw payloads, network timing | Network debugging, API inspection |
+| **DEBUG** | Technical debugging | Span events, memory ops, token usage, message content | Application debugging, flow analysis |
+| **INFO** | Operational summaries | Start/completion, status, key metrics | Production monitoring, audit trails |
+| **WARN/ERROR** | Problems | API errors, timeouts, failures | Always (production error tracking) |
+
+## Available Implementations
+
+### Slog Observer
+
+Built-in implementation using Go's `log/slog`:
+
+```go
+import "aigo/providers/observability/slogobs"
+
+// Three output formats:
+// - FormatCompact: Single line with JSON (default)
+// - FormatPretty:  Multi-line with emoji and tree
+// - FormatJSON:    Standard JSON for log aggregation
+
+observer := slogobs.New(
+    slogobs.WithFormat(slogobs.FormatCompact),
+    slogobs.WithLevel(slog.LevelInfo),
 )
 
-resp, err := client.SendMessage("Hello!")
+// Or use environment variables:
+// AIGO_LOG_FORMAT=compact|pretty|json
+// AIGO_LOG_LEVEL=TRACE|DEBUG|INFO|WARN|ERROR
+observer := slogobs.New()
 ```
+
+**Features**:
+- Zero external dependencies
+- Three output formats
+- Environment-based configuration
+- Auto-detected TTY colors
+- Thread-safe
+
+See `providers/observability/slogobs/` for detailed documentation.
+
+### OpenTelemetry Observer (Future)
+
+Native OpenTelemetry support planned.
 
 ## Span Propagation Pattern
 
-### Overview
-
-The span propagation pattern allows **Layer 1 components** (providers, tools, memory) to enrich observability spans created in **Layer 2** (core client) without creating tight coupling or breaking architectural boundaries.
-
 ### How It Works
 
-```
-┌─────────────────────────────────────────────────┐
-│ Layer 2: Client (core/client)                  │
-│ 1. Creates span                                 │
-│ 2. Puts span in context                         │
-│ 3. Passes context to Layer 1                    │
-└─────────────────────────────────────────────────┘
-                    ↓ ctx with span
-┌─────────────────────────────────────────────────┐
-│ Layer 1: Provider/Tool/Memory                   │
-│ 1. Extracts span from context                   │
-│ 2. Enriches span with component-specific details│
-│ 3. No dependency on observer!                   │
-└─────────────────────────────────────────────────┘
-```
+1. **Layer 2 (Client)** creates a root span:
+   ```go
+   ctx, span := observer.StartSpan(ctx, "client.send_message")
+   defer span.End()
+   ```
+
+2. **Layer 1 (Providers)** retrieve and enrich the span:
+   ```go
+   span := observability.SpanFromContext(ctx)
+   if span != nil {
+       span.SetAttributes(observability.String("llm.model", "gpt-4"))
+       span.AddEvent("llm.request.start")
+   }
+   ```
+
+3. **Context propagates** through the call stack, allowing all components to contribute.
 
 ### Key Principles
 
-1. **Context is the carrier**: Span travels via `context.Context`
-2. **Graceful degradation**: If no span in context, operations continue normally
-3. **No tight coupling**: Layer 1 doesn't depend on observability package
-4. **Standard Go pattern**: Same approach used by OpenTelemetry
+- **Single span per operation** - Client creates, providers enrich
+- **Context-based propagation** - Span travels via `context.Context`
+- **Nil-safe** - Always check `if span != nil`
+- **Async-safe** - Spans are goroutine-safe
 
 ### Context Helpers
 
 ```go
-// Put span in context (Layer 2)
+// Store span in context
 ctx = observability.ContextWithSpan(ctx, span)
 
-// Extract span from context (Layer 1)
-span := observability.SpanFromContext(ctx)  // returns nil if not present
+// Retrieve span from context
+span := observability.SpanFromContext(ctx)
+
+// Store observer in context
+ctx = observability.ContextWithObserver(ctx, observer)
 ```
 
 ## Semantic Conventions
 
-Use standardized attribute names for consistency:
+All attributes follow standardized conventions (`providers/observability/semconv.go`):
 
 ### LLM Attributes
-
-```go
-observability.AttrLLMProvider      // "llm.provider"
-observability.AttrLLMModel          // "llm.model"
-observability.AttrLLMEndpoint       // "llm.endpoint"
-observability.AttrLLMEndpointType   // "llm.endpoint.type"
-observability.AttrLLMRequestID      // "llm.request.id"
-observability.AttrLLMResponseID     // "llm.response.id"
-observability.AttrLLMFinishReason   // "llm.finish_reason"
-observability.AttrLLMTemperature    // "llm.temperature"
-observability.AttrLLMMaxTokens      // "llm.max_tokens"
-```
+- `llm.provider` - Provider name (openai, anthropic)
+- `llm.model` - Model identifier (gpt-4)
+- `llm.endpoint` - API endpoint URL
+- `llm.finish_reason` - Why generation stopped
 
 ### Token Attributes
-
-```go
-observability.AttrLLMTokensPrompt     // "llm.tokens.prompt"
-observability.AttrLLMTokensCompletion // "llm.tokens.completion"
-observability.AttrLLMTokensTotal      // "llm.tokens.total"
-```
-
-### Tool Attributes
-
-```go
-observability.AttrToolName        // "tool.name"
-observability.AttrToolDescription // "tool.description"
-observability.AttrToolInput       // "tool.input"
-observability.AttrToolOutput      // "tool.output"
-observability.AttrToolDuration    // "tool.duration"
-observability.AttrToolError       // "tool.error"
-```
+- `llm.tokens.total` - Total tokens used
+- `llm.tokens.prompt` - Input tokens
+- `llm.tokens.completion` - Output tokens
 
 ### HTTP Attributes
+- `http.method` - HTTP method
+- `http.status_code` - Response status
+- `http.request.body.size` - Request size
+- `http.response.body.size` - Response size
 
-```go
-observability.AttrHTTPMethod          // "http.method"
-observability.AttrHTTPStatusCode      // "http.status_code"
-observability.AttrHTTPURL             // "http.url"
-observability.AttrHTTPRequestBodySize // "http.request.body.size"
-observability.AttrHTTPResponseBodySize// "http.response.body.size"
-```
-
-### Memory Attributes
-
-```go
-observability.AttrMemoryMessageRole    // "memory.message.role"
-observability.AttrMemoryMessageLength  // "memory.message.length"
-observability.AttrMemoryTotalMessages  // "memory.total_messages"
-```
-
-### Client Attributes
-
-```go
-observability.AttrClientPrompt      // "client.prompt"
-observability.AttrClientToolsCount  // "client.tools_count"
-observability.AttrClientToolCalls   // "client.tool_calls"
-```
-
-### General Attributes
-
-```go
-observability.AttrError             // "error"
-observability.AttrErrorType         // "error.type"
-observability.AttrDuration          // "duration"
-observability.AttrStatus            // "status"
-observability.AttrStatusDescription // "status_description"
-```
+### Memory/Client Attributes
+- `memory.total_messages` - Messages in memory
+- `client.prompt` - User input (truncated)
+- `client.tools_count` - Available tools
 
 ### Event Names
-
-```go
-observability.EventLLMRequestStart      // "llm.request.start"
-observability.EventLLMRequestEnd        // "llm.request.end"
-observability.EventToolExecutionStart   // "tool.execution.start"
-observability.EventToolExecutionEnd     // "tool.execution.end"
-observability.EventTokensReceived       // "llm.tokens.received"
-observability.EventMemoryAppend         // "memory.append"
-observability.EventMemoryClear          // "memory.clear"
-```
+- `llm.request.start/end` - LLM request lifecycle
+- `memory.append` - Message appended
+- `tool.execution.start/end` - Tool execution
 
 ### Span Names
+- `client.send_message` - Client operation
+- `llm.request` - LLM API request
+- `tool.execution` - Tool execution
+
+### Metric Names
+- `aigo.client.request.count` - Request counter
+- `aigo.client.request.duration` - Duration histogram
+- `aigo.client.tokens.total` - Token counter
+
+## Usage Example
 
 ```go
-observability.SpanClientSendMessage // "client.send_message"
-observability.SpanLLMRequest        // "llm.request"
-observability.SpanToolExecution     // "tool.execution"
-observability.SpanMemoryOperation   // "memory.operation"
-```
-
-## Standard Metrics & Spans
-
-### Metrics (Emitted by Client)
-
-Use the predefined metric name constants for consistency:
-
-**Counters:**
-```go
-observability.MetricClientRequestCount       // "aigo.client.request.count"
-observability.MetricClientTokensTotal        // "aigo.client.tokens.total"
-observability.MetricClientTokensPrompt       // "aigo.client.tokens.prompt"
-observability.MetricClientTokensCompletion   // "aigo.client.tokens.completion"
-```
-
-**Histograms:**
-```go
-observability.MetricClientRequestDuration    // "aigo.client.request.duration"
-```
-
-**Counter Details:**
-- `aigo.client.request.count` - Total number of requests
-  - Attributes: `status` (success/error), `llm.model`
-- `aigo.client.tokens.total` - Total tokens used
-  - Attributes: `llm.model`
-- `aigo.client.tokens.prompt` - Prompt tokens used
-  - Attributes: `llm.model`
-- `aigo.client.tokens.completion` - Completion tokens used
-  - Attributes: `llm.model`
-
-**Histogram Details:**
-- `aigo.client.request.duration` - Request duration in seconds
-  - Attributes: `llm.model`
-
-### Spans (Created by Client, Enriched by Providers)
-
-- `client.send_message` - Main request span
-  - Created by: Client (Layer 2)
-  - Enriched by: LLM Provider, Tools, Memory (Layer 1)
-  - Attributes: `llm.model`, `llm.provider`, `llm.tokens.*`, `http.status_code`
-
-## Usage Examples
-
-### Layer 2: Creating and Propagating Span
-
-```go
-// In core/client/client.go
-func (c *Client[T]) SendMessage(prompt string) (*ai.ChatResponse, error) {
-    ctx := context.Background()
-    
+// Layer 2: Client creates span
+func (c *Client[T]) SendMessage(ctx context.Context, prompt string) (*Response[T], error) {
     if c.observer != nil {
-        // Create span
-        ctx, span := c.observer.StartSpan(ctx, observability.SpanClientSendMessage,
-            observability.String(observability.AttrLLMModel, c.defaultModel),
-        )
+        ctx, span := c.observer.StartSpan(ctx, "client.send_message")
         defer span.End()
         
-        // Put span in context for downstream propagation
+        span.SetAttributes(
+            observability.String("client.prompt", truncate(prompt)),
+        )
+        
+        // Propagate context
         ctx = observability.ContextWithSpan(ctx, span)
     }
     
-    // Pass context to provider
-    response, err := c.llmProvider.SendMessage(ctx, request)
-    // ...
+    // Call provider (which enriches span)
+    return c.provider.SendMessage(ctx, messages)
 }
-```
 
-### Layer 1: Enriching Span in LLM Provider
-
-```go
-// In providers/ai/openai/openai.go
-func (p *OpenAIProvider) SendMessage(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
-    // Extract span from context (nil-safe)
+// Layer 1: Provider enriches span
+func (p *OpenAIProvider) SendMessage(ctx context.Context, req Request) (*Response, error) {
     span := observability.SpanFromContext(ctx)
-    
     if span != nil {
-        span.AddEvent(observability.EventLLMRequestStart)
         span.SetAttributes(
-            observability.String(observability.AttrLLMProvider, "openai"),
-            observability.String(observability.AttrLLMEndpoint, p.baseURL),
-            observability.String(observability.AttrLLMModel, request.Model),
+            observability.String("llm.provider", "openai"),
+            observability.String("llm.model", req.Model),
         )
-        defer span.AddEvent(observability.EventLLMRequestEnd)
+        span.AddEvent("llm.request.start")
     }
     
-    // Perform API call
-    resp, err := p.callAPI(ctx, request)
+    // Make API call
+    resp, err := p.makeRequest(ctx, req)
     
-    if span != nil && resp != nil {
-        span.SetAttributes(
-            observability.String(observability.AttrLLMResponseID, resp.Id),
-            observability.String(observability.AttrLLMFinishReason, resp.FinishReason),
-            observability.Int(observability.AttrHTTPStatusCode, httpResponse.StatusCode),
-        )
-        
-        if resp.Usage != nil {
-            span.AddEvent(observability.EventTokensReceived,
-                observability.Int(observability.AttrLLMTokensTotal, resp.Usage.TotalTokens),
+    if span != nil {
+        if err != nil {
+            span.RecordError(err)
+            span.SetStatus(observability.StatusError, "Request failed")
+        } else {
+            span.SetAttributes(
+                observability.Int("llm.tokens.total", resp.Usage.TotalTokens),
             )
+            span.SetStatus(observability.StatusOK, "")
         }
+        span.AddEvent("llm.request.end")
     }
     
     return resp, err
 }
 ```
 
-### Layer 1: Enriching Span in Tool
+## OpenTelemetry Mapping
 
-```go
-// In providers/tool/tool.go
-func (t *Tool[I, O]) Call(ctx context.Context, inputJson string) (string, error) {
-    span := observability.SpanFromContext(ctx)
-    
-    if span != nil {
-        span.AddEvent(observability.EventToolExecutionStart,
-            observability.String(observability.AttrToolName, t.Name),
-            observability.String(observability.AttrToolInput, inputJson),
-        )
-        defer span.AddEvent(observability.EventToolExecutionEnd)
-    }
-    
-    start := time.Now()
-    
-    // Parse and execute
-    var input I
-    if err := json.Unmarshal([]byte(inputJson), &input); err != nil {
-        if span != nil {
-            span.RecordError(err)
-        }
-        return "", err
-    }
-    
-    output, err := t.Function(ctx, input)
-    duration := time.Since(start)
-    
-    if span != nil {
-        if err != nil {
-            span.RecordError(err)
-            span.SetAttributes(
-                observability.String(observability.AttrToolError, err.Error()),
-            )
-        } else {
-            outputJson, _ := json.Marshal(output)
-            span.SetAttributes(
-                observability.String(observability.AttrToolOutput, string(outputJson)),
-                observability.Duration(observability.AttrToolDuration, duration),
-            )
-        }
-    }
-    
-    return string(outputJson), nil
-}
-```
+AIGO's observability maps directly to OpenTelemetry:
 
-### Layer 1: Enriching Span in Memory Provider
+| AIGO | OpenTelemetry |
+|------|---------------|
+| `Span` | `trace.Span` |
+| `StartSpan()` | `tracer.Start()` |
+| `Counter` | `Int64Counter` |
+| `Histogram` | `Float64Histogram` |
+| `StatusOK/Error` | `codes.Ok/Error` |
 
-```go
-// In providers/memory/inmemory/inmemory.go
-func (m *ArrayMemory) AppendMessage(ctx context.Context, message *ai.Message) {
-    span := observability.SpanFromContext(ctx)
-    
-    if span != nil {
-        span.AddEvent("memory.append",
-            observability.String("message.role", string(message.Role)),
-            observability.Int("message.length", len(message.Content)),
-        )
-    }
-    
-    m.mu.Lock()
-    m.messages = append(m.messages, *message)
-    m.mu.Unlock()
-    
-    if span != nil {
-        span.SetAttributes(
-            observability.Int("memory.total_messages", len(m.messages)),
-        )
-    }
-}
-```
-
-### Example Output
-
-With slog observer at debug level:
-
-```
-level=DEBUG msg="Span started" span=client.send_message event=span.start llm.model=gpt-4
-level=DEBUG msg="Span event" span=client.send_message event=llm.request.start
-level=DEBUG msg="Sending message to LLM" llm.provider=openai llm.endpoint=https://api.openai.com/v1 llm.model=gpt-4
-level=DEBUG msg="Span event" span=client.send_message event=tool.execution.start tool.name=calculator
-level=DEBUG msg="Span event" span=client.send_message event=tool.execution.end tool.duration=0.002s
-level=DEBUG msg="Span event" span=client.send_message event=llm.tokens.received llm.tokens.total=150
-level=DEBUG msg="Span event" span=client.send_message event=llm.request.end
-level=INFO msg="Message sent successfully" llm.response.id=chatcmpl-123 llm.finish_reason=stop http.status_code=200
-level=DEBUG msg="Span ended" span=client.send_message duration=1.234s
-```
+All semantic conventions follow [OTel standards](https://opentelemetry.io/docs/specs/semconv/).
 
 ## Best Practices
 
-### 1. Always Check for Nil Span
+### 1. Always Check for Nil
 
 ```go
+if observer != nil {
+    observer.Info(ctx, "message")
+}
+
 span := observability.SpanFromContext(ctx)
 if span != nil {
-    span.AddEvent("my.event")
+    span.SetAttributes(...)
 }
 ```
 
 ### 2. Use Semantic Conventions
 
-Don't invent attribute names - use the constants:
-
 ```go
-// ✅ Good
-span.SetAttributes(observability.String(observability.AttrLLMProvider, "openai"))
+// Good ✓
+observability.String(observability.AttrLLMModel, model)
 
-// ❌ Bad
-span.SetAttributes(observability.String("provider", "openai"))
+// Bad ✗
+observability.String("model", model)
 ```
 
-### 3. Add Events for Significant Moments
+### 3. Truncate Long Strings
 
 ```go
-span.AddEvent(observability.EventLLMRequestStart)
-// ... do work ...
-span.AddEvent(observability.EventLLMRequestEnd)
+truncated := observability.TruncateStringDefault(longText)
+observer.Debug(ctx, "Content", observability.String("text", truncated))
 ```
 
-### 4. Record Errors
+### 4. Appropriate Log Levels
+
+- **TRACE**: Protocol details only
+- **DEBUG**: Technical debugging
+- **INFO**: Business operations
+- **WARN/ERROR**: Problems only
+
+### 5. Set Span Status
 
 ```go
 if err != nil {
-    if span != nil {
-        span.RecordError(err)
-        span.SetStatus(observability.StatusError, "Operation failed")
-    }
-    return err
+    span.RecordError(err)
+    span.SetStatus(observability.StatusError, "Failed")
+} else {
+    span.SetStatus(observability.StatusOK, "")
 }
 ```
 
-### 5. Don't Over-Instrument
+### 6. Propagate Context
 
-Add attributes that are:
-- **Valuable** for debugging
-- **Low cardinality** (avoid unique IDs in metrics)
-- **Consistent** across similar operations
-
-### 6. Pass Context Through Layers
-
-Always accept and pass `context.Context` to enable span propagation:
+Always pass context to downstream calls:
 
 ```go
-// ✅ Good
-func (p *Provider) DoSomething(ctx context.Context, input string) error
-
-// ❌ Bad
-func (p *Provider) DoSomething(input string) error
+ctx = observability.ContextWithSpan(ctx, span)
+result := downstream(ctx, args)
 ```
 
 ## Performance
 
-Benchmark results (Apple M1 Pro):
-
-| Implementation | StartSpan | Counter | Logging |
-|----------------|-----------|---------|---------|
-| Nil (default)  | 0 ns     | 0 ns    | 0 ns    |
-| Slog           | 124 ns   | 22 ns   | 558 ns  |
-
-**Recommendation**: Use `nil` (default) for production if you don't need observability, slog for development/debugging, and OpenTelemetry (future) for enterprise monitoring.
+- **Nil observer**: Zero overhead
+- **Enabled observer**: Minimal impact (<1% typically)
+- **Thread-safe**: All operations are goroutine-safe
+- **Async spans**: Safe for concurrent use
 
 ## Testing
 
 ### Mock Observer
 
 ```go
-type mockObserver struct{}
+type mockObserver struct {
+    spans []string
+}
 
-func (m *mockObserver) StartSpan(ctx context.Context, name string, attrs ...observability.Attribute) (context.Context, observability.Span) {
+func (m *mockObserver) StartSpan(ctx context.Context, name string, attrs ...Attribute) (context.Context, Span) {
+    m.spans = append(m.spans, name)
     return ctx, &mockSpan{}
 }
-
-func (m *mockObserver) Counter(name string) observability.Counter {
-    return &mockCounter{}
-}
-
-// Use in tests
-client := client.NewClient[string](provider, client.WithObserver(&mockObserver{}))
 ```
 
-### Mock Span for Component Testing
-
-```go
-type mockSpan struct {
-    events []string
-    attrs  map[string]interface{}
-}
-
-func (m *mockSpan) AddEvent(name string, attrs ...observability.Attribute) {
-    m.events = append(m.events, name)
-}
-
-func TestProviderEnrichment(t *testing.T) {
-    mock := &mockSpan{attrs: make(map[string]interface{})}
-    ctx := observability.ContextWithSpan(context.Background(), mock)
-    
-    provider.SendMessage(ctx, request)
-    
-    if !contains(mock.events, observability.EventLLMRequestStart) {
-        t.Error("Expected LLM request start event")
-    }
-}
-```
-
-## Thread Safety
-
-All implementations are thread-safe:
-- **Nil**: No operations performed, inherently safe
-- **Slog**: Uses `sync.RWMutex` for metric storage, `slog.Logger` is thread-safe
-- **Context propagation**: Safe by design (context is immutable)
+See `core/client/client_observability_test.go` for examples.
 
 ## Custom Observer Implementation
 
-To implement a custom observer, implement the `observability.Provider` interface:
+Implement the `observability.Provider` interface:
 
 ```go
 type Provider interface {
@@ -595,6 +366,7 @@ type Metrics interface {
 }
 
 type Logger interface {
+    Trace(ctx context.Context, msg string, attrs ...Attribute)
     Debug(ctx context.Context, msg string, attrs ...Attribute)
     Info(ctx context.Context, msg string, attrs ...Attribute)
     Warn(ctx context.Context, msg string, attrs ...Attribute)
@@ -602,35 +374,14 @@ type Logger interface {
 }
 ```
 
-## Migration Guide
+## Examples
 
-### For Existing Components
-
-1. Add `context.Context` as first parameter if not already present
-2. Import observability package
-3. Extract span at the beginning: `span := observability.SpanFromContext(ctx)`
-4. Add events and attributes at key points
-5. Record errors when they occur
-
-No breaking changes required - gracefully degrades if no span present!
-
-## Future Enhancements
-
-- [ ] OpenTelemetry integration with exporters
-- [ ] Gauge metrics
-- [ ] Distributed tracing with trace/span IDs
-- [ ] Sampling strategies
-- [ ] Export to Prometheus, Jaeger, DataDog, etc.
-- [ ] Automatic instrumentation via code generation
-- [ ] Span links for parallel operations
-- [ ] Baggage propagation for cross-service tracing
+- `examples/layer2/observability/` - Comprehensive demonstration
+- `providers/observability/slogobs/` - Reference implementation
+- `core/client/client_observability_test.go` - Unit tests
 
 ## See Also
 
-- [observability.go](./observability.go) - Core interfaces
-- [context.go](./context.go) - Context helpers for span propagation
-- [semconv.go](./semconv.go) - Semantic conventions (constants)
-- [ARCHITECTURE.md](../../ARCHITECTURE.md) - Overall project architecture
-- [examples/observability/main.go](../../examples/layer2/observability/main.go) - Complete examples
-- [OpenTelemetry Context Propagation](https://opentelemetry.io/docs/instrumentation/go/manual/#context-propagation)
-- [Go's log/slog](https://pkg.go.dev/log/slog) documentation
+- [Slog Observer Documentation](./slogobs/README.md)
+- [Format Examples](./slogobs/FORMATS.md)
+- [Semantic Conventions](./semconv.go)
