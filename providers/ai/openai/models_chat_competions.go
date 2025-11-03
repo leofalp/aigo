@@ -124,7 +124,9 @@ type chatResponseMessage struct {
 	Role      string         `json:"role"` // "assistant"
 	Content   string         `json:"content,omitempty"`
 	ToolCalls []chatToolCall `json:"tool_calls,omitempty"`
-	Refusal   string         `json:"refusal,omitempty"` // If model refuses
+	Refusal   string         `json:"refusal,omitempty"`   // If model refuses
+	Reasoning string         `json:"reasoning,omitempty"` // If model refuses
+	// TODO reasoning detail from openrouter
 }
 
 type chatUsage struct {
@@ -339,13 +341,27 @@ func chatCompletionToGeneric(resp chatCompletionResponse) *ai.ChatResponse {
 
 	choice := resp.Choices[0]
 
+	// reasoning could be into <think> tags in content
 	// Extract reasoning from <think> tags if present
-	content := choice.Message.Content
-	reasoning := extractReasoningFromThinkTags(content)
+	content := strings.TrimSpace(choice.Message.Content)
+	var reasoning string
 
-	// Clean content from <think> tags
-	if reasoning != "" {
-		content = cleanThinkTags(content)
+	if content != "" {
+		// if content is not empty, extract reasoning from both explicit field and <think> tags
+		explicitReasoning := strings.TrimSpace(choice.Message.Reasoning)
+		reasoning = explicitReasoning
+
+		// handle in-content reasoning
+		inContentReasoning := extractReasoningFromThinkTags(content)
+		if inContentReasoning != "" {
+			reasoning += "\n"
+			reasoning += inContentReasoning
+			content = cleanThinkTags(content) // remove reasoning (<think> tags) from content
+		}
+	} else if choice.Message.Reasoning != "" {
+		// if content is empty, use reasoning field (may contain content)
+		reasoning = extractReasoningFromThinkTags(choice.Message.Reasoning)
+		content = cleanThinkTags(choice.Message.Reasoning)
 	}
 
 	chatResp := &ai.ChatResponse{
@@ -597,16 +613,18 @@ func extractReasoningFromThinkTags(content string) string {
 
 	start := strings.Index(content, startTag)
 	if start == -1 {
-		return ""
+		start = 0 // if there's no start tag, consider from beginning
+	} else {
+		start += len(startTag)
 	}
 
 	end := strings.Index(content, endTag)
 	if end == -1 || end <= start {
-		return ""
+		return "" // mandatory end tag
 	}
 
 	// Extract content between tags
-	reasoning := content[start+len(startTag) : end]
+	reasoning := content[start:end]
 	return strings.TrimSpace(reasoning)
 }
 
@@ -618,12 +636,12 @@ func cleanThinkTags(content string) string {
 
 	start := strings.Index(content, startTag)
 	if start == -1 {
-		return content
+		start = 0 // if there's no start tag, consider from beginning
 	}
 
 	end := strings.Index(content, endTag)
 	if end == -1 || end <= start {
-		return content
+		return content // mantatory end tag
 	}
 
 	// Remove everything from start tag to end tag (inclusive)

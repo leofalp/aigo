@@ -39,12 +39,13 @@ type ClientOptions struct {
 	LlmProvider ai.Provider
 
 	// Optional with sensible defaults
-	DefaultModel       string                 // Model to use for requests (can be overridden per-request in future)
-	MemoryProvider     memory.Provider        // Optional: if nil, client operates in stateless mode
-	Observer           observability.Provider // Defaults to nil (zero overhead)
-	SystemPrompt       string                 // System prompt for all requests
-	Tools              []tool.GenericTool     // Tools available to the LLM
-	EnrichSystemPrompt bool                   // If true, automatically append tool descriptions to system prompt (default: false)
+	DefaultModel                       string                 // Model to use for requests (can be overridden per-request in future)
+	MemoryProvider                     memory.Provider        // Optional: if nil, client operates in stateless mode
+	Observer                           observability.Provider // Defaults to nil (zero overhead)
+	SystemPrompt                       string                 // System prompt for all requests
+	Tools                              []tool.GenericTool     // Tools available to the LLM
+	EnrichSystemPromptWithToolDescr    bool                   // If true, automatically append tool descriptions to system prompt (default: false)
+	EnrichSystemPromptWithOutputSchema bool                   // If true, automatically append output structure guidance to system prompt (default: false)
 }
 
 // Functional option pattern for ergonomic API
@@ -79,7 +80,7 @@ func WithTools(tools ...tool.GenericTool) func(*ClientOptions) {
 	}
 }
 
-// WithEnrichSystemPrompt enables automatic enrichment of the system prompt
+// WithEnrichSystemPromptWithToolsDescriptions enables automatic enrichment of the system prompt
 // with tool descriptions. When enabled, the client will append detailed
 // information about available tools to the system prompt, helping the LLM
 // understand when and how to use them.
@@ -92,11 +93,30 @@ func WithTools(tools ...tool.GenericTool) func(*ClientOptions) {
 //	client.NewClient(provider,
 //	    client.WithSystemPrompt("You are a helpful assistant."),
 //	    client.WithTools(calcTool, searchTool),
-//	    client.WithEnrichSystemPrompt(), // Adds tool guidance automatically
+//	    client.WithEnrichSystemPromptWithToolsDescriptions(), // Adds tool guidance automatically
 //	)
-func WithEnrichSystemPrompt() func(*ClientOptions) {
+func WithEnrichSystemPromptWithToolsDescriptions() func(*ClientOptions) {
 	return func(o *ClientOptions) {
-		o.EnrichSystemPrompt = true
+		o.EnrichSystemPromptWithToolDescr = true
+	}
+}
+
+// WithEnrichSystemPromptWithOutputSchema enables automatic enrichment of the system prompt
+// with output schema guidance. When enabled, the client will append information
+// about the expected output structure based on the generic type T.
+//
+// This is disabled by default to maintain backward compatibility and give
+// users full control over system prompts.
+//
+// Example usage:
+//
+//	client.NewClient[MyResponse](provider,
+//	    client.WithSystemPrompt("You are a helpful assistant."),
+//	    client.WithEnrichSystemPromptWithOutputSchema(), // Adds output schema guidance automatically
+//	)
+func WithEnrichSystemPromptWithOutputSchema() func(*ClientOptions) {
+	return func(o *ClientOptions) {
+		o.EnrichSystemPromptWithOutputSchema = true
 	}
 }
 
@@ -112,7 +132,7 @@ func WithEnrichSystemPrompt() func(*ClientOptions) {
 //	    WithObserver(myObserver),
 //	    WithSystemPrompt("You are a helpful assistant"),
 //	    WithTools(tool1, tool2),
-//	    WithEnrichSystemPrompt(), // Optionally add tool guidance
+//	    WithEnrichSystemPromptWithToolsDescriptions(), // Optionally add tool guidance
 //	)
 func NewClient[T any](llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client[T], error) {
 	options := &ClientOptions{
@@ -143,12 +163,20 @@ func NewClient[T any](llmProvider ai.Provider, opts ...func(*ClientOptions)) (*C
 		toolDescriptions = append(toolDescriptions, info)
 	}
 
-	// Enrich system prompt with tool guidance if enabled
+	// Enrich system prompt  if enabled
 	systemPrompt := options.SystemPrompt
-	if options.EnrichSystemPrompt && len(toolDescriptions) > 0 {
+	if options.EnrichSystemPromptWithToolDescr && len(toolDescriptions) > 0 {
 		systemPrompt = enrichSystemPromptWithTools(options.SystemPrompt, toolDescriptions)
 	}
+	if options.EnrichSystemPromptWithOutputSchema {
+		systemPrompt = enrichSystemPromptWithOutputSchema[T](systemPrompt)
+	}
 
+	var outputSchema *jsonschema.Schema
+	// Generate output schema only for non-string types
+	if reflect.TypeOf((*T)(nil)).Elem().Kind() != reflect.String {
+		outputSchema = jsonschema.GenerateJSONSchema[T]()
+	}
 	return &Client[T]{
 		systemPrompt:     systemPrompt,
 		defaultModel:     options.DefaultModel,
@@ -157,7 +185,7 @@ func NewClient[T any](llmProvider ai.Provider, opts ...func(*ClientOptions)) (*C
 		observer:         options.Observer,
 		toolCatalog:      toolCatalog,
 		toolDescriptions: toolDescriptions,
-		outputSchema:     jsonschema.GenerateJSONSchema[T](),
+		outputSchema:     outputSchema,
 	}, nil
 }
 
@@ -211,6 +239,24 @@ func enrichSystemPromptWithTools(basePrompt string, tools []ai.ToolDescription) 
 	enrichment += "\n**Important:** When you need to use a tool, call it using the function calling format. "
 	enrichment += "The system will execute the tool and provide you with the results, which you should then use to formulate your final response."
 
+	return basePrompt + enrichment
+}
+
+// enrichSystemPromptWithTools appends tool usage guidance to the system prompt.
+// This helps LLMs understand when and how to use available tools.
+func enrichSystemPromptWithOutputSchema[T any](basePrompt string) string {
+	if reflect.TypeOf((*T)(nil)).Elem().Kind() == reflect.String {
+		return basePrompt
+	}
+	enrichment := "\n\n## Output Format\n\n"
+	enrichment += "Please structure your responses in strict accordance with the following JSON schema:\n\n"
+
+	schema := jsonschema.GenerateJSONSchema[T]()
+	if schemaJSON, err := json.MarshalIndent(schema, "", "  "); err == nil {
+		enrichment += "```json\n" + string(schemaJSON) + "\n```\n"
+	}
+
+	enrichment += "\nEnsure that all your responses conform exactly to this schema. This will help in parsing and utilizing your responses effectively."
 	return basePrompt + enrichment
 }
 

@@ -101,10 +101,15 @@ func TestWithEnrichSystemPrompt_Option(t *testing.T) {
 	options := &ClientOptions{}
 
 	// Apply the option
-	WithEnrichSystemPrompt()(options)
+	WithEnrichSystemPromptWithToolsDescriptions()(options)
+	WithEnrichSystemPromptWithOutputSchema()(options)
 
-	if !options.EnrichSystemPrompt {
-		t.Error("WithEnrichSystemPrompt should set EnrichSystemPrompt to true")
+	if !options.EnrichSystemPromptWithToolDescr {
+		t.Error("WithEnrichSystemPromptWithToolsDescriptions should set EnrichSystemPrompt to true")
+	}
+
+	if !options.EnrichSystemPromptWithOutputSchema {
+		t.Error("WithEnrichSystemPromptWithToolsDescriptions should set EnrichSystemPrompt to true")
 	}
 }
 
@@ -121,7 +126,7 @@ func TestNewClient_WithEnrichSystemPrompt_Enabled(t *testing.T) {
 		provider,
 		WithSystemPrompt("You are a helpful assistant."),
 		WithTools(mockTool),
-		WithEnrichSystemPrompt(), // Enable enrichment
+		WithEnrichSystemPromptWithToolsDescriptions(), // Enable enrichment
 	)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
@@ -157,7 +162,7 @@ func TestNewClient_WithEnrichSystemPrompt_Disabled(t *testing.T) {
 		provider,
 		WithSystemPrompt(basePrompt),
 		WithTools(mockTool),
-		// No WithEnrichSystemPrompt() - should be disabled by default
+		// No WithEnrichSystemPromptWithToolsDescriptions() - should be disabled by default
 	)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
@@ -181,7 +186,7 @@ func TestNewClient_WithEnrichSystemPrompt_NoTools(t *testing.T) {
 	client, err := NewClient[string](
 		provider,
 		WithSystemPrompt(basePrompt),
-		WithEnrichSystemPrompt(), // Enable enrichment but no tools
+		WithEnrichSystemPromptWithToolsDescriptions(), // Enable enrichment but no tools
 	)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
@@ -205,7 +210,7 @@ func TestNewClient_WithEnrichSystemPrompt_MultipleTools(t *testing.T) {
 		provider,
 		WithSystemPrompt("You are a helpful assistant."),
 		WithTools(tool1, tool2, tool3),
-		WithEnrichSystemPrompt(),
+		WithEnrichSystemPromptWithToolsDescriptions(),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
@@ -291,7 +296,7 @@ func TestNewClient_WithEnrichSystemPrompt_Integration(t *testing.T) {
 		provider,
 		WithSystemPrompt(basePrompt),
 		WithTools(mockTool),
-		WithEnrichSystemPrompt(),
+		WithEnrichSystemPromptWithToolsDescriptions(),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
