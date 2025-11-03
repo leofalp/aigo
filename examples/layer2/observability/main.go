@@ -1,14 +1,15 @@
 package main
 
 import (
-	"aigo/core/client"
-	"aigo/providers/ai/openai"
-	"aigo/providers/memory/inmemory"
-	"aigo/providers/observability/slogobs"
 	"context"
 	"fmt"
 	"log"
 	"log/slog"
+
+	"github.com/leofalp/aigo/core/client"
+	"github.com/leofalp/aigo/providers/ai/openai"
+	"github.com/leofalp/aigo/providers/memory/inmemory"
+	"github.com/leofalp/aigo/providers/observability/slogobs"
 
 	_ "github.com/joho/godotenv/autoload"
 )

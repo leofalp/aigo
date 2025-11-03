@@ -1,14 +1,15 @@
 package openai
 
 import (
-	"aigo/internal/jsonschema"
-	"aigo/providers/ai"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
+
+	"github.com/leofalp/aigo/internal/jsonschema"
+	"github.com/leofalp/aigo/providers/ai"
 )
 
 func TestNewOpenAIProviderWithoutEnvVariable(t *testing.T) {

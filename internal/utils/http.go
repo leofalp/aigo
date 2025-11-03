@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"aigo/providers/observability"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -10,6 +9,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/leofalp/aigo/providers/observability"
 )
 
 func DoPostSync[OutputStruct any](ctx context.Context, client http.Client, url string, apiKey string, body any) (*http.Response, *OutputStruct, error) {

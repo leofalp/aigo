@@ -1,15 +1,16 @@
 package react
 
 import (
-	"aigo/core/client"
-	"aigo/providers/ai"
-	"aigo/providers/memory/inmemory"
-	"aigo/providers/observability"
 	"context"
 	"errors"
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/leofalp/aigo/core/client"
+	"github.com/leofalp/aigo/providers/ai"
+	"github.com/leofalp/aigo/providers/memory/inmemory"
+	"github.com/leofalp/aigo/providers/observability"
 )
 
 // mockTool is a simple mock tool for testing

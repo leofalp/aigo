@@ -1,11 +1,6 @@
 package client
 
 import (
-	"aigo/internal/jsonschema"
-	"aigo/providers/ai"
-	"aigo/providers/memory"
-	"aigo/providers/observability"
-	"aigo/providers/tool"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +8,12 @@ import (
 	"reflect"
 	"strconv"
 	"time"
+
+	"github.com/leofalp/aigo/internal/jsonschema"
+	"github.com/leofalp/aigo/providers/ai"
+	"github.com/leofalp/aigo/providers/memory"
+	"github.com/leofalp/aigo/providers/observability"
+	"github.com/leofalp/aigo/providers/tool"
 )
 
 const (
@@ -190,15 +191,15 @@ func enrichSystemPromptWithTools(basePrompt string, tools []ai.ToolDescription) 
 	enrichment := "\n\n## Available Tools\n\n"
 	enrichment += "You have access to the following tools. Use them when appropriate to provide accurate and helpful responses:\n\n"
 
-	for i, tool := range tools {
-		enrichment += strconv.Itoa(i+1) + ". **" + tool.Name + "**"
-		if tool.Description != "" {
-			enrichment += "\n   - Description: " + tool.Description
+	for i, singleTool := range tools {
+		enrichment += strconv.Itoa(i+1) + ". **" + singleTool.Name + "**"
+		if singleTool.Description != "" {
+			enrichment += "\n   - Description: " + singleTool.Description
 		}
 
 		// Add parameter information if available
-		if tool.Parameters != nil {
-			if paramsJSON, err := json.Marshal(tool.Parameters); err == nil {
+		if singleTool.Parameters != nil {
+			if paramsJSON, err := json.Marshal(singleTool.Parameters); err == nil {
 				enrichment += "\n   - Parameters: " + string(paramsJSON)
 			}
 		}

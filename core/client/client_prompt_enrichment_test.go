@@ -1,10 +1,11 @@
 package client
 
 import (
-	"aigo/providers/ai"
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/leofalp/aigo/providers/ai"
 )
 
 // Test that enrichSystemPromptWithTools correctly appends tool information

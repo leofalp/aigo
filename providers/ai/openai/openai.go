@@ -1,13 +1,14 @@
 package openai
 
 import (
-	"aigo/internal/utils"
-	"aigo/providers/ai"
-	"aigo/providers/observability"
 	"context"
 	"fmt"
 	"net/http"
 	"os"
+
+	"github.com/leofalp/aigo/internal/utils"
+	"github.com/leofalp/aigo/providers/ai"
+	"github.com/leofalp/aigo/providers/observability"
 )
 
 const (

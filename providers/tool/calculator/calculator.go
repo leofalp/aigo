@@ -1,8 +1,9 @@
 package calculator
 
 import (
-	"aigo/providers/tool"
 	"context"
+
+	"github.com/leofalp/aigo/providers/tool"
 )
 
 func NewCalculatorTool() *tool.Tool[Input, Output] {

@@ -1,11 +1,12 @@
 package inmemory
 
 import (
-	"aigo/providers/ai"
-	"aigo/providers/memory"
-	"aigo/providers/observability"
 	"context"
 	"sync"
+
+	"github.com/leofalp/aigo/providers/ai"
+	"github.com/leofalp/aigo/providers/memory"
+	"github.com/leofalp/aigo/providers/observability"
 )
 
 // ArrayMemory is a simple, concurrency-safe in-memory message store.

@@ -1,7 +1,6 @@
 package duckduckgo
 
 import (
-	"aigo/providers/tool"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,6 +9,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/leofalp/aigo/providers/tool"
 )
 
 // flexibleInt is a private type that can unmarshal both string and int values

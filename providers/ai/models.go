@@ -1,8 +1,9 @@
 package ai
 
 import (
-	"aigo/internal/jsonschema"
 	"encoding/json"
+
+	"github.com/leofalp/aigo/internal/jsonschema"
 )
 
 /*

@@ -1,10 +1,11 @@
 package tool
 
 import (
-	"aigo/providers/ai"
 	"context"
 	"sync"
 	"testing"
+
+	"github.com/leofalp/aigo/providers/ai"
 )
 
 // mockTool is a simple mock implementation of GenericTool for testing
