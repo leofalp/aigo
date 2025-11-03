@@ -27,7 +27,7 @@ type Client[T any] struct {
 	llmProvider      ai.Provider
 	memoryProvider   memory.Provider
 	observer         observability.Provider // nil if not set (zero overhead)
-	toolCatalog      map[string]tool.GenericTool
+	toolCatalog      *tool.Catalog
 	toolDescriptions []ai.ToolDescription
 	outputSchema     *jsonschema.Schema
 }
@@ -38,11 +38,12 @@ type ClientOptions struct {
 	LlmProvider ai.Provider
 
 	// Optional with sensible defaults
-	DefaultModel   string                 // Model to use for requests (can be overridden per-request in future)
-	MemoryProvider memory.Provider        // Optional: if nil, client operates in stateless mode
-	Observer       observability.Provider // Defaults to nil (zero overhead)
-	SystemPrompt   string                 // System prompt for all requests
-	Tools          []tool.GenericTool     // Tools available to the LLM
+	DefaultModel       string                 // Model to use for requests (can be overridden per-request in future)
+	MemoryProvider     memory.Provider        // Optional: if nil, client operates in stateless mode
+	Observer           observability.Provider // Defaults to nil (zero overhead)
+	SystemPrompt       string                 // System prompt for all requests
+	Tools              []tool.GenericTool     // Tools available to the LLM
+	EnrichSystemPrompt bool                   // If true, automatically append tool descriptions to system prompt (default: false)
 }
 
 // Functional option pattern for ergonomic API
@@ -77,6 +78,27 @@ func WithTools(tools ...tool.GenericTool) func(*ClientOptions) {
 	}
 }
 
+// WithEnrichSystemPrompt enables automatic enrichment of the system prompt
+// with tool descriptions. When enabled, the client will append detailed
+// information about available tools to the system prompt, helping the LLM
+// understand when and how to use them.
+//
+// This is disabled by default to maintain backward compatibility and give
+// users full control over system prompts.
+//
+// Example usage:
+//
+//	client.NewClient(provider,
+//	    client.WithSystemPrompt("You are a helpful assistant."),
+//	    client.WithTools(calcTool, searchTool),
+//	    client.WithEnrichSystemPrompt(), // Adds tool guidance automatically
+//	)
+func WithEnrichSystemPrompt() func(*ClientOptions) {
+	return func(o *ClientOptions) {
+		o.EnrichSystemPrompt = true
+	}
+}
+
 // NewClient creates a new immutable Client instance.
 // The llmProvider is required as the first argument.
 // All other configuration is provided via functional options.
@@ -89,6 +111,7 @@ func WithTools(tools ...tool.GenericTool) func(*ClientOptions) {
 //	    WithObserver(myObserver),
 //	    WithSystemPrompt("You are a helpful assistant"),
 //	    WithTools(tool1, tool2),
+//	    WithEnrichSystemPrompt(), // Optionally add tool guidance
 //	)
 func NewClient[T any](llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client[T], error) {
 	options := &ClientOptions{
@@ -111,17 +134,22 @@ func NewClient[T any](llmProvider ai.Provider, opts ...func(*ClientOptions)) (*C
 	}
 
 	// Build tool catalog and descriptions
-	toolCatalog := make(map[string]tool.GenericTool, len(options.Tools))
+	toolCatalog := tool.NewCatalogWithTools(options.Tools...)
 	toolDescriptions := make([]ai.ToolDescription, 0, len(options.Tools))
 
-	for i, t := range options.Tools {
+	for _, t := range options.Tools {
 		info := t.ToolInfo()
-		toolCatalog[info.Name] = options.Tools[i]
 		toolDescriptions = append(toolDescriptions, info)
 	}
 
+	// Enrich system prompt with tool guidance if enabled
+	systemPrompt := options.SystemPrompt
+	if options.EnrichSystemPrompt && len(toolDescriptions) > 0 {
+		systemPrompt = enrichSystemPromptWithTools(options.SystemPrompt, toolDescriptions)
+	}
+
 	return &Client[T]{
-		systemPrompt:     options.SystemPrompt,
+		systemPrompt:     systemPrompt,
 		defaultModel:     options.DefaultModel,
 		llmProvider:      options.LlmProvider,
 		memoryProvider:   options.MemoryProvider,
@@ -130,6 +158,59 @@ func NewClient[T any](llmProvider ai.Provider, opts ...func(*ClientOptions)) (*C
 		toolDescriptions: toolDescriptions,
 		outputSchema:     jsonschema.GenerateJSONSchema[T](),
 	}, nil
+}
+
+// Memory returns the memory provider configured for this client.
+// Returns nil if the client is in stateless mode (no memory configured).
+func (c *Client[T]) Memory() memory.Provider {
+	return c.memoryProvider
+}
+
+// ToolCatalog returns the tool catalog for this client.
+// The returned map is a copy to prevent external modifications.
+// Keys are tool names (as registered), values are tool instances.
+func (c *Client[T]) ToolCatalog() *tool.Catalog {
+	// Return a clone to maintain immutability
+	return c.toolCatalog.Clone()
+}
+
+// Observer returns the observability provider configured for this client.
+// Returns nil if no observer is configured (zero overhead mode).
+func (c *Client[T]) Observer() observability.Provider {
+	return c.observer
+}
+
+// enrichSystemPromptWithTools appends tool usage guidance to the system prompt.
+// This helps LLMs understand when and how to use available tools.
+func enrichSystemPromptWithTools(basePrompt string, tools []ai.ToolDescription) string {
+	if len(tools) == 0 {
+		return basePrompt
+	}
+
+	enrichment := "\n\n## Available Tools\n\n"
+	enrichment += "You have access to the following tools. Use them when appropriate to provide accurate and helpful responses:\n\n"
+
+	for i, tool := range tools {
+		enrichment += strconv.Itoa(i+1) + ". **" + tool.Name + "**"
+		if tool.Description != "" {
+			enrichment += "\n   - Description: " + tool.Description
+		}
+
+		// Add parameter information if available
+		if tool.Parameters != nil {
+			if paramsJSON, err := json.Marshal(tool.Parameters); err == nil {
+				enrichment += "\n   - Parameters: " + string(paramsJSON)
+			}
+		}
+		// TODO describe also the output
+
+		enrichment += "\n"
+	}
+
+	enrichment += "\n**Important:** When you need to use a tool, call it using the function calling format. "
+	enrichment += "The system will execute the tool and provide you with the results, which you should then use to formulate your final response."
+
+	return basePrompt + enrichment
 }
 
 // SendMessage sends a user message to the LLM and returns the response.

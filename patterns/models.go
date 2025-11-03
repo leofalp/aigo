@@ -9,7 +9,7 @@ import (
 type PatternOptions struct {
 	Model            string
 	SystemPrompt     string
-	ToolCatalog      map[string]tool.GenericTool
+	ToolCatalog      *tool.Catalog
 	ToolDescriptions []ai.ToolDescription
 	OutputSchema     *jsonschema.Schema
 }
@@ -32,7 +32,7 @@ func WithDescriptions(toolDescriptions []ai.ToolDescription) func(options *Patte
 	}
 }
 
-func WithToolCatalog(toolCatalog map[string]tool.GenericTool) func(options *PatternOptions) {
+func WithToolCatalog(toolCatalog *tool.Catalog) func(options *PatternOptions) {
 	return func(options *PatternOptions) {
 		options.ToolCatalog = toolCatalog
 	}

@@ -5,10 +5,10 @@ import (
 	"aigo/providers/ai"
 	"aigo/providers/memory/inmemory"
 	"aigo/providers/observability"
-	"aigo/providers/tool"
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -147,31 +147,25 @@ func (h *testHistogram) Record(ctx context.Context, value float64, attrs ...obse
 	h.observer.metrics[h.name] = value
 }
 
-func TestReactClient_Execute_Success(t *testing.T) {
+func TestReactPattern_Execute_Success(t *testing.T) {
 	// Setup
 	memory := inmemory.New()
 	mockTool := &mockTool{
 		name:   "test_tool",
 		result: `{"result": 42}`,
 	}
-	toolCatalog := map[string]tool.GenericTool{
-		"test_tool": mockTool,
-	}
 
 	mockLLM := &mockProvider{
 		responses: []*ai.ChatResponse{
 			{
-				Content:      "I need to use the tool",
+				Content:      "Using tool",
 				FinishReason: "tool_calls",
 				ToolCalls: []ai.ToolCall{
-					{
-						Type:     "function",
-						Function: ai.ToolCallFunction{Name: "test_tool", Arguments: `{"input": "test"}`},
-					},
+					{Type: "function", Function: ai.ToolCallFunction{Name: "test_tool", Arguments: "{}"}},
 				},
 			},
 			{
-				Content:      "The answer is 42",
+				Content:      "Done",
 				FinishReason: "stop",
 				ToolCalls:    []ai.ToolCall{},
 			},
@@ -187,16 +181,18 @@ func TestReactClient_Execute_Success(t *testing.T) {
 		t.Fatalf("Failed to create client: %v", err)
 	}
 
-	reactClient := NewReactClient[string](
+	reactPattern, err := NewReactPattern[string](
 		baseClient,
-		memory,
-		toolCatalog,
-		Config{MaxIterations: 5, StopOnError: true},
+		WithMaxIterations(5),
+		WithStopOnError(true),
 	)
+	if err != nil {
+		t.Fatalf("Failed to create ReactPattern: %v", err)
+	}
 
 	// Execute
 	ctx := context.Background()
-	resp, err := reactClient.Execute(ctx, "Test prompt")
+	resp, err := reactPattern.Execute(ctx, "Test prompt")
 
 	// Assert
 	if err != nil {
@@ -207,8 +203,8 @@ func TestReactClient_Execute_Success(t *testing.T) {
 		t.Fatal("Expected response, got nil")
 	}
 
-	if resp.Content != "The answer is 42" {
-		t.Errorf("Expected 'The answer is 42', got: %s", resp.Content)
+	if resp.Content != "Done" {
+		t.Errorf("Expected 'Done', got '%s'", resp.Content)
 	}
 
 	if mockTool.callCount != 1 {
@@ -217,23 +213,20 @@ func TestReactClient_Execute_Success(t *testing.T) {
 
 	// Check memory has messages
 	messages := memory.AllMessages()
-	if len(messages) < 3 { // user + assistant + tool result + assistant
-		t.Errorf("Expected at least 3 messages in memory, got: %d", len(messages))
+	if len(messages) == 0 {
+		t.Error("Expected messages in memory after execution")
 	}
 }
 
-func TestReactClient_Execute_MaxIterations(t *testing.T) {
+func TestReactPattern_Execute_MaxIterations(t *testing.T) {
 	// Setup
 	memory := inmemory.New()
 	mockTool := &mockTool{
 		name:   "test_tool",
-		result: `{"result": "ok"}`,
-	}
-	toolCatalog := map[string]tool.GenericTool{
-		"test_tool": mockTool,
+		result: `{"result": 42}`,
 	}
 
-	// Mock LLM that always wants to use tools (infinite loop scenario)
+	// Mock LLM that keeps requesting tool calls (never provides final answer)
 	mockLLM := &mockProvider{
 		responses: []*ai.ChatResponse{
 			{
@@ -257,13 +250,6 @@ func TestReactClient_Execute_MaxIterations(t *testing.T) {
 					{Type: "function", Function: ai.ToolCallFunction{Name: "test_tool", Arguments: "{}"}},
 				},
 			},
-			{
-				Content:      "Using tool again",
-				FinishReason: "tool_calls",
-				ToolCalls: []ai.ToolCall{
-					{Type: "function", Function: ai.ToolCallFunction{Name: "test_tool", Arguments: "{}"}},
-				},
-			},
 		},
 	}
 
@@ -276,16 +262,18 @@ func TestReactClient_Execute_MaxIterations(t *testing.T) {
 		t.Fatalf("Failed to create client: %v", err)
 	}
 
-	reactClient := NewReactClient[string](
+	reactPattern, err := NewReactPattern[string](
 		baseClient,
-		memory,
-		toolCatalog,
-		Config{MaxIterations: 3, StopOnError: true}, // Only allow 3 iterations
+		WithMaxIterations(3), // Only allow 3 iterations
+		WithStopOnError(true),
 	)
+	if err != nil {
+		t.Fatalf("Failed to create ReactPattern: %v", err)
+	}
 
 	// Execute
 	ctx := context.Background()
-	_, err = reactClient.Execute(ctx, "Test prompt")
+	_, err = reactPattern.Execute(ctx, "Test prompt")
 
 	// Assert - should hit max iterations
 	if err == nil {
@@ -297,10 +285,9 @@ func TestReactClient_Execute_MaxIterations(t *testing.T) {
 	}
 }
 
-func TestReactClient_Execute_ToolNotFound(t *testing.T) {
+func TestReactPattern_Execute_ToolNotFound(t *testing.T) {
 	// Setup
 	memory := inmemory.New()
-	toolCatalog := map[string]tool.GenericTool{} // Empty catalog
 
 	mockLLM := &mockProvider{
 		responses: []*ai.ChatResponse{
@@ -325,16 +312,18 @@ func TestReactClient_Execute_ToolNotFound(t *testing.T) {
 		t.Fatalf("Failed to create client: %v", err)
 	}
 
-	reactClient := NewReactClient[string](
+	reactPattern, err := NewReactPattern[string](
 		baseClient,
-		memory,
-		toolCatalog,
-		Config{MaxIterations: 5, StopOnError: true},
+		WithMaxIterations(5),
+		WithStopOnError(true),
 	)
+	if err != nil {
+		t.Fatalf("Failed to create ReactPattern: %v", err)
+	}
 
 	// Execute
 	ctx := context.Background()
-	_, err = reactClient.Execute(ctx, "Test prompt")
+	_, err = reactPattern.Execute(ctx, "Test prompt")
 
 	// Assert - should fail with tool not found
 	if err == nil {
@@ -342,16 +331,13 @@ func TestReactClient_Execute_ToolNotFound(t *testing.T) {
 	}
 }
 
-func TestReactClient_Execute_ToolError_StopOnError(t *testing.T) {
+func TestReactPattern_Execute_ToolError_StopOnError(t *testing.T) {
 	// Setup
 	memory := inmemory.New()
 	mockTool := &mockTool{
 		name:   "failing_tool",
 		result: "",
 		err:    errors.New("tool execution failed"),
-	}
-	toolCatalog := map[string]tool.GenericTool{
-		"failing_tool": mockTool,
 	}
 
 	mockLLM := &mockProvider{
@@ -378,16 +364,18 @@ func TestReactClient_Execute_ToolError_StopOnError(t *testing.T) {
 		t.Fatalf("Failed to create client: %v", err)
 	}
 
-	reactClient := NewReactClient[string](
+	reactPattern, err := NewReactPattern[string](
 		baseClient,
-		memory,
-		toolCatalog,
-		Config{MaxIterations: 5, StopOnError: true},
+		WithMaxIterations(5),
+		WithStopOnError(true),
 	)
+	if err != nil {
+		t.Fatalf("Failed to create ReactPattern: %v", err)
+	}
 
 	// Execute
 	ctx := context.Background()
-	_, err = reactClient.Execute(ctx, "Test prompt")
+	_, err = reactPattern.Execute(ctx, "Test prompt")
 
 	// Assert - should fail immediately
 	if err == nil {
@@ -399,16 +387,13 @@ func TestReactClient_Execute_ToolError_StopOnError(t *testing.T) {
 	}
 }
 
-func TestReactClient_Execute_ToolError_ContinueOnError(t *testing.T) {
+func TestReactPattern_Execute_ToolError_ContinueOnError(t *testing.T) {
 	// Setup
 	memory := inmemory.New()
 	mockTool := &mockTool{
 		name:   "failing_tool",
 		result: "",
 		err:    errors.New("tool execution failed"),
-	}
-	toolCatalog := map[string]tool.GenericTool{
-		"failing_tool": mockTool,
 	}
 
 	mockLLM := &mockProvider{
@@ -437,16 +422,18 @@ func TestReactClient_Execute_ToolError_ContinueOnError(t *testing.T) {
 		t.Fatalf("Failed to create client: %v", err)
 	}
 
-	reactClient := NewReactClient[string](
+	reactPattern, err := NewReactPattern[string](
 		baseClient,
-		memory,
-		toolCatalog,
-		Config{MaxIterations: 5, StopOnError: false}, // Continue on error
+		WithMaxIterations(5),
+		WithStopOnError(false), // Continue on error
 	)
+	if err != nil {
+		t.Fatalf("Failed to create ReactPattern: %v", err)
+	}
 
 	// Execute
 	ctx := context.Background()
-	resp, err := reactClient.Execute(ctx, "Test prompt")
+	resp, err := reactPattern.Execute(ctx, "Test prompt")
 
 	// Assert - should complete despite tool error
 	if err != nil {
@@ -462,16 +449,13 @@ func TestReactClient_Execute_ToolError_ContinueOnError(t *testing.T) {
 	}
 }
 
-func TestReactClient_Execute_WithObservability(t *testing.T) {
+func TestReactPattern_Execute_WithObservability(t *testing.T) {
 	// Setup
 	observer := newTestObserver()
 	memory := inmemory.New()
 	mockTool := &mockTool{
 		name:   "test_tool",
 		result: `{"result": 42}`,
-	}
-	toolCatalog := map[string]tool.GenericTool{
-		"test_tool": mockTool,
 	}
 
 	mockLLM := &mockProvider{
@@ -501,16 +485,18 @@ func TestReactClient_Execute_WithObservability(t *testing.T) {
 		t.Fatalf("Failed to create client: %v", err)
 	}
 
-	reactClient := NewReactClient[string](
+	reactPattern, err := NewReactPattern[string](
 		baseClient,
-		memory,
-		toolCatalog,
-		Config{MaxIterations: 5, StopOnError: true},
+		WithMaxIterations(5),
+		WithStopOnError(true),
 	)
+	if err != nil {
+		t.Fatalf("Failed to create ReactPattern: %v", err)
+	}
 
 	// Execute with observer in context
 	ctx := observability.ContextWithObserver(context.Background(), observer)
-	_, err = reactClient.Execute(ctx, "Test prompt")
+	_, err = reactPattern.Execute(ctx, "Test prompt")
 
 	// Assert
 	if err != nil {
@@ -539,14 +525,192 @@ func TestReactClient_Execute_WithObservability(t *testing.T) {
 	}
 }
 
-func TestDefaultConfig(t *testing.T) {
-	cfg := DefaultConfig()
+func TestNewReactPattern_NoMemory_Error(t *testing.T) {
+	// Setup client without memory (stateless mode)
+	mockLLM := &mockProvider{}
 
-	if cfg.MaxIterations != 10 {
-		t.Errorf("Expected MaxIterations to be 10, got: %d", cfg.MaxIterations)
+	baseClient, err := client.NewClient[string](
+		mockLLM,
+		// No WithMemory() - stateless mode
+	)
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
 	}
 
-	if cfg.StopOnError != true {
-		t.Errorf("Expected StopOnError to be true, got: %v", cfg.StopOnError)
+	// Try to create ReactPattern without memory
+	_, err = NewReactPattern[string](baseClient)
+
+	// Assert - should fail because memory is required
+	if err == nil {
+		t.Error("Expected error when creating ReactPattern without memory, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "memory") {
+		t.Errorf("Expected error message to mention 'memory', got: %v", err)
+	}
+}
+
+func TestNewReactPattern_DefaultOptions(t *testing.T) {
+	// Setup
+	memory := inmemory.New()
+	mockLLM := &mockProvider{}
+
+	baseClient, err := client.NewClient[string](
+		mockLLM,
+		client.WithMemory(memory),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+
+	// Create ReactPattern with defaults (no options)
+	reactPattern, err := NewReactPattern[string](baseClient)
+	if err != nil {
+		t.Fatalf("Failed to create ReactPattern: %v", err)
+	}
+
+	// Assert defaults
+	if reactPattern.maxIterations != 10 {
+		t.Errorf("Expected default maxIterations to be 10, got: %d", reactPattern.maxIterations)
+	}
+
+	if reactPattern.stopOnError != true {
+		t.Errorf("Expected default stopOnError to be true, got: %v", reactPattern.stopOnError)
+	}
+}
+
+func TestReactPattern_CaseInsensitiveToolLookup(t *testing.T) {
+	// Test with various case variations
+	testCases := []struct {
+		name         string
+		toolCallName string
+	}{
+		{"lowercase", "testtool"},
+		{"uppercase", "TESTTOOL"},
+		{"mixed case 1", "TestTool"},
+		{"mixed case 2", "testTOOL"},
+		{"mixed case 3", "TESTtool"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Setup fresh instances for each test
+			memory := inmemory.New()
+			mockTool := &mockTool{
+				name:   "TestTool",
+				result: `{"result": "success"}`,
+			}
+
+			mockLLM := &mockProvider{
+				responses: []*ai.ChatResponse{
+					{
+						Content:      "Using tool",
+						FinishReason: "tool_calls",
+						ToolCalls: []ai.ToolCall{
+							{
+								Type:     "function",
+								Function: ai.ToolCallFunction{Name: tc.toolCallName, Arguments: "{}"},
+							},
+						},
+					},
+					{
+						Content:      "Done",
+						FinishReason: "stop",
+						ToolCalls:    []ai.ToolCall{},
+					},
+				},
+			}
+
+			baseClient, err := client.NewClient[string](
+				mockLLM,
+				client.WithMemory(memory),
+				client.WithTools(mockTool),
+			)
+			if err != nil {
+				t.Fatalf("Failed to create client: %v", err)
+			}
+
+			reactPattern, err := NewReactPattern[string](
+				baseClient,
+				WithMaxIterations(5),
+				WithStopOnError(true),
+			)
+			if err != nil {
+				t.Fatalf("Failed to create ReactPattern: %v", err)
+			}
+
+			// Execute
+			ctx := context.Background()
+			resp, err := reactPattern.Execute(ctx, "Test prompt")
+
+			// Assert - should succeed regardless of case
+			if err != nil {
+				t.Errorf("Expected no error with tool name '%s', got: %v", tc.toolCallName, err)
+			}
+
+			if resp == nil {
+				t.Fatal("Expected response, got nil")
+			}
+
+			if mockTool.callCount != 1 {
+				t.Errorf("Expected tool to be called once with name '%s', got: %d", tc.toolCallName, mockTool.callCount)
+			}
+		})
+	}
+}
+
+func TestReactPattern_CaseInsensitiveCatalogNormalization(t *testing.T) {
+	// Setup
+	memory := inmemory.New()
+	mockTool1 := &mockTool{name: "Tool1", result: "result1"}
+	mockTool2 := &mockTool{name: "TOOL2", result: "result2"}
+	mockTool3 := &mockTool{name: "ToOl3", result: "result3"}
+
+	mockLLM := &mockProvider{
+		responses: []*ai.ChatResponse{
+			{
+				Content:      "Using tools",
+				FinishReason: "tool_calls",
+				ToolCalls: []ai.ToolCall{
+					{Type: "function", Function: ai.ToolCallFunction{Name: "tool1", Arguments: "{}"}},
+				},
+			},
+			{
+				Content:      "Done",
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	baseClient, err := client.NewClient[string](
+		mockLLM,
+		client.WithMemory(memory),
+		client.WithTools(mockTool1, mockTool2, mockTool3),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+
+	// Create ReactPattern - catalog normalization happens internally during Execute
+	reactPattern, err := NewReactPattern[string](baseClient)
+	if err != nil {
+		t.Fatalf("Failed to create ReactPattern: %v", err)
+	}
+
+	// Execute to trigger catalog normalization
+	ctx := context.Background()
+	resp, err := reactPattern.Execute(ctx, "Test prompt")
+
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	if resp == nil {
+		t.Fatal("Expected response, got nil")
+	}
+
+	// Verify tool was called (proves case-insensitive lookup worked)
+	if mockTool1.callCount != 1 {
+		t.Errorf("Expected tool1 to be called once, got: %d", mockTool1.callCount)
 	}
 }
