@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
-	"os"
 
 	_ "github.com/joho/godotenv/autoload"
 )
@@ -17,50 +16,30 @@ import (
 func main() {
 	fmt.Println("=== Observability Examples ===")
 
-	// Example 1: No observability (default - zero overhead)
-	fmt.Println("--- Example 1: No Observability (Nil Observer) ---")
-	exampleNilObserver()
+	fmt.Println("\n--- Example 1: Compact Format (Default) ---")
+	exampleCompactFormat()
 
-	fmt.Println("\n--- Example 2: Slog Observability (Debug Level) ---")
-	exampleSlogObserverTrace()
+	fmt.Println("\n--- Example 2: Pretty Format ---")
+	examplePrettyFormat()
 
-	fmt.Println("\n--- Example 3: Slog Observability (Info Level) ---")
-	exampleSlogObserverInfo()
-
-	fmt.Println("\n--- Example 4: Environment-Based Log Level ---")
-	exampleEnvBasedLogLevel()
+	fmt.Println("\n--- Example 3: JSON Format ---")
+	exampleJSONFormat()
 }
 
-func exampleNilObserver() {
-	// Default behavior - nil observer (zero overhead, no observability)
-	c, err := client.NewClient[string](
-		openai.NewOpenAIProvider(),
-		client.WithSystemPrompt("You are a helpful assistant."),
+func exampleCompactFormat() {
+	fmt.Println("Format: Single line with JSON attributes (default)")
+	fmt.Println("Shows TRACE, DEBUG, INFO, WARN, ERROR levels")
+	fmt.Println()
+
+	// Create observer with compact format including TRACE level
+	observer := slogobs.New(
+		slogobs.WithFormat(slogobs.FormatCompact),
+		slogobs.WithLevel(slog.LevelDebug-4), // Enable TRACE
 	)
-	if err != nil {
-		log.Printf("Error creating client: %v\n", err)
-		return
-	}
 
-	resp, err := c.SendMessage(context.Background(), "What is 2+2?")
-	if err != nil {
-		log.Printf("Error: %v\n", err)
-		return
-	}
-	fmt.Printf("Response: %s\n", resp.Content)
-	fmt.Println("(No observability output - observer is nil)")
-}
-
-func exampleSlogObserverTrace() {
-	// Create a debug-level logger
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelDebug - 4,
-	}))
-
-	// Create client with slog observer
 	c, err := client.NewClient[string](
 		openai.NewOpenAIProvider(),
-		client.WithObserver(slogobs.New(logger)),
+		client.WithObserver(observer),
 		client.WithMemory(inmemory.New()),
 		client.WithSystemPrompt("You are a helpful assistant."),
 	)
@@ -77,16 +56,22 @@ func exampleSlogObserverTrace() {
 	fmt.Printf("\nResponse: %s\n", resp.Content)
 }
 
-func exampleSlogObserverInfo() {
-	// Create an info-level logger (no debug traces)
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
+func examplePrettyFormat() {
+	fmt.Println("Format: Multi-line with emoji and tree-style indented attributes")
+	fmt.Println("Example:")
+	fmt.Println("2025-11-03 10:40:35 🔵 DEBUG  Message")
+	fmt.Println("                   └─ key: value")
+	fmt.Println()
 
-	// Create client with slog observer
+	// Create observer with pretty format
+	observer := slogobs.New(
+		slogobs.WithFormat(slogobs.FormatPretty),
+		slogobs.WithLevel(slog.LevelDebug),
+	)
+
 	c, err := client.NewClient[string](
 		openai.NewOpenAIProvider(),
-		client.WithObserver(slogobs.New(logger)),
+		client.WithObserver(observer),
 		client.WithMemory(inmemory.New()),
 		client.WithSystemPrompt("You are a helpful assistant."),
 	)
@@ -100,39 +85,34 @@ func exampleSlogObserverInfo() {
 		log.Printf("Error: %v\n", err)
 		return
 	}
-	fmt.Printf("Response: %s\n", resp.Content)
+	fmt.Printf("\nResponse: %s\n", resp.Content)
 }
 
-func exampleEnvBasedLogLevel() {
-	// Get log level from environment variable AIGO_LOG_LEVEL or LOG_LEVEL
-	// Supported values: DEBUG, INFO, WARN, ERROR (default: INFO)
-	logLevel := slogobs.GetLogLevelFromEnv()
-	fmt.Printf("Using log level from environment: %s\n", slogobs.LogLevelString(logLevel))
-	fmt.Println("Set AIGO_LOG_LEVEL or LOG_LEVEL to: DEBUG, INFO, WARN, or ERROR")
+func exampleJSONFormat() {
+	fmt.Println("Format: Standard JSON (for production/log aggregation)")
+	fmt.Println()
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: logLevel,
-	}))
+	// Create observer with JSON format
+	observer := slogobs.New(
+		slogobs.WithFormat(slogobs.FormatJSON),
+		slogobs.WithLevel(slog.LevelInfo),
+	)
 
 	c, err := client.NewClient[string](
 		openai.NewOpenAIProvider(),
-		client.WithObserver(slogobs.New(logger)),
+		client.WithObserver(observer),
 		client.WithMemory(inmemory.New()),
 		client.WithSystemPrompt("You are a helpful assistant."),
 	)
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("Error creating client: %v\n", err)
+		return
 	}
 
-	ctx := context.Background()
-	resp, err := c.SendMessage(ctx, "Say hello!")
+	resp, err := c.SendMessage(context.Background(), "Hello!")
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("Error: %v\n", err)
+		return
 	}
-
-	fmt.Printf("Response: %s\n", resp.Content)
-	fmt.Println("\nTip: Run with different log levels:")
-	fmt.Println("  AIGO_LOG_LEVEL=DEBUG go run main.go")
-	fmt.Println("  AIGO_LOG_LEVEL=INFO go run main.go")
-	fmt.Println("  AIGO_LOG_LEVEL=ERROR go run main.go")
+	fmt.Printf("\nResponse: %s\n", resp.Content)
 }

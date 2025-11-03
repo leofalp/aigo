@@ -10,8 +10,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"log/slog"
-	"os"
 
 	_ "github.com/joho/godotenv/autoload"
 )
@@ -20,17 +18,6 @@ func main() {
 	fmt.Println("=== ReAct Pattern Example (Layer 3) ===")
 	fmt.Println("This example demonstrates the ReAct (Reason + Act) pattern")
 	fmt.Println("which automatically handles the tool execution loop.")
-
-	// Create observability provider with configurable log level
-	// Set AIGO_LOG_LEVEL or LOG_LEVEL environment variable to: DEBUG, INFO, WARN, ERROR
-	logLevel := slogobs.GetLogLevelFromEnv()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: logLevel,
-	}))
-	observer := slogobs.New(logger)
-
-	fmt.Printf("Log Level: %s (set AIGO_LOG_LEVEL or LOG_LEVEL to change)\n\n",
-		slogobs.LogLevelString(logLevel))
 
 	// Create memory provider
 	memory := inmemory.New()
@@ -42,7 +29,7 @@ func main() {
 	baseClient, err := client.NewClient[string](
 		openai.NewOpenAIProvider(),
 		client.WithMemory(memory),
-		client.WithObserver(observer),
+		client.WithObserver(slogobs.New()),
 		client.WithTools(calcTool),
 		client.WithSystemPrompt("You are a helpful math assistant. Use tools when needed to provide accurate calculations."),
 		client.WithEnrichSystemPrompt(), // Automatically adds tool descriptions and usage guidance
