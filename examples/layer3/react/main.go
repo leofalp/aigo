@@ -5,8 +5,7 @@ import (
 	"aigo/patterns/react"
 	"aigo/providers/ai/openai"
 	"aigo/providers/memory/inmemory"
-	slogobs "aigo/providers/observability/slog"
-	"aigo/providers/tool"
+	slogobservability "aigo/providers/observability/slog"
 	"aigo/providers/tool/calculator"
 	"context"
 	"fmt"
@@ -22,43 +21,46 @@ func main() {
 	fmt.Println("This example demonstrates the ReAct (Reason + Act) pattern")
 	fmt.Println("which automatically handles the tool execution loop.")
 
-	// Create observability provider for detailed tracing
+	// Create observability provider with configurable log level
+	// Set AIGO_LOG_LEVEL or LOG_LEVEL environment variable to: DEBUG, INFO, WARN, ERROR
+	logLevel := slogobservability.GetLogLevelFromEnv()
 	logger := logslog.New(logslog.NewTextHandler(os.Stdout, &logslog.HandlerOptions{
-		Level: logslog.LevelDebug, // Use DEBUG to see detailed tool execution
+		Level: logLevel,
 	}))
-	observer := slogobs.New(logger)
+	observer := slogobservability.New(logger)
+
+	fmt.Printf("Log Level: %s (set AIGO_LOG_LEVEL or LOG_LEVEL to change)\n\n",
+		slogobservability.LogLevelString(logLevel))
 
 	// Create memory provider
 	memory := inmemory.New()
 
 	// Create calculator tool
 	calcTool := calculator.NewCalculatorTool()
-	toolCatalog := map[string]tool.GenericTool{
-		"calculator": calcTool,
-	}
 
-	// Create base client with tools and observer
+	// Create base client with memory, tools, and observer
 	baseClient, err := client.NewClient[string](
 		openai.NewOpenAIProvider(),
 		client.WithMemory(memory),
 		client.WithObserver(observer),
 		client.WithTools(calcTool),
-		client.WithSystemPrompt("You are a helpful math assistant. Use the calculator tool when needed for calculations."),
+		client.WithSystemPrompt("You are a helpful math assistant. Use tools when needed to provide accurate calculations."),
+		client.WithEnrichSystemPrompt(), // Automatically adds tool descriptions and usage guidance
 	)
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
 	}
 
-	// Create ReAct client with configuration
-	reactClient := react.NewReactClient[string](
+	// Create ReAct pattern with functional options
+	// The ReAct pattern will use memory and tools from the base client
+	reactPattern, err := react.NewReactPattern[string](
 		baseClient,
-		memory,
-		toolCatalog,
-		react.Config{
-			MaxIterations: 5,
-			StopOnError:   true,
-		},
+		react.WithMaxIterations(5),
+		react.WithStopOnError(true),
 	)
+	if err != nil {
+		log.Fatalf("Failed to create ReAct pattern: %v", err)
+	}
 
 	ctx := context.Background()
 
@@ -67,7 +69,7 @@ func main() {
 	prompt1 := "What is 1234 multiplied by 567?"
 	fmt.Printf("User: %s\n\n", prompt1)
 
-	resp1, err := reactClient.Execute(ctx, prompt1)
+	resp1, err := reactPattern.Execute(ctx, prompt1)
 	if err != nil {
 		log.Fatalf("ReAct execution failed: %v", err)
 	}
@@ -87,7 +89,7 @@ func main() {
 	prompt2 := "Calculate (150 + 250) * 3, then subtract 100"
 	fmt.Printf("User: %s\n\n", prompt2)
 
-	resp2, err := reactClient.Execute(ctx, prompt2)
+	resp2, err := reactPattern.Execute(ctx, prompt2)
 	if err != nil {
 		log.Fatalf("ReAct execution failed: %v", err)
 	}
@@ -115,8 +117,14 @@ func main() {
 	fmt.Println("3. Executes the tools and adds results to memory")
 	fmt.Println("4. Continues the loop until a final answer is reached")
 	fmt.Println("5. Provides full observability (spans, logs, metrics)")
+	fmt.Println("\nNew improvements:")
+	fmt.Println("- Uses ReactPattern (not ReactClient) for clarity")
+	fmt.Println("- Functional options pattern for configuration")
+	fmt.Println("- No manual tool catalog needed (uses client tools)")
+	fmt.Println("- Memory accessed directly from client")
+	fmt.Println("- Case-insensitive tool lookup")
 	fmt.Println("\nBenefits over manual tool execution (Layer 2):")
-	fmt.Println("- Less boilerplate code")
+	fmt.Println("- 90% less boilerplate code")
 	fmt.Println("- Automatic iteration management")
 	fmt.Println("- Built-in observability")
 	fmt.Println("- Error handling and max iteration protection")

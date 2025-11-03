@@ -35,9 +35,8 @@ func main() {
 	}
 
 	// Create tool catalog for manual execution
-	toolCatalog := map[string]tool.GenericTool{
-		"calculator": calculator.NewCalculatorTool(),
-	}
+	toolCatalog := tool.NewCatalog()
+	toolCatalog.AddTools(calculator.NewCalculatorTool())
 
 	ctx := context.Background()
 	userPrompt := "What is 3344 multiplied by 56?"
@@ -79,7 +78,7 @@ func main() {
 		fmt.Printf("  Arguments: %s\n", toolCall.Function.Arguments)
 
 		// Find the tool in our catalog
-		toolInstance, exists := toolCatalog[toolCall.Function.Name]
+		toolInstance, exists := toolCatalog.Get(toolCall.Function.Name)
 		if !exists {
 			log.Printf("  ✗ Tool '%s' not found in catalog\n", toolCall.Function.Name)
 			continue

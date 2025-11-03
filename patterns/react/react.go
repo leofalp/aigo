@@ -8,47 +8,77 @@ import (
 	"aigo/providers/tool"
 	"context"
 	"fmt"
+	"strings"
 	"time"
+	"unsafe"
 )
 
-// Config holds configuration for the ReAct pattern execution.
-type Config struct {
-	MaxIterations int  // Maximum number of tool execution iterations (default: 10)
-	StopOnError   bool // Whether to stop on tool execution errors (default: true)
-}
-
-// DefaultConfig returns sensible defaults for ReAct pattern.
-func DefaultConfig() Config {
-	return Config{
-		MaxIterations: 10,
-		StopOnError:   true,
-	}
-}
-
-// ReactClient wraps a base client and adds ReAct pattern behavior:
+// ReactPattern wraps a base client and adds ReAct pattern behavior:
 // automatic tool execution loop with reasoning.
-type ReactClient[T any] struct {
-	client      *client.Client[T]
-	memory      memory.Provider
-	toolCatalog map[string]tool.GenericTool
-	config      Config
+type ReactPattern[T any] struct {
+	client        *client.Client[T]
+	maxIterations int
+	stopOnError   bool
 }
 
-// NewReactClient creates a new ReAct pattern client that wraps a base client.
-// The base client should be configured with tools and observer.
-// Memory and tool catalog are required for the ReAct pattern to work.
-func NewReactClient[T any](
-	baseClient *client.Client[T],
-	memoryProvider memory.Provider,
-	toolCatalog map[string]tool.GenericTool,
-	cfg Config,
-) *ReactClient[T] {
-	return &ReactClient[T]{
-		client:      baseClient,
-		memory:      memoryProvider,
-		toolCatalog: toolCatalog,
-		config:      cfg,
+// Option is a functional option for configuring ReactPattern.
+type Option func(*ReactPattern[any])
+
+// WithMaxIterations sets the maximum number of tool execution iterations.
+// Default: 10
+func WithMaxIterations(max int) Option {
+	return func(rc *ReactPattern[any]) {
+		rc.maxIterations = max
 	}
+}
+
+// WithStopOnError configures whether to stop execution on tool errors.
+// Default: true
+func WithStopOnError(stop bool) Option {
+	return func(rc *ReactPattern[any]) {
+		rc.stopOnError = stop
+	}
+}
+
+// NewReactPattern creates a new ReAct pattern that wraps a base client.
+// The base client should be configured with memory, tools, and observer.
+//
+// Memory is required for the ReAct pattern to work (the LLM needs to see tool results).
+// If the client is in stateless mode, this function will return an error.
+//
+// Example:
+//
+//	baseClient, _ := client.NewClient[string](
+//	    provider,
+//	    client.WithMemory(memory),
+//	    client.WithTools(tool1, tool2),
+//	    client.WithObserver(observer),
+//	)
+//
+//	reactClient, _ := react.NewReactPattern(
+//	    baseClient,
+//	    react.WithMaxIterations(5),
+//	    react.WithStopOnError(true),
+//	)
+func NewReactPattern[T any](baseClient *client.Client[T], opts ...Option) (*ReactPattern[T], error) {
+	// Validate that memory is configured (required for ReAct)
+	if baseClient.Memory() == nil {
+		return nil, fmt.Errorf("ReAct pattern requires memory: client must be configured with WithMemory()")
+	}
+
+	// Create ReactPattern with defaults
+	rc := &ReactPattern[T]{
+		client:        baseClient,
+		maxIterations: 10,
+		stopOnError:   true,
+	}
+
+	// Apply options (type-erased to work with generic type)
+	for _, opt := range opts {
+		opt((*ReactPattern[any])(unsafe.Pointer(rc)))
+	}
+
+	return rc, nil
 }
 
 // Execute runs the ReAct pattern loop:
@@ -57,16 +87,24 @@ func NewReactClient[T any](
 // 3. Repeat until LLM provides final answer or max iterations reached
 //
 // Returns the final response from the LLM after the reasoning loop completes.
-func (r *ReactClient[T]) Execute(ctx context.Context, prompt string) (*ai.ChatResponse, error) {
-	observer := observability.ObserverFromContext(ctx)
+func (r *ReactPattern[T]) Execute(ctx context.Context, prompt string) (*ai.ChatResponse, error) {
+	observer := r.client.Observer()
+	if observer == nil {
+		observer = observability.ObserverFromContext(ctx)
+	}
+
 	var span observability.Span
+
+	// Get memory and tool catalog from client
+	memory := r.client.Memory()
+	toolCatalog := r.client.ToolCatalog()
 
 	// Start top-level ReAct span
 	if observer != nil {
 		ctx, span = observer.StartSpan(ctx, "react.execute",
 			observability.String("pattern", "react"),
 			observability.String("prompt", observability.TruncateStringDefault(prompt)),
-			observability.Int("max_iterations", r.config.MaxIterations),
+			observability.Int("max_iterations", r.maxIterations),
 		)
 		defer span.End()
 
@@ -74,8 +112,8 @@ func (r *ReactClient[T]) Execute(ctx context.Context, prompt string) (*ai.ChatRe
 		ctx = observability.ContextWithObserver(ctx, observer)
 
 		observer.Info(ctx, "Starting ReAct pattern execution",
-			observability.Int("max_iterations", r.config.MaxIterations),
-			observability.Int("tools_available", len(r.toolCatalog)),
+			observability.Int("max_iterations", r.maxIterations),
+			observability.Int("tools_available", toolCatalog.Size()),
 		)
 	}
 
@@ -85,13 +123,13 @@ func (r *ReactClient[T]) Execute(ctx context.Context, prompt string) (*ai.ChatRe
 	var err error
 
 	// Main ReAct loop
-	for iteration < r.config.MaxIterations {
+	for iteration < r.maxIterations {
 		iteration++
 
 		if observer != nil {
-			observer.Info(ctx, "ReAct iteration starting",
+			observer.Info(ctx, "ReAct iterating",
 				observability.Int("iteration", iteration),
-				observability.Int("max_iterations", r.config.MaxIterations),
+				observability.Int("max_iterations", r.maxIterations),
 			)
 		}
 
@@ -164,16 +202,16 @@ func (r *ReactClient[T]) Execute(ctx context.Context, prompt string) (*ai.ChatRe
 		}
 
 		// Add assistant message to memory (with tool calls)
-		r.memory.AppendMessage(ctx, &ai.Message{
+		memory.AppendMessage(ctx, &ai.Message{
 			Role:    ai.RoleAssistant,
 			Content: response.Content,
 		})
 
 		toolsExecuted := 0
 		for _, toolCall := range response.ToolCalls {
-			err := r.executeToolCall(ctx, observer, toolCall)
+			err := r.executeToolCall(ctx, observer, memory, toolCatalog, toolCall)
 			if err != nil {
-				if r.config.StopOnError {
+				if r.stopOnError {
 					if observer != nil {
 						span.RecordError(err)
 						span.SetStatus(observability.StatusError, "Tool execution failed")
@@ -218,7 +256,7 @@ func (r *ReactClient[T]) Execute(ctx context.Context, prompt string) (*ai.ChatRe
 	if observer != nil {
 		span.SetStatus(observability.StatusError, "Max iterations reached")
 		observer.Warn(ctx, "ReAct pattern reached max iterations without final answer",
-			observability.Int("max_iterations", r.config.MaxIterations),
+			observability.Int("max_iterations", r.maxIterations),
 			observability.Duration("total_duration", totalDuration),
 		)
 
@@ -227,11 +265,17 @@ func (r *ReactClient[T]) Execute(ctx context.Context, prompt string) (*ai.ChatRe
 		)
 	}
 
-	return response, fmt.Errorf("reached maximum iterations (%d) without final answer", r.config.MaxIterations)
+	return response, fmt.Errorf("reached maximum iterations (%d) without final answer", r.maxIterations)
 }
 
 // executeToolCall executes a single tool call and adds the result to memory.
-func (r *ReactClient[T]) executeToolCall(ctx context.Context, observer observability.Provider, toolCall ai.ToolCall) error {
+func (r *ReactPattern[T]) executeToolCall(
+	ctx context.Context,
+	observer observability.Provider,
+	mem memory.Provider,
+	toolCatalog *tool.Catalog,
+	toolCall ai.ToolCall,
+) error {
 	var span observability.Span
 
 	if observer != nil {
@@ -248,12 +292,10 @@ func (r *ReactClient[T]) executeToolCall(ctx context.Context, observer observabi
 		)
 	}
 
-	start := time.Now()
-
-	// Look up tool in catalog
-	toolInstance, exists := r.toolCatalog[toolCall.Function.Name]
+	// Look up the tool in the catalog (catalog is case-insensitive by design)
+	toolInstance, exists := toolCatalog.Get(toolCall.Function.Name)
 	if !exists {
-		err := fmt.Errorf("tool '%s' not found in catalog", toolCall.Function.Name)
+		err := fmt.Errorf("tool '%s' not found in catalog (case-insensitive lookup)", toolCall.Function.Name)
 		if observer != nil {
 			span.RecordError(err)
 			span.SetStatus(observability.StatusError, "Tool not found")
@@ -261,10 +303,22 @@ func (r *ReactClient[T]) executeToolCall(ctx context.Context, observer observabi
 				observability.String("tool_name", toolCall.Function.Name),
 			)
 		}
+
+		// Add error message to memory as plain text
+		errorMsg := fmt.Sprintf("Error: Tool '%s' not found. Available tools: %s",
+			toolCall.Function.Name,
+			strings.Join(getToolNames(toolCatalog), ", "),
+		)
+		mem.AppendMessage(ctx, &ai.Message{
+			Role:    ai.RoleTool,
+			Content: errorMsg,
+		})
+
 		return err
 	}
 
 	// Execute tool
+	start := time.Now()
 	result, err := toolInstance.Call(ctx, toolCall.Function.Arguments)
 	duration := time.Since(start)
 
@@ -279,9 +333,9 @@ func (r *ReactClient[T]) executeToolCall(ctx context.Context, observer observabi
 			)
 		}
 
-		// Add error result to memory
-		errorMsg := fmt.Sprintf(`{"error": "%s"}`, err.Error())
-		r.memory.AppendMessage(ctx, &ai.Message{
+		// Add error result to memory as plain text (not fake JSON)
+		errorMsg := fmt.Sprintf("Error executing tool '%s': %s", toolCall.Function.Name, err.Error())
+		mem.AppendMessage(ctx, &ai.Message{
 			Role:    ai.RoleTool,
 			Content: errorMsg,
 		})
@@ -290,7 +344,7 @@ func (r *ReactClient[T]) executeToolCall(ctx context.Context, observer observabi
 	}
 
 	// Add successful result to memory
-	r.memory.AppendMessage(ctx, &ai.Message{
+	mem.AppendMessage(ctx, &ai.Message{
 		Role:    ai.RoleTool,
 		Content: result,
 	})
@@ -306,4 +360,14 @@ func (r *ReactClient[T]) executeToolCall(ctx context.Context, observer observabi
 	}
 
 	return nil
+}
+
+// getToolNames returns a list of tool names from the catalog.
+func getToolNames(catalog *tool.Catalog) []string {
+	tools := catalog.Tools()
+	names := make([]string, 0, len(tools))
+	for name := range tools {
+		names = append(names, name)
+	}
+	return names
 }

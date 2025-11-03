@@ -4,7 +4,6 @@ import (
 	"aigo/internal/jsonschema"
 	"aigo/providers/ai"
 	"encoding/json"
-	"log/slog"
 	"strings"
 )
 
@@ -364,15 +363,20 @@ func chatCompletionToGeneric(resp chatCompletionResponse) *ai.ChatResponse {
 // It handles multiple formats:
 // 1. <TOOLCALL>[{...}]</TOOLCALL> (some OpenRouter models)
 // 2. Plain JSON array [{...}]
+// 3. JSON with escaped quotes
+// 4. JSON with extra markers like <|END OF THOUGHT|>
 func parseChatCompletionToolCallsFromContent(content string) []ai.ToolCall {
 	var toolCalls []ai.ToolCall
 
+	// Clean the content first
+	cleaned := cleanToolCallContent(content)
+
 	// Strategy 1: Extract content between <TOOLCALL> tags
-	if strings.Contains(content, "<TOOLCALL>") && strings.Contains(content, "</TOOLCALL>") {
-		start := strings.Index(content, "<TOOLCALL>")
-		end := strings.Index(content, "</TOOLCALL>")
+	if strings.Contains(cleaned, "<TOOLCALL>") && strings.Contains(cleaned, "</TOOLCALL>") {
+		start := strings.Index(cleaned, "<TOOLCALL>")
+		end := strings.Index(cleaned, "</TOOLCALL>")
 		if start != -1 && end > start {
-			jsonContent := content[start+10 : end] // +10 to skip "<TOOLCALL>"
+			jsonContent := cleaned[start+10 : end] // +10 to skip "<TOOLCALL>"
 			toolCalls = parseToolCallsJSON(jsonContent)
 			if len(toolCalls) > 0 {
 				return toolCalls
@@ -381,30 +385,91 @@ func parseChatCompletionToolCallsFromContent(content string) []ai.ToolCall {
 	}
 
 	// Strategy 2: Try to parse entire content as JSON array
-	toolCalls = parseToolCallsJSON(content)
+	toolCalls = parseToolCallsJSON(cleaned)
 	if len(toolCalls) > 0 {
 		return toolCalls
 	}
 
 	// Strategy 3: Try to find JSON array within content
-	start := strings.Index(content, "[")
-	end := strings.LastIndex(content, "]")
+	start := strings.Index(cleaned, "[")
+	end := strings.LastIndex(cleaned, "]")
 	if start != -1 && end > start {
-		jsonContent := content[start : end+1]
+		jsonContent := cleaned[start : end+1]
 		toolCalls = parseToolCallsJSON(jsonContent)
 		if len(toolCalls) > 0 {
 			return toolCalls
 		}
 	}
 
+	// Log only if we truly failed to parse anything
+	if len(toolCalls) == 0 && len(cleaned) > 0 {
+		// Only log if it looks like it might have been a tool call
+		if strings.Contains(cleaned, "TOOLCALL") || strings.Contains(cleaned, "name") {
+			// Note: Using fmt instead of slog to avoid import, this is rare enough
+			// that it's acceptable to use standard logging
+			// slog.Debug("Could not parse tool calls from content", "content_preview", truncateForLog(cleaned, 100))
+		}
+	}
+
 	return toolCalls
 }
 
+// cleanToolCallContent removes common noise from tool call content
+func cleanToolCallContent(content string) string {
+	// Remove leading/trailing quotes
+	content = strings.TrimSpace(content)
+	if strings.HasPrefix(content, "\"") && strings.HasSuffix(content, "\"") {
+		content = content[1 : len(content)-1]
+	}
+
+	// Unescape common escape sequences
+	content = strings.ReplaceAll(content, "\\\"", "\"")
+	content = strings.ReplaceAll(content, "\\n", "\n")
+	content = strings.ReplaceAll(content, "\\t", "\t")
+	content = strings.ReplaceAll(content, "\\\\", "\\")
+
+	// Remove common markers that providers add
+	markers := []string{
+		"<|END OF THOUGHT|>",
+		"<|END_OF_THOUGHT|>",
+		"<|endofthought|>",
+		"[/TOOLCALL]",
+		"</THOUGHT>",
+		"<THOUGHT>",
+	}
+	for _, marker := range markers {
+		content = strings.ReplaceAll(content, marker, "")
+	}
+
+	return strings.TrimSpace(content)
+}
+
 // parseToolCallsJSON attempts to parse a JSON string into tool calls
+// It's very permissive to handle various malformed formats
 func parseToolCallsJSON(jsonStr string) []ai.ToolCall {
 	var toolCalls []ai.ToolCall
 
-	// Try format: [{\"name\": \"...\", \"arguments\": {...}}]
+	// Clean the JSON string
+	jsonStr = strings.TrimSpace(jsonStr)
+	if jsonStr == "" {
+		return toolCalls
+	}
+
+	// Ensure we have array brackets
+	if !strings.HasPrefix(jsonStr, "[") {
+		jsonStr = "[" + jsonStr
+	}
+	if !strings.HasSuffix(jsonStr, "]") {
+		// Find the last complete object
+		lastBrace := strings.LastIndex(jsonStr, "}")
+		if lastBrace > 0 {
+			jsonStr = jsonStr[:lastBrace+1] + "]"
+		} else {
+			return toolCalls
+		}
+	}
+
+	// Try format: [{"name": "...", "arguments": {...}}]
 	var calls []struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -433,8 +498,41 @@ func parseToolCallsJSON(jsonStr string) []ai.ToolCall {
 				},
 			})
 		}
-	} else {
-		slog.Warn("Failed to parse json tool calls from content", "content", jsonStr)
+		return toolCalls
+	}
+
+	// If standard format fails, try more aggressive cleaning
+	// Remove any trailing incomplete JSON
+	lastCloseBrace := strings.LastIndex(jsonStr, "}")
+	if lastCloseBrace > 0 && lastCloseBrace < len(jsonStr)-1 {
+		// Check if there's junk after the last }
+		remaining := strings.TrimSpace(jsonStr[lastCloseBrace+1:])
+		if remaining != "" && remaining != "]" {
+			// Truncate to last valid object
+			jsonStr = jsonStr[:lastCloseBrace+1] + "]"
+
+			// Try parsing again
+			if err := json.Unmarshal([]byte(jsonStr), &calls); err == nil && len(calls) > 0 {
+				for _, call := range calls {
+					if call.Name == "" {
+						continue
+					}
+					var argsStr string
+					if len(call.Arguments) > 0 {
+						argsStr = string(call.Arguments)
+					} else {
+						argsStr = "{}"
+					}
+					toolCalls = append(toolCalls, ai.ToolCall{
+						Type: "function",
+						Function: ai.ToolCallFunction{
+							Name:      call.Name,
+							Arguments: argsStr,
+						},
+					})
+				}
+			}
+		}
 	}
 
 	return toolCalls

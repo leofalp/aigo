@@ -26,6 +26,9 @@ func main() {
 
 	fmt.Println("\n--- Example 3: Slog Observability (Info Level) ---")
 	exampleSlogObserverInfo()
+
+	fmt.Println("\n--- Example 4: Environment-Based Log Level ---")
+	exampleEnvBasedLogLevel()
 }
 
 func exampleNilObserver() {
@@ -97,5 +100,39 @@ func exampleSlogObserverInfo() {
 		log.Printf("Error: %v\n", err)
 		return
 	}
-	fmt.Printf("\nResponse: %s\n", resp.Content)
+	fmt.Printf("Response: %s\n", resp.Content)
+}
+
+func exampleEnvBasedLogLevel() {
+	// Get log level from environment variable AIGO_LOG_LEVEL or LOG_LEVEL
+	// Supported values: DEBUG, INFO, WARN, ERROR (default: INFO)
+	logLevel := slog.GetLogLevelFromEnv()
+	fmt.Printf("Using log level from environment: %s\n", slog.LogLevelString(logLevel))
+	fmt.Println("Set AIGO_LOG_LEVEL or LOG_LEVEL to: DEBUG, INFO, WARN, or ERROR")
+
+	logger := logslog.New(logslog.NewTextHandler(os.Stdout, &logslog.HandlerOptions{
+		Level: logLevel,
+	}))
+
+	c, err := client.NewClient[string](
+		openai.NewOpenAIProvider(),
+		client.WithObserver(slog.New(logger)),
+		client.WithMemory(inmemory.New()),
+		client.WithSystemPrompt("You are a helpful assistant."),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	ctx := context.Background()
+	resp, err := c.SendMessage(ctx, "Say hello!")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("Response: %s\n", resp.Content)
+	fmt.Println("\nTip: Run with different log levels:")
+	fmt.Println("  AIGO_LOG_LEVEL=DEBUG go run main.go")
+	fmt.Println("  AIGO_LOG_LEVEL=INFO go run main.go")
+	fmt.Println("  AIGO_LOG_LEVEL=ERROR go run main.go")
 }
