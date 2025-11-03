@@ -142,7 +142,7 @@ func main() {
 	fmt.Printf("\n✓ Assistant: %s\n", finalResp.Content)
 
 	if finalResp.Reasoning != "" {
-		fmt.Printf("\n[Reasoning]: %s\n", truncate(finalResp.Reasoning, 150))
+		fmt.Printf("\n[Reasoning]: %s\n", truncate(finalResp.Reasoning, 500))
 	}
 
 	// Step 6: Show complete conversation with proper structure
@@ -155,14 +155,14 @@ func main() {
 
 		// Show content
 		if msg.Content != "" {
-			fmt.Printf("  Content: %s\n", truncate(msg.Content, 80))
+			fmt.Printf("  Content: %s\n", truncate(msg.Content, 500))
 		} else {
 			fmt.Printf("  Content: (empty - continuing conversation)\n")
 		}
 
 		// Show reasoning if present
 		if msg.Reasoning != "" {
-			fmt.Printf("  Reasoning: %s\n", truncate(msg.Reasoning, 80))
+			fmt.Printf("  Reasoning: %s\n", truncate(msg.Reasoning, 500))
 		}
 
 		// Show refusal if present

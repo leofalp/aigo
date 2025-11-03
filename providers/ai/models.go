@@ -32,7 +32,7 @@ type ToolDescription struct {
 type Message struct {
 	// Core fields (always present)
 	Role    MessageRole `json:"role"`
-	Content string      `json:"content"`
+	Content string      `json:"content,omitempty"`
 
 	// Tool calling fields
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // For role=assistant requesting tools

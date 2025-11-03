@@ -6,12 +6,13 @@ import (
 	"log"
 
 	"github.com/leofalp/aigo/core/client"
+	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/patterns/react"
 	"github.com/leofalp/aigo/providers/ai/openai"
 	"github.com/leofalp/aigo/providers/memory/inmemory"
-	"github.com/leofalp/aigo/providers/observability"
 	"github.com/leofalp/aigo/providers/observability/slogobs"
 	"github.com/leofalp/aigo/providers/tool/calculator"
+	"github.com/leofalp/aigo/providers/tool/duckduckgo"
 
 	_ "github.com/joho/godotenv/autoload"
 )
@@ -26,15 +27,17 @@ func main() {
 
 	// Create calculator tool
 	calcTool := calculator.NewCalculatorTool()
+	searchTool := duckduckgo.NewDuckDuckGoSearchTool()
 
 	// Create base client with memory, tools, and observer
 	baseClient, err := client.NewClient[string](
 		openai.NewOpenAIProvider(),
 		client.WithMemory(memory),
 		client.WithObserver(slogobs.New()),
-		client.WithTools(calcTool),
-		client.WithSystemPrompt("You are a helpful math assistant. Use tools when needed to provide accurate calculations."),
-		client.WithEnrichSystemPrompt(), // Automatically adds tool descriptions and usage guidance
+		client.WithTools(calcTool, searchTool),
+		client.WithSystemPrompt("You are a helpful math assistant. Use tools when needed to provide accurate responses."),
+		client.WithEnrichSystemPromptWithToolsDescriptions(), // Automatically adds tool descriptions and usage guidance
+		client.WithEnrichSystemPromptWithOutputSchema(),      // Optionally add output schema to system prompt
 	)
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
@@ -53,45 +56,29 @@ func main() {
 
 	ctx := context.Background()
 
-	// Test Case 1: Simple calculation
-	fmt.Println("--- Test Case 1: Simple Calculation ---")
-	prompt1 := "What is 1234 multiplied by 567?"
-	fmt.Printf("User: %s\n\n", prompt1)
+	prompt := "How old would Albert Einstein be today?"
+	fmt.Printf("User: %s\n\n", prompt)
 
-	resp1, err := reactPattern.Execute(ctx, prompt1)
+	resp, err := reactPattern.Execute(ctx, prompt)
 	if err != nil {
 		log.Fatalf("ReAct execution failed: %v", err)
 	}
 
-	fmt.Printf("\n✓ Assistant: %s\n", resp1.Content)
-	fmt.Printf("Finish Reason: %s\n", resp1.FinishReason)
-	if resp1.Usage != nil {
+	fmt.Printf("\n✓ Assistant: %s\n", resp.Content)
+	fmt.Printf("Finish Reason: %s\n", resp.FinishReason)
+	if resp.Usage != nil {
 		fmt.Printf("Tokens Used: %d (prompt: %d, completion: %d)\n",
-			resp1.Usage.TotalTokens,
-			resp1.Usage.PromptTokens,
-			resp1.Usage.CompletionTokens,
+			resp.Usage.TotalTokens,
+			resp.Usage.PromptTokens,
+			resp.Usage.CompletionTokens,
 		)
 	}
-
-	// Test Case 2: Multi-step reasoning
-	fmt.Println("\n\n--- Test Case 2: Multi-Step Calculation ---")
-	prompt2 := "Calculate (150 + 250) * 3, then subtract 100"
-	fmt.Printf("User: %s\n\n", prompt2)
-
-	resp2, err := reactPattern.Execute(ctx, prompt2)
-	if err != nil {
-		log.Fatalf("ReAct execution failed: %v", err)
-	}
-
-	fmt.Printf("\n✓ Assistant: %s\n", resp2.Content)
-	fmt.Printf("Finish Reason: %s\n", resp2.FinishReason)
 
 	// Show conversation history
 	fmt.Println("\n\n--- Conversation History ---")
 	messages := memory.AllMessages()
 	fmt.Printf("Total messages in memory: %d\n\n", len(messages))
 	for i, msg := range messages {
-		content := observability.TruncateString(msg.Content, 5000)
-		fmt.Printf("%d. [%s] %s\n", i+1, msg.Role, content)
+		fmt.Printf("%d. [%s] %s\n\n", i+1, msg.Role, utils.JSONToString(msg, true))
 	}
 }
