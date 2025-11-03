@@ -7,6 +7,7 @@ import (
 	"aigo/providers/observability"
 	"aigo/providers/tool"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -111,7 +112,7 @@ func (r *ReactPattern[T]) Execute(ctx context.Context, prompt string) (*ai.ChatR
 		ctx = observability.ContextWithSpan(ctx, span)
 		ctx = observability.ContextWithObserver(ctx, observer)
 
-		observer.Info(ctx, "Starting ReAct pattern execution",
+		observer.Debug(ctx, "Starting ReAct pattern",
 			observability.Int("max_iterations", r.maxIterations),
 			observability.Int("tools_available", toolCatalog.Size()),
 		)
@@ -127,9 +128,8 @@ func (r *ReactPattern[T]) Execute(ctx context.Context, prompt string) (*ai.ChatR
 		iteration++
 
 		if observer != nil {
-			observer.Info(ctx, "ReAct iterating",
+			observer.Debug(ctx, "ReAct iteration",
 				observability.Int("iteration", iteration),
-				observability.Int("max_iterations", r.maxIterations),
 			)
 		}
 
@@ -150,10 +150,10 @@ func (r *ReactPattern[T]) Execute(ctx context.Context, prompt string) (*ai.ChatR
 			if observer != nil {
 				span.RecordError(err)
 				span.SetStatus(observability.StatusError, "ReAct iteration failed")
-				observer.Error(ctx, "ReAct iteration failed",
-					observability.Error(err),
+				observer.Error(ctx, "Iteration failed",
 					observability.Int("iteration", iteration),
-					observability.Duration("iteration_duration", iterationDuration),
+					observability.Duration("duration", iterationDuration),
+					observability.Error(err),
 				)
 			}
 			return nil, fmt.Errorf("iteration %d failed: %w", iteration, err)
@@ -185,20 +185,15 @@ func (r *ReactPattern[T]) Execute(ctx context.Context, prompt string) (*ai.ChatR
 
 		// Step 3: Execute tool calls
 		if observer != nil {
-			observer.Info(ctx, "LLM requested tool calls - executing tools",
-				observability.Int("iteration", iteration),
-				observability.Int("tool_calls_count", len(response.ToolCalls)),
-				observability.String("finish_reason", response.FinishReason),
-			)
-
-			// Log each tool call name
+			// Log tool calls as a list
+			toolNames := make([]string, len(response.ToolCalls))
 			for i, tc := range response.ToolCalls {
-				observer.Debug(ctx, "Tool call details",
-					observability.Int("tool_index", i),
-					observability.String("tool_name", tc.Function.Name),
-					observability.String("tool_type", tc.Type),
-				)
+				toolNames[i] = tc.Function.Name
 			}
+			observer.Debug(ctx, "Executing tools from LLM response",
+				observability.Int("iteration", iteration),
+				observability.StringSlice("tools", toolNames),
+			)
 		}
 
 		// Add assistant message to memory (with tool calls)
@@ -281,26 +276,23 @@ func (r *ReactPattern[T]) executeToolCall(
 	if observer != nil {
 		ctx, span = observer.StartSpan(ctx, "react.execute_tool",
 			observability.String("tool_name", toolCall.Function.Name),
-			observability.String("arguments", observability.TruncateString(toolCall.Function.Arguments, 500)),
 		)
 		defer span.End()
-
-		observer.Info(ctx, "Executing tool",
-			observability.String("tool_name", toolCall.Function.Name),
-			observability.String("tool_type", toolCall.Type),
-			observability.String("arguments", observability.TruncateString(toolCall.Function.Arguments, 200)),
-		)
 	}
 
+	start := time.Now()
 	// Look up the tool in the catalog (catalog is case-insensitive by design)
 	toolInstance, exists := toolCatalog.Get(toolCall.Function.Name)
 	if !exists {
 		err := fmt.Errorf("tool '%s' not found in catalog (case-insensitive lookup)", toolCall.Function.Name)
+		duration := time.Since(start)
 		if observer != nil {
 			span.RecordError(err)
 			span.SetStatus(observability.StatusError, "Tool not found")
-			observer.Error(ctx, "Tool not found in catalog",
-				observability.String("tool_name", toolCall.Function.Name),
+			observer.Error(ctx, "Tool call failed - not found",
+				observability.String("tool", toolCall.Function.Name),
+				observability.Duration("duration", duration),
+				observability.Error(err),
 			)
 		}
 
@@ -318,19 +310,33 @@ func (r *ReactPattern[T]) executeToolCall(
 	}
 
 	// Execute tool
-	start := time.Now()
 	result, err := toolInstance.Call(ctx, toolCall.Function.Arguments)
 	duration := time.Since(start)
 
+	// Prepare compact log attributes
+	logAttrs := []observability.Attribute{
+		observability.String("tool", toolCall.Function.Name),
+		observability.Duration("duration", duration),
+	}
+
+	// Parse and add arguments as structured attributes
+	var argsMap map[string]interface{}
+	if jsonErr := json.Unmarshal([]byte(toolCall.Function.Arguments), &argsMap); jsonErr == nil {
+		for k, v := range argsMap {
+			logAttrs = append(logAttrs, observability.String("in."+k, fmt.Sprintf("%v", v)))
+		}
+	} else {
+		// Fallback to truncated string if not valid JSON
+		logAttrs = append(logAttrs, observability.String("input", observability.TruncateString(toolCall.Function.Arguments, 100)))
+	}
+
 	if err != nil {
+		logAttrs = append(logAttrs, observability.Error(err))
+
 		if observer != nil {
 			span.RecordError(err)
 			span.SetStatus(observability.StatusError, "Tool execution error")
-			observer.Error(ctx, "Tool execution failed",
-				observability.Error(err),
-				observability.String("tool_name", toolCall.Function.Name),
-				observability.Duration("duration", duration),
-			)
+			observer.Error(ctx, "Tool call failed", logAttrs...)
 		}
 
 		// Add error result to memory as plain text (not fake JSON)
@@ -349,14 +355,20 @@ func (r *ReactPattern[T]) executeToolCall(
 		Content: result,
 	})
 
+	// Parse and add result as structured attributes if it's JSON
+	var resultMap map[string]interface{}
+	if jsonErr := json.Unmarshal([]byte(result), &resultMap); jsonErr == nil {
+		for k, v := range resultMap {
+			logAttrs = append(logAttrs, observability.String("out."+k, fmt.Sprintf("%v", v)))
+		}
+	} else {
+		// Fallback to truncated string if not valid JSON
+		logAttrs = append(logAttrs, observability.String("output", observability.TruncateString(result, 100)))
+	}
+
 	if observer != nil {
 		span.SetStatus(observability.StatusOK, "Tool executed successfully")
-		observer.Info(ctx, "Tool executed successfully - result added to memory",
-			observability.String("tool_name", toolCall.Function.Name),
-			observability.Duration("duration", duration),
-			observability.Int("result_length", len(result)),
-			observability.String("result_preview", observability.TruncateString(result, 100)),
-		)
+		observer.Info(ctx, "Tool call completed", logAttrs...)
 	}
 
 	return nil

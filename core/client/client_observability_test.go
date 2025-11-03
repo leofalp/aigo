@@ -139,7 +139,7 @@ func TestClient_SendMessage_ObservabilityLogging(t *testing.T) {
 	output := buf.String()
 
 	// Verify logging
-	if !strings.Contains(output, "Message sent successfully") {
+	if !strings.Contains(output, "LLM call completed") {
 		t.Error("Expected success log message")
 	}
 	if !strings.Contains(output, "finish_reason") {
@@ -688,7 +688,7 @@ func TestClient_StatelessMode_WithObserver(t *testing.T) {
 	if !strings.Contains(output, "client.send_message") {
 		t.Error("Expected span name in output")
 	}
-	if !strings.Contains(output, "Message sent successfully") {
+	if !strings.Contains(output, "LLM call completed") {
 		t.Error("Expected success log message")
 	}
 }

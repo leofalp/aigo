@@ -95,25 +95,4 @@ func main() {
 		}
 		fmt.Printf("%d. [%s] %s\n", i+1, msg.Role, content)
 	}
-
-	// Summary
-	fmt.Println("\n\n=== Summary ===")
-	fmt.Println("The ReAct pattern automatically:")
-	fmt.Println("1. Sends the user prompt to the LLM")
-	fmt.Println("2. Detects when the LLM wants to use tools")
-	fmt.Println("3. Executes the tools and adds results to memory")
-	fmt.Println("4. Continues the loop until a final answer is reached")
-	fmt.Println("5. Provides full observability (spans, logs, metrics)")
-	fmt.Println("\nNew improvements:")
-	fmt.Println("- Uses ReactPattern (not ReactClient) for clarity")
-	fmt.Println("- Functional options pattern for configuration")
-	fmt.Println("- No manual tool catalog needed (uses client tools)")
-	fmt.Println("- Memory accessed directly from client")
-	fmt.Println("- Case-insensitive tool lookup")
-	fmt.Println("\nBenefits over manual tool execution (Layer 2):")
-	fmt.Println("- 90% less boilerplate code")
-	fmt.Println("- Automatic iteration management")
-	fmt.Println("- Built-in observability")
-	fmt.Println("- Error handling and max iteration protection")
-	fmt.Println("- Reusable across different use cases")
 }
