@@ -1,4 +1,4 @@
-module aigo
+module github.com/leofalp/aigo
 
 go 1.25
 
