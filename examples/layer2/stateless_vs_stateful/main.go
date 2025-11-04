@@ -28,7 +28,7 @@ func main() {
 func exampleStateless() {
 	// Create client WITHOUT memory provider
 	// This is perfect for single-shot completions where history isn't needed
-	c, err := client.NewClient[string](
+	c, err := client.NewClient(
 		openai.NewOpenAIProvider(),
 		client.WithSystemPrompt("You are a helpful assistant."),
 		// Note: NO WithMemory() call - defaults to stateless mode
@@ -62,7 +62,7 @@ func exampleStateless() {
 func exampleStateful() {
 	// Create client WITH memory provider
 	// This is perfect for conversations where context matters
-	c, err := client.NewClient[string](
+	c, err := client.NewClient(
 		openai.NewOpenAIProvider(),
 		client.WithSystemPrompt("You are a helpful assistant."),
 		client.WithMemory(inmemory.New()), // Enable stateful mode

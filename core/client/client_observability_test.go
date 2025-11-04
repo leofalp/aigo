@@ -56,7 +56,7 @@ func (m *mockProvider) WithHttpClient(httpClient *http.Client) ai.Provider {
 
 func TestClient_DefaultNilObserver(t *testing.T) {
 	provider := &mockProvider{}
-	client, err := NewClient[string](provider)
+	client, err := NewClient(provider)
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestClient_WithObserver(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	observer := slogobs.New(slogobs.WithLogger(logger))
 
-	client, err := NewClient[string](provider, WithObserver(observer))
+	client, err := NewClient(provider, WithObserver(observer))
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestClient_SendMessage_ObservabilityTracing(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	observer := slogobs.New(slogobs.WithLogger(logger))
 
-	client, err := NewClient[string](provider,
+	client, err := NewClient(provider,
 		WithObserver(observer),
 		WithMemory(inmemory.New()),
 	)
@@ -124,7 +124,7 @@ func TestClient_SendMessage_ObservabilityLogging(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	observer := slogobs.New(slogobs.WithLogger(logger))
 
-	client, err := NewClient[string](provider,
+	client, err := NewClient(provider,
 		WithObserver(observer),
 		WithMemory(inmemory.New()),
 	)
@@ -154,7 +154,7 @@ func TestClient_SendMessage_ObservabilityMetrics(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	observer := slogobs.New(slogobs.WithLogger(logger))
 
-	client, err := NewClient[string](provider,
+	client, err := NewClient(provider,
 		WithObserver(observer),
 		WithMemory(inmemory.New()),
 	)
@@ -199,7 +199,7 @@ func TestClient_SendMessage_ErrorObservability(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError}))
 	observer := slogobs.New(slogobs.WithLogger(logger))
 
-	client, err := NewClient[string](provider,
+	client, err := NewClient(provider,
 		WithObserver(observer),
 		WithMemory(inmemory.New()),
 	)
@@ -247,7 +247,7 @@ func TestClient_SendMessage_TokenMetrics(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	observer := slogobs.New(slogobs.WithLogger(logger))
 
-	client, err := NewClient[string](provider,
+	client, err := NewClient(provider,
 		WithObserver(observer),
 		WithMemory(inmemory.New()),
 	)
@@ -276,7 +276,7 @@ func TestClient_SendMessage_TokenMetrics(t *testing.T) {
 
 func TestClient_SendMessage_NoopObserverPerformance(t *testing.T) {
 	provider := &mockProvider{}
-	client, err := NewClient[string](provider,
+	client, err := NewClient(provider,
 		WithMemory(inmemory.New()),
 	)
 	if err != nil {
@@ -308,7 +308,7 @@ func TestClient_MultipleRequests_CounterAccumulation(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	observer := slogobs.New(slogobs.WithLogger(logger))
 
-	client, err := NewClient[string](provider,
+	client, err := NewClient(provider,
 		WithObserver(observer),
 		WithMemory(inmemory.New()),
 	)
@@ -339,7 +339,7 @@ func TestClient_SendMessage_SpanAttributes(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	observer := slogobs.New(slogobs.WithLogger(logger))
 
-	client, err := NewClient[string](provider,
+	client, err := NewClient(provider,
 		WithObserver(observer),
 		WithMemory(inmemory.New()),
 	)
@@ -427,7 +427,7 @@ func TestClient_SendMessage_ObserverCalled(t *testing.T) {
 	provider := &mockProvider{}
 	observer := &testObserver{}
 
-	client, err := NewClient[string](provider,
+	client, err := NewClient(provider,
 		WithObserver(observer),
 		WithMemory(inmemory.New()),
 	)
@@ -459,7 +459,7 @@ func TestClient_SendMessage_ErrorObserverCalled(t *testing.T) {
 	}
 	observer := &testObserver{}
 
-	client, err := NewClient[string](provider,
+	client, err := NewClient(provider,
 		WithObserver(observer),
 		WithMemory(inmemory.New()),
 	)
@@ -481,7 +481,7 @@ func TestClient_SendMessage_NilObserver_NoPanic(t *testing.T) {
 	provider := &mockProvider{}
 
 	// Create client without observer (nil by default)
-	client, err := NewClient[string](provider,
+	client, err := NewClient(provider,
 		WithMemory(inmemory.New()),
 	)
 	if err != nil {
@@ -516,7 +516,7 @@ func TestClient_SendMessage_NilObserver_Error_NoPanic(t *testing.T) {
 	}
 
 	// Create client without observer (nil by default)
-	client, err := NewClient[string](provider,
+	client, err := NewClient(provider,
 		WithMemory(inmemory.New()),
 	)
 	if err != nil {
@@ -538,7 +538,7 @@ func TestClient_StatelessMode_NilMemory(t *testing.T) {
 	provider := &mockProvider{}
 
 	// Create client without memory provider (stateless mode)
-	client, err := NewClient[string](provider)
+	client, err := NewClient(provider)
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
@@ -578,7 +578,7 @@ func TestClient_StatelessMode_OnlyCurrentPrompt(t *testing.T) {
 	}
 
 	// Create stateless client
-	client, err := NewClient[string](provider)
+	client, err := NewClient(provider)
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
@@ -627,7 +627,7 @@ func TestClient_StatefulMode_AccumulatesHistory(t *testing.T) {
 	}
 
 	// Create stateful client with memory
-	client, err := NewClient[string](provider,
+	client, err := NewClient(provider,
 		WithMemory(inmemory.New()),
 	)
 	if err != nil {
@@ -670,7 +670,7 @@ func TestClient_StatelessMode_WithObserver(t *testing.T) {
 	observer := slogobs.New(slogobs.WithLogger(logger))
 
 	// Create stateless client with observer
-	client, err := NewClient[string](provider,
+	client, err := NewClient(provider,
 		WithObserver(observer),
 	)
 	if err != nil {

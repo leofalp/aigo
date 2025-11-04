@@ -13,7 +13,7 @@ import (
 // TestClient_SendMessage_EmptyPrompt_ReturnsError tests that SendMessage rejects empty prompts
 func TestClient_SendMessage_EmptyPrompt_ReturnsError(t *testing.T) {
 	provider := &mockProvider{}
-	client, err := NewClient[string](provider, WithMemory(inmemory.New()))
+	client, err := NewClient(provider, WithMemory(inmemory.New()))
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestClient_SendMessage_EmptyPrompt_ReturnsError(t *testing.T) {
 func TestClient_SendMessage_EmptyPrompt_StatelessMode(t *testing.T) {
 	provider := &mockProvider{}
 	// Stateless client (no memory)
-	client, err := NewClient[string](provider)
+	client, err := NewClient(provider)
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestClient_ContinueConversation_Success(t *testing.T) {
 	}
 
 	memory := inmemory.New()
-	client, err := NewClient[string](provider, WithMemory(memory))
+	client, err := NewClient(provider, WithMemory(memory))
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestClient_ContinueConversation_Success(t *testing.T) {
 func TestClient_ContinueConversation_WithoutMemory_ReturnsError(t *testing.T) {
 	provider := &mockProvider{}
 	// Stateless client (no memory)
-	client, err := NewClient[string](provider)
+	client, err := NewClient(provider)
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestClient_ContinueConversation_ProviderError(t *testing.T) {
 	}
 
 	memory := inmemory.New()
-	client, err := NewClient[string](provider, WithMemory(memory))
+	client, err := NewClient(provider, WithMemory(memory))
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestClient_ContinueConversation_EmptyMemory(t *testing.T) {
 	}
 
 	memory := inmemory.New()
-	client, err := NewClient[string](provider, WithMemory(memory))
+	client, err := NewClient(provider, WithMemory(memory))
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestClient_ContinueConversation_PreservesMessages(t *testing.T) {
 	provider := &mockProvider{}
 
 	memory := inmemory.New()
-	client, err := NewClient[string](provider, WithMemory(memory))
+	client, err := NewClient(provider, WithMemory(memory))
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestClient_ToolExecutionWorkflow(t *testing.T) {
 	}
 
 	memory := inmemory.New()
-	client, err := NewClient[string](provider, WithMemory(memory))
+	client, err := NewClient(provider, WithMemory(memory))
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}

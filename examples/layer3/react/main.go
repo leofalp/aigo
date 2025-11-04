@@ -30,14 +30,13 @@ func main() {
 	searchTool := duckduckgo.NewDuckDuckGoSearchTool()
 
 	// Create base client with memory, tools, and observer
-	baseClient, err := client.NewClient[string](
+	baseClient, err := client.NewClient(
 		openai.NewOpenAIProvider(),
 		client.WithMemory(memory),
 		client.WithObserver(slogobs.New()),
 		client.WithTools(calcTool, searchTool),
 		client.WithSystemPrompt("You are a helpful math assistant. Use tools when needed to provide accurate responses."),
 		client.WithEnrichSystemPromptWithToolsDescriptions(), // Automatically adds tool descriptions and usage guidance
-		client.WithEnrichSystemPromptWithOutputSchema(),      // Optionally add output schema to system prompt
 	)
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
@@ -45,7 +44,7 @@ func main() {
 
 	// Create ReAct pattern with functional options
 	// The ReAct pattern will use memory and tools from the base client
-	reactPattern, err := react.NewReactPattern[string](
+	reactPattern, err := react.NewReactPattern(
 		baseClient,
 		react.WithMaxIterations(5),
 		react.WithStopOnError(true),
