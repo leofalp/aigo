@@ -102,13 +102,8 @@ func TestWithEnrichSystemPrompt_Option(t *testing.T) {
 
 	// Apply the option
 	WithEnrichSystemPromptWithToolsDescriptions()(options)
-	WithEnrichSystemPromptWithOutputSchema()(options)
 
 	if !options.EnrichSystemPromptWithToolDescr {
-		t.Error("WithEnrichSystemPromptWithToolsDescriptions should set EnrichSystemPrompt to true")
-	}
-
-	if !options.EnrichSystemPromptWithOutputSchema {
 		t.Error("WithEnrichSystemPromptWithToolsDescriptions should set EnrichSystemPrompt to true")
 	}
 }
@@ -122,7 +117,7 @@ func TestNewClient_WithEnrichSystemPrompt_Enabled(t *testing.T) {
 	}
 
 	// Create client with enrichment enabled
-	client, err := NewClient[string](
+	client, err := NewClient(
 		provider,
 		WithSystemPrompt("You are a helpful assistant."),
 		WithTools(mockTool),
@@ -158,7 +153,7 @@ func TestNewClient_WithEnrichSystemPrompt_Disabled(t *testing.T) {
 	basePrompt := "You are a helpful assistant."
 
 	// Create client WITHOUT enrichment (default)
-	client, err := NewClient[string](
+	client, err := NewClient(
 		provider,
 		WithSystemPrompt(basePrompt),
 		WithTools(mockTool),
@@ -183,7 +178,7 @@ func TestNewClient_WithEnrichSystemPrompt_NoTools(t *testing.T) {
 	basePrompt := "You are a helpful assistant."
 
 	// Create client with enrichment enabled but no tools
-	client, err := NewClient[string](
+	client, err := NewClient(
 		provider,
 		WithSystemPrompt(basePrompt),
 		WithEnrichSystemPromptWithToolsDescriptions(), // Enable enrichment but no tools
@@ -206,7 +201,7 @@ func TestNewClient_WithEnrichSystemPrompt_MultipleTools(t *testing.T) {
 	tool3 := &mockTool{name: "Database", description: "Query database"}
 
 	// Create client with multiple tools
-	client, err := NewClient[string](
+	client, err := NewClient(
 		provider,
 		WithSystemPrompt("You are a helpful assistant."),
 		WithTools(tool1, tool2, tool3),
@@ -292,7 +287,7 @@ func TestNewClient_WithEnrichSystemPrompt_Integration(t *testing.T) {
 	basePrompt := "You are a math assistant."
 
 	// Create client with enrichment
-	client, err := NewClient[string](
+	client, err := NewClient(
 		provider,
 		WithSystemPrompt(basePrompt),
 		WithTools(mockTool),

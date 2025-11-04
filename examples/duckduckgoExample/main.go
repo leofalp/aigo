@@ -72,7 +72,7 @@ func exampleDirectAdvanced() {
 }
 
 func exampleAIBase() {
-	c, err := client.NewClient[string](
+	c, err := client.NewClient(
 		openai.NewOpenAIProvider(),
 		client.WithTools(duckduckgo.NewDuckDuckGoSearchTool()),
 		client.WithSystemPrompt("You are a helpful assistant. Use the search tool to find information."),
@@ -91,7 +91,7 @@ func exampleAIBase() {
 }
 
 func exampleAIAdvanced() {
-	c, err := client.NewClient[string](
+	c, err := client.NewClient(
 		openai.NewOpenAIProvider(),
 		client.WithTools(duckduckgo.NewDuckDuckGoSearchAdvancedTool()),
 		client.WithSystemPrompt("You are a helpful assistant. Use the advanced search to get detailed structured data with sources."),

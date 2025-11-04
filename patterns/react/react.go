@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unsafe"
 
 	"github.com/leofalp/aigo/core/client"
 	"github.com/leofalp/aigo/providers/ai"
@@ -17,19 +16,19 @@ import (
 
 // ReactPattern wraps a base client and adds ReAct pattern behavior:
 // automatic tool execution loop with reasoning.
-type ReactPattern[T any] struct {
-	client        *client.Client[T]
+type ReactPattern struct {
+	client        *client.Client
 	maxIterations int
 	stopOnError   bool
 }
 
 // Option is a functional option for configuring ReactPattern.
-type Option func(*ReactPattern[any])
+type Option func(*ReactPattern)
 
 // WithMaxIterations sets the maximum number of tool execution iterations.
 // Default: 10
 func WithMaxIterations(max int) Option {
-	return func(rc *ReactPattern[any]) {
+	return func(rc *ReactPattern) {
 		rc.maxIterations = max
 	}
 }
@@ -37,7 +36,7 @@ func WithMaxIterations(max int) Option {
 // WithStopOnError configures whether to stop execution on tool errors.
 // Default: true
 func WithStopOnError(stop bool) Option {
-	return func(rc *ReactPattern[any]) {
+	return func(rc *ReactPattern) {
 		rc.stopOnError = stop
 	}
 }
@@ -50,7 +49,7 @@ func WithStopOnError(stop bool) Option {
 //
 // Example:
 //
-//	baseClient, _ := client.NewClient[string](
+//	baseClient, _ := client.NewClient(
 //	    provider,
 //	    client.WithMemory(memory),
 //	    client.WithTools(tool1, tool2),
@@ -62,22 +61,22 @@ func WithStopOnError(stop bool) Option {
 //	    react.WithMaxIterations(5),
 //	    react.WithStopOnError(true),
 //	)
-func NewReactPattern[T any](baseClient *client.Client[T], opts ...Option) (*ReactPattern[T], error) {
+func NewReactPattern(baseClient *client.Client, opts ...Option) (*ReactPattern, error) {
 	// Validate that memory is configured (required for ReAct)
 	if baseClient.Memory() == nil {
 		return nil, fmt.Errorf("ReAct pattern requires memory: client must be configured with WithMemory()")
 	}
 
 	// Create ReactPattern with defaults
-	rc := &ReactPattern[T]{
+	rc := &ReactPattern{
 		client:        baseClient,
 		maxIterations: 10,
 		stopOnError:   true,
 	}
 
-	// Apply options (type-erased to work with generic type)
+	// Apply options
 	for _, opt := range opts {
-		opt((*ReactPattern[any])(unsafe.Pointer(rc)))
+		opt(rc)
 	}
 
 	return rc, nil
@@ -101,7 +100,7 @@ func NewReactPattern[T any](baseClient *client.Client[T], opts ...Option) (*Reac
 //   - This maintains proper conversation flow: user → assistant+tools → tool results → assistant
 //
 // Returns the final response from the LLM after the reasoning loop completes.
-func (r *ReactPattern[T]) Execute(ctx context.Context, prompt string) (*ai.ChatResponse, error) {
+func (r *ReactPattern) Execute(ctx context.Context, prompt string) (*ai.ChatResponse, error) {
 	// Get memory and tool catalog from client
 	reactMemory := r.client.Memory()
 	toolCatalog := r.client.ToolCatalog()
@@ -279,7 +278,7 @@ func (r *ReactPattern[T]) Execute(ctx context.Context, prompt string) (*ai.ChatR
 }
 
 // executeToolCall executes a single tool call and adds the result to memory.
-func (r *ReactPattern[T]) executeToolCall(
+func (r *ReactPattern) executeToolCall(
 	ctx context.Context,
 	observer observability.Provider,
 	mem memory.Provider,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"reflect"
 	"strconv"
@@ -22,7 +23,7 @@ const (
 
 // Client is an immutable orchestrator for LLM interactions.
 // All configuration must be provided at construction time via Options.
-type Client[T any] struct {
+type Client struct {
 	systemPrompt     string
 	defaultModel     string
 	llmProvider      ai.Provider
@@ -30,7 +31,6 @@ type Client[T any] struct {
 	observer         observability.Provider // nil if not set (zero overhead)
 	toolCatalog      *tool.Catalog
 	toolDescriptions []ai.ToolDescription
-	outputSchema     *jsonschema.Schema
 }
 
 // ClientOptions contains all configuration for a Client.
@@ -39,13 +39,12 @@ type ClientOptions struct {
 	LlmProvider ai.Provider
 
 	// Optional with sensible defaults
-	DefaultModel                       string                 // Model to use for requests (can be overridden per-request in future)
-	MemoryProvider                     memory.Provider        // Optional: if nil, client operates in stateless mode
-	Observer                           observability.Provider // Defaults to nil (zero overhead)
-	SystemPrompt                       string                 // System prompt for all requests
-	Tools                              []tool.GenericTool     // Tools available to the LLM
-	EnrichSystemPromptWithToolDescr    bool                   // If true, automatically append tool descriptions to system prompt (default: false)
-	EnrichSystemPromptWithOutputSchema bool                   // If true, automatically append output structure guidance to system prompt (default: false)
+	DefaultModel                    string                 // Model to use for requests (can be overridden per-request in future)
+	MemoryProvider                  memory.Provider        // Optional: if nil, client operates in stateless mode
+	Observer                        observability.Provider // Defaults to nil (zero overhead)
+	SystemPrompt                    string                 // System prompt for all requests
+	Tools                           []tool.GenericTool     // Tools available to the LLM
+	EnrichSystemPromptWithToolDescr bool                   // If true, automatically append tool descriptions to system prompt (default: false)
 }
 
 // Functional option pattern for ergonomic API
@@ -90,33 +89,14 @@ func WithTools(tools ...tool.GenericTool) func(*ClientOptions) {
 //
 // Example usage:
 //
-//	client.NewClient(provider,
-//	    client.WithSystemPrompt("You are a helpful assistant."),
-//	    client.WithTools(calcTool, searchTool),
-//	    client.WithEnrichSystemPromptWithToolsDescriptions(), // Adds tool guidance automatically
+//	client := NewClient(provider,
+//	    WithSystemPrompt("You are a helpful assistant."),
+//	    WithTools(calcTool, searchTool),
+//	    WithEnrichSystemPromptWithToolsDescriptions(), // Adds tool guidance automatically
 //	)
 func WithEnrichSystemPromptWithToolsDescriptions() func(*ClientOptions) {
 	return func(o *ClientOptions) {
 		o.EnrichSystemPromptWithToolDescr = true
-	}
-}
-
-// WithEnrichSystemPromptWithOutputSchema enables automatic enrichment of the system prompt
-// with output schema guidance. When enabled, the client will append information
-// about the expected output structure based on the generic type T.
-//
-// This is disabled by default to maintain backward compatibility and give
-// users full control over system prompts.
-//
-// Example usage:
-//
-//	client.NewClient[MyResponse](provider,
-//	    client.WithSystemPrompt("You are a helpful assistant."),
-//	    client.WithEnrichSystemPromptWithOutputSchema(), // Adds output schema guidance automatically
-//	)
-func WithEnrichSystemPromptWithOutputSchema() func(*ClientOptions) {
-	return func(o *ClientOptions) {
-		o.EnrichSystemPromptWithOutputSchema = true
 	}
 }
 
@@ -126,7 +106,7 @@ func WithEnrichSystemPromptWithOutputSchema() func(*ClientOptions) {
 //
 // Example:
 //
-//	client, err := NewClient[MyResponse](
+//	client, err := NewClient(
 //	    openaiProvider,
 //	    WithDefaultModel("gpt-4"),
 //	    WithObserver(myObserver),
@@ -134,7 +114,7 @@ func WithEnrichSystemPromptWithOutputSchema() func(*ClientOptions) {
 //	    WithTools(tool1, tool2),
 //	    WithEnrichSystemPromptWithToolsDescriptions(), // Optionally add tool guidance
 //	)
-func NewClient[T any](llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client[T], error) {
+func NewClient(llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client, error) {
 	options := &ClientOptions{
 		LlmProvider: llmProvider,
 		// MemoryProvider is optional (nil = stateless mode)
@@ -163,21 +143,13 @@ func NewClient[T any](llmProvider ai.Provider, opts ...func(*ClientOptions)) (*C
 		toolDescriptions = append(toolDescriptions, info)
 	}
 
-	// Enrich system prompt  if enabled
+	// Enrich system prompt if enabled
 	systemPrompt := options.SystemPrompt
 	if options.EnrichSystemPromptWithToolDescr && len(toolDescriptions) > 0 {
 		systemPrompt = enrichSystemPromptWithTools(options.SystemPrompt, toolDescriptions)
 	}
-	if options.EnrichSystemPromptWithOutputSchema {
-		systemPrompt = enrichSystemPromptWithOutputSchema[T](systemPrompt)
-	}
 
-	var outputSchema *jsonschema.Schema
-	// Generate output schema only for non-string types
-	if reflect.TypeOf((*T)(nil)).Elem().Kind() != reflect.String {
-		outputSchema = jsonschema.GenerateJSONSchema[T]()
-	}
-	return &Client[T]{
+	return &Client{
 		systemPrompt:     systemPrompt,
 		defaultModel:     options.DefaultModel,
 		llmProvider:      options.LlmProvider,
@@ -185,27 +157,26 @@ func NewClient[T any](llmProvider ai.Provider, opts ...func(*ClientOptions)) (*C
 		observer:         options.Observer,
 		toolCatalog:      toolCatalog,
 		toolDescriptions: toolDescriptions,
-		outputSchema:     outputSchema,
 	}, nil
 }
 
 // Memory returns the memory provider configured for this client.
 // Returns nil if the client is in stateless mode (no memory configured).
-func (c *Client[T]) Memory() memory.Provider {
+func (c *Client) Memory() memory.Provider {
 	return c.memoryProvider
 }
 
 // ToolCatalog returns the tool catalog for this client.
 // The returned map is a copy to prevent external modifications.
 // Keys are tool names (as registered), values are tool instances.
-func (c *Client[T]) ToolCatalog() *tool.Catalog {
+func (c *Client) ToolCatalog() *tool.Catalog {
 	// Return a clone to maintain immutability
 	return c.toolCatalog.Clone()
 }
 
 // Observer returns the observability provider configured for this client.
 // Returns nil if no observer is configured (zero overhead mode).
-func (c *Client[T]) Observer() observability.Provider {
+func (c *Client) Observer() observability.Provider {
 	return c.observer
 }
 
@@ -242,22 +213,32 @@ func enrichSystemPromptWithTools(basePrompt string, tools []ai.ToolDescription) 
 	return basePrompt + enrichment
 }
 
-// enrichSystemPromptWithTools appends tool usage guidance to the system prompt.
-// This helps LLMs understand when and how to use available tools.
-func enrichSystemPromptWithOutputSchema[T any](basePrompt string) string {
-	if reflect.TypeOf((*T)(nil)).Elem().Kind() == reflect.String {
-		return basePrompt
-	}
-	enrichment := "\n\n## Output Format\n\n"
-	enrichment += "Please structure your responses in strict accordance with the following JSON schema:\n\n"
+// SendMessageOptions contains optional parameters for SendMessage.
+type SendMessageOptions struct {
+	OutputSchema *jsonschema.Schema // Optional: JSON schema for structured output
+}
 
-	schema := jsonschema.GenerateJSONSchema[T]()
-	if schemaJSON, err := json.MarshalIndent(schema, "", "  "); err == nil {
-		enrichment += "```json\n" + string(schemaJSON) + "\n```\n"
-	}
+// SendMessageOption is a functional option for SendMessage.
+type SendMessageOption func(*SendMessageOptions)
 
-	enrichment += "\nEnsure that all your responses conform exactly to this schema. This will help in parsing and utilizing your responses effectively."
-	return basePrompt + enrichment
+// WithOutputSchema sets a JSON schema for structured output for this specific request.
+// The schema guides the LLM to produce responses matching the specified structure.
+//
+// Example usage:
+//
+//	type MyResponse struct {
+//	    Answer string `json:"answer"`
+//	    Confidence float64 `json:"confidence"`
+//	}
+//
+//	resp, _ := client.SendMessage(ctx, "What is 2+2?",
+//	    client.WithOutputSchema(jsonschema.GenerateJSONSchema[MyResponse]()),
+//	)
+//	parsed, _ := client.ParseResponseAs[MyResponse](resp)
+func WithOutputSchema(schema *jsonschema.Schema) SendMessageOption {
+	return func(o *SendMessageOptions) {
+		o.OutputSchema = schema
+	}
 }
 
 // SendMessage sends a user message to the LLM and returns the response.
@@ -281,10 +262,16 @@ func enrichSystemPromptWithOutputSchema[T any](basePrompt string) string {
 //
 // Note: This method does NOT execute tool calls automatically.
 // Tool execution loops should be implemented as higher-level patterns.
-func (c *Client[T]) SendMessage(ctx context.Context, prompt string) (*ai.ChatResponse, error) {
+func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMessageOption) (*ai.ChatResponse, error) {
 	// Validate prompt is non-empty
 	if prompt == "" {
 		return nil, errors.New("prompt cannot be empty; use ContinueConversation() to continue without adding a user message")
+	}
+
+	// Apply options
+	options := &SendMessageOptions{}
+	for _, opt := range opts {
+		opt(options)
 	}
 	// Start tracing span (only if observer is set)
 	var span observability.Span
@@ -343,11 +330,11 @@ func (c *Client[T]) SendMessage(ctx context.Context, prompt string) (*ai.ChatRes
 		Tools:        c.toolDescriptions,
 	}
 
-	// Add response format if output schema is defined (for structured output)
-	if c.outputSchema != nil {
+	// Add response format if output schema is provided for this request
+	if options.OutputSchema != nil {
 		request.ResponseFormat = &ai.ResponseFormat{
 			Type:         "json_schema",
-			OutputSchema: c.outputSchema,
+			OutputSchema: options.OutputSchema,
 		}
 	}
 
@@ -447,7 +434,7 @@ func (c *Client[T]) SendMessage(ctx context.Context, prompt string) (*ai.ChatRes
 		span.SetStatus(observability.StatusOK, "Message sent successfully")
 	}
 
-	return c.responseParser(response)
+	return response, nil
 }
 
 // ContinueConversation continues the conversation without adding a new user message.
@@ -474,10 +461,16 @@ func (c *Client[T]) SendMessage(ctx context.Context, prompt string) (*ai.ChatRes
 //	// Continue conversation to let LLM process the tool result
 //	resp2, _ := client.ContinueConversation(ctx)
 //	// resp2 now contains the final answer using the tool result
-func (c *Client[T]) ContinueConversation(ctx context.Context) (*ai.ChatResponse, error) {
+func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOption) (*ai.ChatResponse, error) {
 	// Validate that memory provider is configured
 	if c.memoryProvider == nil {
 		return nil, errors.New("ContinueConversation requires a memory provider; create client with WithMemory() option")
+	}
+
+	// Apply options
+	options := &SendMessageOptions{}
+	for _, opt := range opts {
+		opt(options)
 	}
 
 	// Start tracing span (only if observer is set)
@@ -520,11 +513,11 @@ func (c *Client[T]) ContinueConversation(ctx context.Context) (*ai.ChatResponse,
 		Tools:        c.toolDescriptions,
 	}
 
-	// Add response format if output schema is defined (for structured output)
-	if c.outputSchema != nil {
+	// Add response format if output schema is provided for this request
+	if options.OutputSchema != nil {
 		request.ResponseFormat = &ai.ResponseFormat{
 			Type:         "json_schema",
-			OutputSchema: c.outputSchema,
+			OutputSchema: options.OutputSchema,
 		}
 	}
 
@@ -624,32 +617,78 @@ func (c *Client[T]) ContinueConversation(ctx context.Context) (*ai.ChatResponse,
 		span.SetStatus(observability.StatusOK, "Conversation continued successfully")
 	}
 
-	return c.responseParser(response)
+	return response, nil
 }
 
-// responseParser validates and parses the response content according to the generic type T.
-// It attempts to parse the response into the expected type, providing a fallback with warning
-// if parsing fails.
-func (c *Client[T]) responseParser(response *ai.ChatResponse) (*ai.ChatResponse, error) {
-	var typedVar T
+// ParseResponseAs attempts to parse the response content into the specified type T.
+// It supports:
+// - Primitive types (string, bool, int, float)
+// - Struct types via JSON unmarshaling
+//
+// This is useful when you have configured the client with an OutputSchema and want
+// to parse the structured response into a Go type.
+//
+// Example usage:
+//
+//	type MyResponse struct {
+//	    Answer string `json:"answer"`
+//	    Confidence float64 `json:"confidence"`
+//	}
+//
+//	resp, _ := client.SendMessage(ctx, "What is 2+2?")
+//	parsed, err := ParseResponseAs[MyResponse](resp)
+//	if err != nil {
+//	    // Handle parsing error
+//	}
+//	fmt.Println(parsed.Answer) // Typed access
+func ParseResponseAs[T any](response *ai.ChatResponse) (T, error) {
+	var result T
 	var err error
 
-	switch reflect.TypeOf(typedVar).Kind().String() {
-	case "string":
-		return response, nil
-	case "bool":
-		_, err = strconv.ParseBool(response.Content)
-	case "float32", "float64":
-		_, err = strconv.ParseFloat(response.Content, 64)
-	case "int", "int8", "int16", "int32", "int64":
-		_, err = strconv.ParseInt(response.Content, 10, 64)
+	switch reflect.TypeOf(result).Kind() {
+	case reflect.String:
+		// For string type, return content as-is via reflection
+		reflect.ValueOf(&result).Elem().SetString(response.Content)
+		return result, nil
+
+	case reflect.Bool:
+		val, err := strconv.ParseBool(response.Content)
+		if err != nil {
+			return result, fmt.Errorf("failed to parse response as bool: %w", err)
+		}
+		reflect.ValueOf(&result).Elem().SetBool(val)
+		return result, nil
+
+	case reflect.Float32, reflect.Float64:
+		val, err := strconv.ParseFloat(response.Content, 64)
+		if err != nil {
+			return result, fmt.Errorf("failed to parse response as float: %w", err)
+		}
+		reflect.ValueOf(&result).Elem().SetFloat(val)
+		return result, nil
+
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		val, err := strconv.ParseInt(response.Content, 10, 64)
+		if err != nil {
+			return result, fmt.Errorf("failed to parse response as int: %w", err)
+		}
+		reflect.ValueOf(&result).Elem().SetInt(val)
+		return result, nil
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		val, err := strconv.ParseUint(response.Content, 10, 64)
+		if err != nil {
+			return result, fmt.Errorf("failed to parse response as uint: %w", err)
+		}
+		reflect.ValueOf(&result).Elem().SetUint(val)
+		return result, nil
+
 	default:
-		err = json.Unmarshal([]byte(response.Content), &typedVar)
+		// For structs and other complex types, use JSON unmarshaling
+		err = json.Unmarshal([]byte(response.Content), &result)
+		if err != nil {
+			return result, fmt.Errorf("failed to unmarshal response as %T: %w", result, err)
+		}
+		return result, nil
 	}
-
-	if err != nil {
-		response.Content = "[Warning] Could not parse response: " + err.Error() + " --> providing raw response content as fallback.\n\n" + response.Content
-	}
-
-	return response, nil
 }

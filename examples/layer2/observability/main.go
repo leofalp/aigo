@@ -38,7 +38,7 @@ func exampleCompactFormat() {
 		slogobs.WithLevel(slog.LevelDebug-4), // Enable TRACE
 	)
 
-	c, err := client.NewClient[string](
+	c, err := client.NewClient(
 		openai.NewOpenAIProvider(),
 		client.WithObserver(observer),
 		client.WithMemory(inmemory.New()),
@@ -70,7 +70,7 @@ func examplePrettyFormat() {
 		slogobs.WithLevel(slog.LevelDebug),
 	)
 
-	c, err := client.NewClient[string](
+	c, err := client.NewClient(
 		openai.NewOpenAIProvider(),
 		client.WithObserver(observer),
 		client.WithMemory(inmemory.New()),
@@ -99,7 +99,7 @@ func exampleJSONFormat() {
 		slogobs.WithLevel(slog.LevelInfo),
 	)
 
-	c, err := client.NewClient[string](
+	c, err := client.NewClient(
 		openai.NewOpenAIProvider(),
 		client.WithObserver(observer),
 		client.WithMemory(inmemory.New()),
