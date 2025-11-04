@@ -55,23 +55,21 @@ func main() {
 
 	ctx := context.Background()
 
-	prompt := "How old would Albert Einstein be today?"
+	prompt := "3+5?"
 	fmt.Printf("User: %s\n\n", prompt)
 
-	resp, err := reactPattern.Execute(ctx, prompt)
+	respOverview, err := reactPattern.Execute(ctx, prompt)
 	if err != nil {
 		log.Fatalf("ReAct execution failed: %v", err)
 	}
 
-	fmt.Printf("\n✓ Assistant: %s\n", resp.Content)
-	fmt.Printf("Finish Reason: %s\n", resp.FinishReason)
-	if resp.Usage != nil {
-		fmt.Printf("Tokens Used: %d (prompt: %d, completion: %d)\n",
-			resp.Usage.TotalTokens,
-			resp.Usage.PromptTokens,
-			resp.Usage.CompletionTokens,
-		)
-	}
+	fmt.Printf("\n✓ Assistant: %s\n", respOverview.LastResponse.Content)
+	fmt.Printf("Finish Reason: %s\n", respOverview.LastResponse.FinishReason)
+	fmt.Printf("Tokens Used: %d (prompt: %d, completion: %d)\n",
+		respOverview.TotalUsage.TotalTokens,
+		respOverview.TotalUsage.PromptTokens,
+		respOverview.TotalUsage.CompletionTokens,
+	)
 
 	// Show conversation history
 	fmt.Println("\n\n--- Conversation History ---")

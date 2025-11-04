@@ -100,7 +100,7 @@ func NewReactPattern(baseClient *client.Client, opts ...Option) (*ReactPattern, 
 //   - This maintains proper conversation flow: user → assistant+tools → tool results → assistant
 //
 // Returns the final response from the LLM after the reasoning loop completes.
-func (r *ReactPattern) Execute(ctx context.Context, prompt string) (*ai.ChatResponse, error) {
+func (r *ReactPattern) Execute(ctx context.Context, prompt string) (*ai.Overview, error) {
 	// Get memory and tool catalog from client
 	reactMemory := r.client.Memory()
 	toolCatalog := r.client.ToolCatalog()
@@ -132,6 +132,8 @@ func (r *ReactPattern) Execute(ctx context.Context, prompt string) (*ai.ChatResp
 	iteration := 0
 	var response *ai.ChatResponse
 	var err error
+
+	overview := ai.OverviewFromContext(&ctx)
 
 	// Main ReAct loop
 	for iteration < r.maxIterations {
@@ -169,6 +171,8 @@ func (r *ReactPattern) Execute(ctx context.Context, prompt string) (*ai.ChatResp
 			}
 			return nil, fmt.Errorf("iteration %d failed: %w", iteration, err)
 		}
+		overview.AddResponse(response)
+		overview.IncludeUsage(response.Usage)
 
 		// Step 2: Check if we're done (no tool calls = final answer)
 		if len(response.ToolCalls) == 0 {
@@ -191,7 +195,7 @@ func (r *ReactPattern) Execute(ctx context.Context, prompt string) (*ai.ChatResp
 				observer.Histogram("react.duration.seconds").Record(ctx, totalDuration.Seconds())
 			}
 
-			return response, nil
+			return overview, nil
 		}
 
 		// Step 3: Execute tool calls
@@ -274,7 +278,7 @@ func (r *ReactPattern) Execute(ctx context.Context, prompt string) (*ai.ChatResp
 		)
 	}
 
-	return response, fmt.Errorf("reached maximum iterations (%d) without final answer", r.maxIterations)
+	return overview, fmt.Errorf("reached maximum iterations (%d) without final answer", r.maxIterations)
 }
 
 // executeToolCall executes a single tool call and adds the result to memory.
