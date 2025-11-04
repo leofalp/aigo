@@ -268,6 +268,8 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 		return nil, errors.New("prompt cannot be empty; use ContinueConversation() to continue without adding a user message")
 	}
 
+	overview := ai.OverviewFromContext(&ctx)
+
 	// Apply options
 	options := &SendMessageOptions{}
 	for _, opt := range opts {
@@ -338,6 +340,7 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 		}
 	}
 
+	overview.AddRequest(&request)
 	// Send to LLM provider
 	response, err := c.llmProvider.SendMessage(ctx, request)
 
