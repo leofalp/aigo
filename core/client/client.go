@@ -646,9 +646,13 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 //	fmt.Println(parsed.Answer) // Typed access
 func ParseResponseAs[T any](response *ai.ChatResponse) (T, error) {
 	var result T
+	if response == nil {
+		return result, fmt.Errorf("nil response")
+	}
+
 	var err error
 
-	switch reflect.TypeOf(result).Kind() {
+	switch reflect.TypeFor[T]().Kind() {
 	case reflect.String:
 		// For string type, return content as-is via reflection
 		reflect.ValueOf(&result).Elem().SetString(response.Content)
