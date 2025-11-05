@@ -173,7 +173,7 @@ func requestToChatCompletion(request ai.ChatRequest, useLegacyFunctions bool) ch
 	// Convert messages
 	if request.SystemPrompt != "" {
 		req.Messages = append(req.Messages, chatMessage{
-			Role:    "system",
+			Role:    string(ai.RoleSystem),
 			Content: request.SystemPrompt,
 		})
 	}
