@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/leofalp/aigo/internal/utils"
 	"os"
 	"reflect"
 	"strconv"
@@ -279,7 +280,7 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 	var span observability.Span
 	if c.observer != nil {
 		// Truncate prompt for span attributes to avoid huge attribute values
-		truncatedPrompt := observability.TruncateStringDefault(prompt)
+		truncatedPrompt := utils.TruncateStringDefault(prompt)
 
 		ctx, span = c.observer.StartSpan(ctx, observability.SpanClientSendMessage,
 			observability.String(observability.AttrLLMModel, c.defaultModel),
@@ -340,7 +341,6 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 		}
 	}
 
-	overview.AddRequest(&request)
 	// Send to LLM provider
 	response, err := c.llmProvider.SendMessage(ctx, request)
 
@@ -367,6 +367,10 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 
 		return nil, err
 	}
+
+	overview.AddRequest(&request)
+	overview.AddResponse(response)
+	overview.IncludeUsage(response.Usage)
 
 	// Record success metrics and observability
 	if c.observer != nil {
@@ -427,7 +431,7 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 		// Add response content preview if present
 		if response.Content != "" {
 			logAttrs = append(logAttrs,
-				observability.String("response", observability.TruncateString(response.Content, 100)),
+				observability.String("response", utils.TruncateString(response.Content, 100)),
 			)
 		}
 
@@ -496,6 +500,8 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 		)
 	}
 
+	overview := ai.OverviewFromContext(&ctx)
+
 	start := time.Now()
 
 	// Get all messages from memory
@@ -550,6 +556,10 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 
 		return nil, err
 	}
+
+	overview.AddRequest(&request)
+	overview.AddResponse(response)
+	overview.IncludeUsage(response.Usage)
 
 	// Record success metrics and observability
 	if c.observer != nil {
@@ -610,7 +620,7 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 		// Add response content preview if present
 		if response.Content != "" {
 			logAttrs = append(logAttrs,
-				observability.String("response", observability.TruncateString(response.Content, 100)),
+				observability.String("response", utils.TruncateString(response.Content, 100)),
 			)
 		}
 

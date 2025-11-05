@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/leofalp/aigo/internal/utils"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ type ReactPattern struct {
 	client        *client.Client
 	maxIterations int
 	stopOnError   bool
+	state         map[string]interface{}
 }
 
 // Option is a functional option for configuring ReactPattern.
@@ -72,6 +74,7 @@ func NewReactPattern(baseClient *client.Client, opts ...Option) (*ReactPattern, 
 		client:        baseClient,
 		maxIterations: 10,
 		stopOnError:   true,
+		state:         map[string]interface{}{},
 	}
 
 	// Apply options
@@ -101,54 +104,41 @@ func NewReactPattern(baseClient *client.Client, opts ...Option) (*ReactPattern, 
 //
 // Returns the final response from the LLM after the reasoning loop completes.
 func (r *ReactPattern) Execute(ctx context.Context, prompt string) (*ai.Overview, error) {
+	var response *ai.ChatResponse
+	var err error
+
 	// Get memory and tool catalog from client
+	iteration := 0
+	iterationTimer := utils.NewTimer()
+	execTimer := utils.NewTimer()
 	reactMemory := r.client.Memory()
 	toolCatalog := r.client.ToolCatalog()
-
+	overview := ai.OverviewFromContext(&ctx)
 	// Start top-level ReAct span
 	observer := r.client.Observer()
 	if observer == nil {
 		observer = observability.ObserverFromContext(ctx)
 	}
-	var span observability.Span
-	if observer != nil {
-		ctx, span = observer.StartSpan(ctx, "react.execute",
-			observability.String("pattern", "react"),
-			observability.String("prompt", observability.TruncateStringDefault(prompt)),
-			observability.Int("max_iterations", r.maxIterations),
-		)
-		defer span.End()
 
-		ctx = observability.ContextWithSpan(ctx, span)
-		ctx = observability.ContextWithObserver(ctx, observer)
+	r.state["observer"] = observer
+	r.state["iterationTimer"] = iterationTimer
+	r.state["execTimer"] = execTimer
 
-		observer.Debug(ctx, "Starting ReAct pattern",
-			observability.Int("max_iterations", r.maxIterations),
-			observability.Int("tools_available", toolCatalog.Size()),
-		)
-	}
+	r.observeInit(&ctx, prompt, toolCatalog)
 
-	startTime := time.Now()
-	iteration := 0
-	var response *ai.ChatResponse
-	var err error
-
-	overview := ai.OverviewFromContext(&ctx)
+	execTimer.Start()
 
 	// Main ReAct loop
 	for iteration < r.maxIterations {
 		iteration++
 
-		if observer != nil {
-			observer.Debug(ctx, "ReAct iteration",
-				observability.Int("iteration", iteration),
-			)
-		}
+		r.observeStartIteration(&ctx, iteration)
 
 		// Step 1: Send message to LLM
 		// First iteration: SendMessage adds user message to memory
 		// Subsequent iterations: ContinueConversation processes tool results without new user message
-		iterationStart := time.Now()
+		iterationTimer.Start()
+
 		if iteration == 1 {
 			response, err = r.client.SendMessage(ctx, prompt)
 		} else {
@@ -157,59 +147,23 @@ func (r *ReactPattern) Execute(ctx context.Context, prompt string) (*ai.Overview
 			// without adding a new user message, maintaining proper conversation flow.
 			response, err = r.client.ContinueConversation(ctx)
 		}
-		iterationDuration := time.Since(iterationStart)
+
+		iterationTimer.Stop()
 
 		if err != nil {
-			if observer != nil {
-				span.RecordError(err)
-				span.SetStatus(observability.StatusError, "ReAct iteration failed")
-				observer.Error(ctx, "Iteration failed",
-					observability.Int("iteration", iteration),
-					observability.Duration("duration", iterationDuration),
-					observability.Error(err),
-				)
-			}
+			r.observeIterationError(&ctx, err, iteration)
 			return nil, fmt.Errorf("iteration %d failed: %w", iteration, err)
 		}
-		overview.AddResponse(response)
-		overview.IncludeUsage(response.Usage)
 
 		// Step 2: Check if we're done (no tool calls = final answer)
 		if len(response.ToolCalls) == 0 {
-			totalDuration := time.Since(startTime)
-
-			if observer != nil {
-				span.SetStatus(observability.StatusOK, "ReAct completed successfully")
-				observer.Info(ctx, "ReAct pattern completed - no tool calls, final answer received",
-					observability.Int("total_iterations", iteration),
-					observability.Duration("total_duration", totalDuration),
-					observability.String("finish_reason", response.FinishReason),
-					observability.Bool("has_content", response.Content != ""),
-				)
-
-				// Record metrics
-				observer.Counter("react.executions.total").Add(ctx, 1,
-					observability.String("status", "success"),
-				)
-				observer.Histogram("react.iterations.count").Record(ctx, float64(iteration))
-				observer.Histogram("react.duration.seconds").Record(ctx, totalDuration.Seconds())
-			}
+			r.observeSuccess(&ctx, response, iteration)
 
 			return overview, nil
 		}
 
 		// Step 3: Execute tool calls
-		if observer != nil {
-			// Log tool calls as a list
-			toolNames := make([]string, len(response.ToolCalls))
-			for i, tc := range response.ToolCalls {
-				toolNames[i] = tc.Function.Name
-			}
-			observer.Debug(ctx, "Executing tools from LLM response",
-				observability.Int("iteration", iteration),
-				observability.StringSlice("tools", toolNames),
-			)
-		}
+		r.observeTools(&ctx, response, iteration)
 
 		// Add assistant message to memory (with tool calls, reasoning, and refusal)
 		reactMemory.AppendMessage(ctx, &ai.Message{
@@ -223,60 +177,23 @@ func (r *ReactPattern) Execute(ctx context.Context, prompt string) (*ai.Overview
 		toolsExecuted := 0
 		for _, toolCall := range response.ToolCalls {
 			err := r.executeToolCall(ctx, observer, reactMemory, toolCatalog, toolCall)
-			if err != nil {
-				if r.stopOnError {
-					if observer != nil {
-						span.RecordError(err)
-						span.SetStatus(observability.StatusError, "Tool execution failed")
-						observer.Error(ctx, "Tool execution failed, stopping ReAct loop",
-							observability.Error(err),
-							observability.String("tool_name", toolCall.Function.Name),
-							observability.Int("iteration", iteration),
-						)
-					}
-					return nil, fmt.Errorf("tool execution failed at iteration %d: %w", iteration, err)
-				}
 
-				// Continue with error message in reactMemory
-				if observer != nil {
-					observer.Warn(ctx, "Tool execution failed, continuing",
-						observability.Error(err),
-						observability.String("tool_name", toolCall.Function.Name),
-					)
+			if err != nil {
+				r.observeToolError(&ctx, err, iteration, toolCall.Function.Name)
+				if r.stopOnError {
+					return nil, fmt.Errorf("tool execution failed at iteration %d: %w", iteration, err)
 				}
 			} else {
 				toolsExecuted++
 			}
 		}
 
-		if observer != nil {
-			observer.Info(ctx, "ReAct iteration completed - continuing to next iteration",
-				observability.Int("iteration", iteration),
-				observability.Int("tools_executed", toolsExecuted),
-				observability.Int("tools_failed", len(response.ToolCalls)-toolsExecuted),
-				observability.Duration("iteration_duration", iterationDuration),
-			)
-
-			// Record iteration metrics
-			observer.Counter("react.iterations.total").Add(ctx, 1)
-			observer.Counter("react.tools_executed.total").Add(ctx, int64(toolsExecuted))
-		}
+		r.observeNextIteration(&ctx, iteration, toolsExecuted, response)
 	}
 
-	// Max iterations reached without final answer
-	totalDuration := time.Since(startTime)
+	execTimer.Stop()
 
-	if observer != nil {
-		span.SetStatus(observability.StatusError, "Max iterations reached")
-		observer.Warn(ctx, "ReAct pattern reached max iterations without final answer",
-			observability.Int("max_iterations", r.maxIterations),
-			observability.Duration("total_duration", totalDuration),
-		)
-
-		observer.Counter("react.executions.total").Add(ctx, 1,
-			observability.String("status", "max_iterations_reached"),
-		)
-	}
+	r.observeMaxInteration(&ctx)
 
 	return overview, fmt.Errorf("reached maximum iterations (%d) without final answer", r.maxIterations)
 }
@@ -350,7 +267,7 @@ func (r *ReactPattern) executeToolCall(
 		}
 	} else {
 		// Fallback to truncated string if not valid JSON
-		logAttrs = append(logAttrs, observability.String("input", observability.TruncateString(toolCall.Function.Arguments, 100)))
+		logAttrs = append(logAttrs, observability.String("input", utils.TruncateString(toolCall.Function.Arguments, 100)))
 	}
 
 	if err != nil {
@@ -391,7 +308,7 @@ func (r *ReactPattern) executeToolCall(
 		}
 	} else {
 		// Fallback to truncated string if not valid JSON
-		logAttrs = append(logAttrs, observability.String("output", observability.TruncateString(result, 100)))
+		logAttrs = append(logAttrs, observability.String("output", utils.TruncateString(result, 100)))
 	}
 
 	if observer != nil {
@@ -400,6 +317,163 @@ func (r *ReactPattern) executeToolCall(
 	}
 
 	return nil
+}
+
+func (r *ReactPattern) observeMaxInteration(ctx *context.Context) {
+	if r.state["observer"] == nil {
+		return
+	}
+	observer := r.state["observer"].(observability.Provider)
+	span := r.state["span"].(observability.Span)
+	timer := r.state["execTimer"].(*utils.Timer)
+
+	span.SetStatus(observability.StatusError, "Max iterations reached")
+	observer.Warn(*ctx, "ReAct pattern reached max iterations without final answer",
+		observability.Int("max_iterations", r.maxIterations),
+		observability.Duration("total_duration", timer.GetDuration()),
+	)
+
+	observer.Counter("react.executions.total").Add(*ctx, 1,
+		observability.String("status", "max_iterations_reached"),
+	)
+}
+
+func (r *ReactPattern) observeNextIteration(ctx *context.Context, iteration int, toolsExecuted int, response *ai.ChatResponse) {
+	if r.state["observer"] == nil {
+		return
+	}
+	observer := r.state["observer"].(observability.Provider)
+	span := r.state["span"].(observability.Span)
+	timer := r.state["iterationTimer"].(*utils.Timer)
+
+	observer.Info(*ctx, "ReAct iteration completed - continuing to next iteration",
+		observability.Int("iteration", iteration),
+		observability.Int("tools_executed", toolsExecuted),
+		observability.Int("tools_failed", len(response.ToolCalls)-toolsExecuted),
+		observability.Duration("iteration_duration", timer.GetDuration()),
+	)
+
+	// Record iteration metrics
+	observer.Counter("react.iterations.total").Add(*ctx, 1)
+	observer.Counter("react.tools_executed.total").Add(*ctx, int64(toolsExecuted))
+
+	span.End()
+}
+
+func (r *ReactPattern) observeIterationError(ctx *context.Context, err error, iteration int) {
+	if r.state["observer"] == nil {
+		return
+	}
+	observer := r.state["observer"].(observability.Provider)
+	span := r.state["span"].(observability.Span)
+	timer := r.state["iterationTimer"].(*utils.Timer)
+
+	span.RecordError(err)
+	span.SetStatus(observability.StatusError, "ReAct iteration failed")
+	observer.Error(*ctx, "Iteration failed",
+		observability.Int("iteration", iteration),
+		observability.Duration("duration", timer.GetDuration()),
+		observability.Error(err),
+	)
+}
+
+func (r *ReactPattern) observeToolError(ctx *context.Context, err error, iteration int, functionName string) {
+	if r.state["observer"] == nil {
+		return
+	}
+	observer := r.state["observer"].(observability.Provider)
+	span := r.state["span"].(observability.Span)
+
+	if r.stopOnError {
+		span.RecordError(err)
+		span.SetStatus(observability.StatusError, "Tool execution failed")
+		observer.Error(*ctx, "Tool execution failed, stopping ReAct loop",
+			observability.Error(err),
+			observability.String("tool_name", functionName),
+			observability.Int("iteration", iteration),
+		)
+	}
+
+	observer.Warn(*ctx, "Tool execution failed, continuing",
+		observability.Error(err),
+		observability.String("tool_name", functionName),
+	)
+}
+
+func (r *ReactPattern) observeStartIteration(ctx *context.Context, iteration int) {
+	if r.state["observer"] == nil {
+		return
+	}
+	observer := r.state["observer"].(observability.Provider)
+
+	observer.Debug(*ctx, "ReAct iteration",
+		observability.Int("iteration", iteration),
+	)
+}
+
+func (r *ReactPattern) observeSuccess(ctx *context.Context, response *ai.ChatResponse, iteration int) {
+	if r.state["observer"] == nil {
+		return
+	}
+	observer := r.state["observer"].(observability.Provider)
+	span := r.state["span"].(observability.Span)
+	timer := r.state["iterationTimer"].(*utils.Timer)
+
+	span.SetStatus(observability.StatusOK, "ReAct completed successfully")
+	observer.Info(*ctx, "ReAct pattern completed - no tool calls, final answer received",
+		observability.Int("total_iterations", iteration),
+		observability.Duration("total_duration", timer.GetDuration()),
+		observability.String("finish_reason", response.FinishReason),
+		observability.Bool("has_content", response.Content != ""),
+	)
+
+	// Record metrics
+	observer.Counter("react.executions.total").Add(*ctx, 1,
+		observability.String("status", "success"),
+	)
+	observer.Histogram("react.iterations.count").Record(*ctx, float64(iteration))
+	observer.Histogram("react.duration.seconds").Record(*ctx, timer.GetDuration().Seconds())
+}
+
+func (r *ReactPattern) observeTools(ctx *context.Context, response *ai.ChatResponse, iteration int) {
+	if r.state["observer"] == nil {
+		return
+	}
+	observer := r.state["observer"].(observability.Provider)
+
+	// Log tool calls as a list
+	toolNames := make([]string, len(response.ToolCalls))
+	for i, tc := range response.ToolCalls {
+		toolNames[i] = tc.Function.Name
+	}
+	observer.Debug(*ctx, "Executing tools from LLM response",
+		observability.Int("iteration", iteration),
+		observability.StringSlice("tools", toolNames),
+	)
+}
+
+func (r *ReactPattern) observeInit(ctx *context.Context, prompt string, toolCatalog *tool.Catalog) {
+	if r.state["observer"] == nil {
+		return
+	}
+	observer := r.state["observer"].(observability.Provider)
+	var span observability.Span
+
+	*ctx, span = observer.StartSpan(*ctx, "react.execute",
+		observability.String("pattern", "react"),
+		observability.String("prompt", utils.TruncateStringDefault(prompt)),
+		observability.Int("max_iterations", r.maxIterations),
+	)
+
+	*ctx = observability.ContextWithSpan(*ctx, span)
+	*ctx = observability.ContextWithObserver(*ctx, observer)
+
+	observer.Debug(*ctx, "Starting ReAct pattern",
+		observability.Int("max_iterations", r.maxIterations),
+		observability.Int("tools_available", toolCatalog.Size()),
+	)
+
+	r.state["span"] = span
 }
 
 // getToolNames returns a list of tool names from the catalog.
