@@ -5,17 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/leofalp/aigo/internal/utils"
-	"os"
-	"reflect"
-	"strconv"
-	"time"
-
 	"github.com/leofalp/aigo/internal/jsonschema"
+	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/providers/ai"
 	"github.com/leofalp/aigo/providers/memory"
 	"github.com/leofalp/aigo/providers/observability"
 	"github.com/leofalp/aigo/providers/tool"
+	"os"
+	"reflect"
+	"strconv"
 )
 
 const (
@@ -32,6 +30,7 @@ type Client struct {
 	observer         observability.Provider // nil if not set (zero overhead)
 	toolCatalog      *tool.Catalog
 	toolDescriptions []ai.ToolDescription
+	state            map[string]any
 }
 
 // ClientOptions contains all configuration for a Client.
@@ -158,6 +157,7 @@ func NewClient(llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client, 
 		observer:         options.Observer,
 		toolCatalog:      toolCatalog,
 		toolDescriptions: toolDescriptions,
+		state:            map[string]any{},
 	}, nil
 }
 
@@ -269,38 +269,15 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 		return nil, errors.New("prompt cannot be empty; use ContinueConversation() to continue without adding a user message")
 	}
 
-	overview := ai.OverviewFromContext(&ctx)
-
 	// Apply options
 	options := &SendMessageOptions{}
 	for _, opt := range opts {
 		opt(options)
 	}
 	// Start tracing span (only if observer is set)
-	var span observability.Span
-	if c.observer != nil {
-		// Truncate prompt for span attributes to avoid huge attribute values
-		truncatedPrompt := utils.TruncateStringDefault(prompt)
-
-		ctx, span = c.observer.StartSpan(ctx, observability.SpanClientSendMessage,
-			observability.String(observability.AttrLLMModel, c.defaultModel),
-			observability.String(observability.AttrClientPrompt, truncatedPrompt),
-		)
-		defer span.End()
-
-		// Put span and observer in context for downstream propagation
-		ctx = observability.ContextWithSpan(ctx, span)
-		ctx = observability.ContextWithObserver(ctx, c.observer)
-
-		// DEBUG: Operation starting with prompt
-		c.observer.Debug(ctx, "Sending message to LLM",
-			observability.String(observability.AttrLLMModel, c.defaultModel),
-			observability.Int(observability.AttrClientToolsCount, len(c.toolDescriptions)),
-			observability.String(observability.AttrClientPrompt, truncatedPrompt),
-		)
-	}
-
-	start := time.Now()
+	span := c.observeInit(&ctx, "Continuing conversation")
+	overview := ai.OverviewFromContext(&ctx)
+	timer := utils.NewTimer()
 
 	// Build messages list based on memory provider availability
 	var messages []ai.Message
@@ -344,26 +321,10 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 	// Send to LLM provider
 	response, err := c.llmProvider.SendMessage(ctx, request)
 
-	duration := time.Since(start)
+	timer.Stop()
 
 	if err != nil {
-		if c.observer != nil {
-			span.RecordError(err)
-			span.SetStatus(observability.StatusError, "Failed to send message")
-
-			// ERROR: Operation failed
-			c.observer.Error(ctx, "Failed to send message to LLM",
-				observability.Error(err),
-				observability.Duration(observability.AttrDuration, duration),
-				observability.String(observability.AttrLLMModel, c.defaultModel),
-			)
-
-			// Metrics at DEBUG level
-			c.observer.Counter(observability.MetricClientRequestCount).Add(ctx, 1,
-				observability.String(observability.AttrStatus, "error"),
-				observability.String(observability.AttrLLMModel, c.defaultModel),
-			)
-		}
+		c.observeError(&ctx, &span, err, timer, "sending message")
 
 		return nil, err
 	}
@@ -372,74 +333,7 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 	overview.AddResponse(response)
 	overview.IncludeUsage(response.Usage)
 
-	// Record success metrics and observability
-	if c.observer != nil {
-		// Record metrics
-		c.observer.Histogram(observability.MetricClientRequestDuration).Record(ctx, duration.Seconds(),
-			observability.String(observability.AttrLLMModel, c.defaultModel),
-		)
-
-		c.observer.Counter(observability.MetricClientRequestCount).Add(ctx, 1,
-			observability.String(observability.AttrStatus, "success"),
-			observability.String(observability.AttrLLMModel, c.defaultModel),
-		)
-
-		// Prepare compact log attributes
-		logAttrs := []observability.Attribute{
-			observability.String(observability.AttrLLMModel, c.defaultModel),
-			observability.String(observability.AttrLLMFinishReason, response.FinishReason),
-			observability.Duration(observability.AttrDuration, duration),
-			observability.Int(observability.AttrClientToolCalls, len(response.ToolCalls)),
-		}
-
-		// Add token usage if available
-		if response.Usage != nil {
-			c.observer.Counter(observability.MetricClientTokensTotal).Add(ctx, int64(response.Usage.TotalTokens),
-				observability.String(observability.AttrLLMModel, c.defaultModel),
-			)
-			c.observer.Counter(observability.MetricClientTokensPrompt).Add(ctx, int64(response.Usage.PromptTokens),
-				observability.String(observability.AttrLLMModel, c.defaultModel),
-			)
-			c.observer.Counter(observability.MetricClientTokensCompletion).Add(ctx, int64(response.Usage.CompletionTokens),
-				observability.String(observability.AttrLLMModel, c.defaultModel),
-			)
-
-			span.SetAttributes(
-				observability.Int(observability.AttrLLMTokensTotal, response.Usage.TotalTokens),
-				observability.Int(observability.AttrLLMTokensPrompt, response.Usage.PromptTokens),
-				observability.Int(observability.AttrLLMTokensCompletion, response.Usage.CompletionTokens),
-			)
-
-			logAttrs = append(logAttrs,
-				observability.Int(observability.AttrLLMTokensPrompt, response.Usage.PromptTokens),
-				observability.Int(observability.AttrLLMTokensCompletion, response.Usage.CompletionTokens),
-				observability.Int(observability.AttrLLMTokensTotal, response.Usage.TotalTokens),
-			)
-		}
-
-		// Add tool call names if present
-		if len(response.ToolCalls) > 0 {
-			toolNames := make([]string, len(response.ToolCalls))
-			for i, tc := range response.ToolCalls {
-				toolNames[i] = tc.Function.Name
-			}
-			logAttrs = append(logAttrs,
-				observability.StringSlice("tool_calls", toolNames),
-			)
-		}
-
-		// Add response content preview if present
-		if response.Content != "" {
-			logAttrs = append(logAttrs,
-				observability.String("response", utils.TruncateString(response.Content, 100)),
-			)
-		}
-
-		// Single INFO log with all information
-		c.observer.Info(ctx, "LLM call completed", logAttrs...)
-
-		span.SetStatus(observability.StatusOK, "Message sent successfully")
-	}
+	c.observeSuccess(&ctx, &span, response, timer, "sending message")
 
 	return response, nil
 }
@@ -481,30 +375,9 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 	}
 
 	// Start tracing span (only if observer is set)
-	var span observability.Span
-	if c.observer != nil {
-		ctx, span = c.observer.StartSpan(ctx, observability.SpanClientSendMessage,
-			observability.String(observability.AttrLLMModel, c.defaultModel),
-			observability.Bool(observability.AttrClientContinuingConversation, true),
-		)
-		defer span.End()
-
-		// Put span and observer in context for downstream propagation
-		ctx = observability.ContextWithSpan(ctx, span)
-		ctx = observability.ContextWithObserver(ctx, c.observer)
-
-		// DEBUG: Operation starting
-		c.observer.Debug(ctx, "Continuing conversation without new user message",
-			observability.String(observability.AttrLLMModel, c.defaultModel),
-			observability.Int(observability.AttrClientToolsCount, len(c.toolDescriptions)),
-		)
-	}
-
+	span := c.observeInit(&ctx, "Continuing conversation")
 	overview := ai.OverviewFromContext(&ctx)
-
-	start := time.Now()
-
-	// Get all messages from memory
+	timer := utils.NewTimer()
 	messages := c.memoryProvider.AllMessages()
 
 	if c.observer != nil {
@@ -533,26 +406,10 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 	// Send to LLM provider
 	response, err := c.llmProvider.SendMessage(ctx, request)
 
-	duration := time.Since(start)
+	timer.Stop()
 
 	if err != nil {
-		if c.observer != nil {
-			span.RecordError(err)
-			span.SetStatus(observability.StatusError, "Failed to continue conversation")
-
-			// ERROR: Operation failed
-			c.observer.Error(ctx, "Failed to continue conversation with LLM",
-				observability.Error(err),
-				observability.Duration(observability.AttrDuration, duration),
-				observability.String(observability.AttrLLMModel, c.defaultModel),
-			)
-
-			// Metrics at DEBUG level
-			c.observer.Counter(observability.MetricClientRequestCount).Add(ctx, 1,
-				observability.String(observability.AttrStatus, "error"),
-				observability.String(observability.AttrLLMModel, c.defaultModel),
-			)
-		}
+		c.observeError(&ctx, &span, err, timer, "continue conversation")
 
 		return nil, err
 	}
@@ -561,74 +418,7 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 	overview.AddResponse(response)
 	overview.IncludeUsage(response.Usage)
 
-	// Record success metrics and observability
-	if c.observer != nil {
-		// Record metrics
-		c.observer.Histogram(observability.MetricClientRequestDuration).Record(ctx, duration.Seconds(),
-			observability.String(observability.AttrLLMModel, c.defaultModel),
-		)
-
-		c.observer.Counter(observability.MetricClientRequestCount).Add(ctx, 1,
-			observability.String(observability.AttrStatus, "success"),
-			observability.String(observability.AttrLLMModel, c.defaultModel),
-		)
-
-		// Prepare compact log attributes
-		logAttrs := []observability.Attribute{
-			observability.String(observability.AttrLLMModel, c.defaultModel),
-			observability.String(observability.AttrLLMFinishReason, response.FinishReason),
-			observability.Duration(observability.AttrDuration, duration),
-			observability.Int(observability.AttrClientToolCalls, len(response.ToolCalls)),
-		}
-
-		// Add token usage if available
-		if response.Usage != nil {
-			c.observer.Counter(observability.MetricClientTokensTotal).Add(ctx, int64(response.Usage.TotalTokens),
-				observability.String(observability.AttrLLMModel, c.defaultModel),
-			)
-			c.observer.Counter(observability.MetricClientTokensPrompt).Add(ctx, int64(response.Usage.PromptTokens),
-				observability.String(observability.AttrLLMModel, c.defaultModel),
-			)
-			c.observer.Counter(observability.MetricClientTokensCompletion).Add(ctx, int64(response.Usage.CompletionTokens),
-				observability.String(observability.AttrLLMModel, c.defaultModel),
-			)
-
-			span.SetAttributes(
-				observability.Int(observability.AttrLLMTokensTotal, response.Usage.TotalTokens),
-				observability.Int(observability.AttrLLMTokensPrompt, response.Usage.PromptTokens),
-				observability.Int(observability.AttrLLMTokensCompletion, response.Usage.CompletionTokens),
-			)
-
-			logAttrs = append(logAttrs,
-				observability.Int(observability.AttrLLMTokensPrompt, response.Usage.PromptTokens),
-				observability.Int(observability.AttrLLMTokensCompletion, response.Usage.CompletionTokens),
-				observability.Int(observability.AttrLLMTokensTotal, response.Usage.TotalTokens),
-			)
-		}
-
-		// Add tool call names if present
-		if len(response.ToolCalls) > 0 {
-			toolNames := make([]string, len(response.ToolCalls))
-			for i, tc := range response.ToolCalls {
-				toolNames[i] = tc.Function.Name
-			}
-			logAttrs = append(logAttrs,
-				observability.StringSlice("tool_calls", toolNames),
-			)
-		}
-
-		// Add response content preview if present
-		if response.Content != "" {
-			logAttrs = append(logAttrs,
-				observability.String("response", utils.TruncateString(response.Content, 100)),
-			)
-		}
-
-		// Single INFO log with all information
-		c.observer.Info(ctx, "LLM call completed (continued conversation)", logAttrs...)
-
-		span.SetStatus(observability.StatusOK, "Conversation continued successfully")
-	}
+	c.observeSuccess(&ctx, &span, response, timer, "continue conversation")
 
 	return response, nil
 }
@@ -704,4 +494,125 @@ func ParseResponseAs[T any](response *ai.ChatResponse) (T, error) {
 		}
 		return result, nil
 	}
+}
+
+func (c *Client) observeInit(ctx *context.Context, subject string) observability.Span {
+	if c.observer == nil {
+		return nil
+	}
+
+	var span observability.Span
+
+	*ctx, span = c.observer.StartSpan(*ctx, observability.SpanClientSendMessage,
+		observability.String(observability.AttrLLMModel, c.defaultModel),
+		observability.Bool(observability.AttrClientContinuingConversation, true),
+	)
+
+	// Put span and observer in context for downstream propagation
+	*ctx = observability.ContextWithSpan(*ctx, span)
+	*ctx = observability.ContextWithObserver(*ctx, c.observer)
+
+	// DEBUG: Operation starting
+	c.observer.Debug(*ctx, subject+" without new user message",
+		observability.String(observability.AttrLLMModel, c.defaultModel),
+		observability.Int(observability.AttrClientToolsCount, len(c.toolDescriptions)),
+	)
+
+	return span
+}
+
+func (c *Client) observeError(ctx *context.Context, span *observability.Span, err error, timer *utils.Timer, subject string) {
+	if c.observer == nil {
+		return
+	}
+
+	(*span).RecordError(err)
+	(*span).SetStatus(observability.StatusError, "Failed to "+subject)
+
+	// ERROR: Operation failed
+	c.observer.Error(*ctx, "Failed to "+subject+" with LLM",
+		observability.Error(err),
+		observability.Duration(observability.AttrDuration, timer.GetDuration()),
+		observability.String(observability.AttrLLMModel, c.defaultModel),
+	)
+
+	// Metrics at DEBUG level
+	c.observer.Counter(observability.MetricClientRequestCount).Add(*ctx, 1,
+		observability.String(observability.AttrStatus, "error"),
+		observability.String(observability.AttrLLMModel, c.defaultModel),
+	)
+
+}
+
+func (c *Client) observeSuccess(ctx *context.Context, span *observability.Span, response *ai.ChatResponse, timer *utils.Timer, subject string) {
+	if c.observer == nil {
+		return
+	}
+
+	// Record metrics
+	c.observer.Histogram(observability.MetricClientRequestDuration).Record(*ctx, timer.GetDuration().Seconds(),
+		observability.String(observability.AttrLLMModel, c.defaultModel),
+	)
+
+	c.observer.Counter(observability.MetricClientRequestCount).Add(*ctx, 1,
+		observability.String(observability.AttrStatus, "success"),
+		observability.String(observability.AttrLLMModel, c.defaultModel),
+	)
+
+	// Prepare compact log attributes
+	logAttrs := []observability.Attribute{
+		observability.String(observability.AttrLLMModel, c.defaultModel),
+		observability.String(observability.AttrLLMFinishReason, response.FinishReason),
+		observability.Duration(observability.AttrDuration, timer.GetDuration()),
+		observability.Int(observability.AttrClientToolCalls, len(response.ToolCalls)),
+	}
+
+	// Add token usage if available
+	if response.Usage != nil {
+		c.observer.Counter(observability.MetricClientTokensTotal).Add(*ctx, int64(response.Usage.TotalTokens),
+			observability.String(observability.AttrLLMModel, c.defaultModel),
+		)
+		c.observer.Counter(observability.MetricClientTokensPrompt).Add(*ctx, int64(response.Usage.PromptTokens),
+			observability.String(observability.AttrLLMModel, c.defaultModel),
+		)
+		c.observer.Counter(observability.MetricClientTokensCompletion).Add(*ctx, int64(response.Usage.CompletionTokens),
+			observability.String(observability.AttrLLMModel, c.defaultModel),
+		)
+
+		(*span).SetAttributes(
+			observability.Int(observability.AttrLLMTokensTotal, response.Usage.TotalTokens),
+			observability.Int(observability.AttrLLMTokensPrompt, response.Usage.PromptTokens),
+			observability.Int(observability.AttrLLMTokensCompletion, response.Usage.CompletionTokens),
+		)
+
+		logAttrs = append(logAttrs,
+			observability.Int(observability.AttrLLMTokensPrompt, response.Usage.PromptTokens),
+			observability.Int(observability.AttrLLMTokensCompletion, response.Usage.CompletionTokens),
+			observability.Int(observability.AttrLLMTokensTotal, response.Usage.TotalTokens),
+		)
+	}
+
+	// Add tool call names if present
+	if len(response.ToolCalls) > 0 {
+		toolNames := make([]string, len(response.ToolCalls))
+		for i, tc := range response.ToolCalls {
+			toolNames[i] = tc.Function.Name
+		}
+		logAttrs = append(logAttrs,
+			observability.StringSlice("tool_calls", toolNames),
+		)
+	}
+
+	// Add response content preview if present
+	if response.Content != "" {
+		logAttrs = append(logAttrs,
+			observability.String("response", utils.TruncateString(response.Content, 100)),
+		)
+	}
+
+	// Single INFO log with all information
+	c.observer.Info(*ctx, subject+": LLM call completed ", logAttrs...)
+
+	(*span).SetStatus(observability.StatusOK, subject+" success")
+	(*span).End()
 }
