@@ -1,9 +1,8 @@
 package openai
 
 import (
-	"encoding/json"
-
 	"github.com/leofalp/aigo/internal/jsonschema"
+	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/providers/ai"
 )
 
@@ -54,12 +53,10 @@ type reasoningConfig struct {
 
 // textConfig controls output formatting (GPT-5)
 type textConfig struct {
-	Verbosity string      `json:"verbosity,omitempty"` // "low", "medium", "high"
-	Format    *textFormat `json:"format,omitempty"`
-}
-
-type textFormat struct {
-	Type string `json:"type"` // "text", "json_object"
+	Verbosity string `json:"verbosity,omitempty"` // "low", "medium", "high"
+	Format    *struct {
+		Type string `json:"type"` // "text", "json_object"
+	} `json:"format,omitempty"`
 }
 
 // responseTool definitions
@@ -132,8 +129,8 @@ type outputItem struct {
 	// For function calls
 	Name      string `json:"name,omitempty"`
 	CallID    string `json:"call_id,omitempty"`
-	Arguments string `json:"arguments,omitempty"`
-	Input     string `json:"input,omitempty"` // For custom tools
+	Arguments string `json:"arguments,omitempty"` // JSON string, parsed later with ParseStringAs
+	Input     string `json:"input,omitempty"`     // For custom tools
 }
 
 type contentOutput struct {
@@ -157,14 +154,12 @@ type summaryItem struct {
 }
 
 type usageDetails struct {
-	InputTokens         int                  `json:"input_tokens"`
-	OutputTokens        int                  `json:"output_tokens"`
-	TotalTokens         int                  `json:"total_tokens"`
-	OutputTokensDetails *outputTokensDetails `json:"output_tokens_details,omitempty"`
-}
-
-type outputTokensDetails struct {
-	ReasoningTokens int `json:"reasoning_tokens"`
+	InputTokens         int `json:"input_tokens"`
+	OutputTokens        int `json:"output_tokens"`
+	TotalTokens         int `json:"total_tokens"`
+	OutputTokensDetails *struct {
+		ReasoningTokens int `json:"reasoning_tokens"`
+	} `json:"output_tokens_details,omitempty"`
 }
 
 type logprobs struct {
@@ -293,10 +288,11 @@ func requestToResponses(request ai.ChatRequest) responseCreateRequest {
 	if request.ResponseFormat != nil {
 		// If a schema is provided, use structured output
 		if request.ResponseFormat.OutputSchema != nil {
-			req.Text = &textConfig{
-				Format: &textFormat{
-					Type: "json_object",
-				},
+			req.Text = &textConfig{}
+			req.Text.Format = &struct {
+				Type string `json:"type"`
+			}{
+				Type: "json_object",
 			}
 		} else if request.ResponseFormat.Type != "" {
 			// Use provided type hint
@@ -304,10 +300,11 @@ func requestToResponses(request ai.ChatRequest) responseCreateRequest {
 			if formatType == "json_schema" {
 				formatType = "json_object"
 			}
-			req.Text = &textConfig{
-				Format: &textFormat{
-					Type: formatType,
-				},
+			req.Text = &textConfig{}
+			req.Text.Format = &struct {
+				Type string `json:"type"`
+			}{
+				Type: formatType,
 			}
 		}
 	}
@@ -340,6 +337,8 @@ func responsesToGeneric(resp responseCreateResponse) *ai.ChatResponse {
 
 		case "function_call":
 			// Tool call from responses API
+			// Convert Arguments from json.RawMessage to string
+			// API already returns valid JSON, no need for ParseStringAs
 			toolCalls = append(toolCalls, ai.ToolCall{
 				Type: "function",
 				Function: ai.ToolCallFunction{
@@ -401,13 +400,14 @@ func responsesToGeneric(resp responseCreateResponse) *ai.ChatResponse {
 	return chatResp
 }
 
-// parseResponsesToolCallsFromContent attempts to parse tool calls from message content
-// This is a fallback for edge cases
+// parseResponsesToolCallsFromContent attempts to parse tool calls from message content using ParseStringAs.
+// This is a fallback for edge cases and handles broken JSON gracefully.
 func parseResponsesToolCallsFromContent(content string) []ai.ToolCall {
 	var toolCalls []ai.ToolCall
 
-	var functionCall ai.ToolCallFunction
-	if err := json.Unmarshal([]byte(content), &functionCall); err == nil {
+	// Use ParseStringAs for robust JSON parsing with auto-repair
+	functionCall, err := utils.ParseStringAs[ai.ToolCallFunction](content)
+	if err == nil && functionCall.Name != "" {
 		toolCalls = append(toolCalls, ai.ToolCall{
 			Type:     "function",
 			Function: functionCall,

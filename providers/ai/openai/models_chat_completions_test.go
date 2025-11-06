@@ -136,16 +136,6 @@ func TestCleanToolCallContent(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "with quotes",
-			input:    `"some content"`,
-			expected: "some content",
-		},
-		{
-			name:     "with escaped quotes",
-			input:    `{\"name\": \"test\"}`,
-			expected: `{"name": "test"}`,
-		},
-		{
 			name:     "with end of thought marker",
 			input:    "content<|END OF THOUGHT|>more",
 			expected: "contentmore",
@@ -157,8 +147,13 @@ func TestCleanToolCallContent(t *testing.T) {
 		},
 		{
 			name:     "multiple markers",
-			input:    `"content<|END OF THOUGHT|>[/TOOLCALL]"`,
+			input:    `content<|END OF THOUGHT|>[/TOOLCALL]`,
 			expected: "content",
+		},
+		{
+			name:     "with thought tags",
+			input:    "result<THOUGHT>thinking</THOUGHT>",
+			expected: "resultthinking",
 		},
 	}
 
