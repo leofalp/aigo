@@ -55,7 +55,7 @@ func main() {
 
 	ctx := context.Background()
 
-	prompt := "3+5?"
+	prompt := "Whats the sum of the first 3 prime numbers? And what is the capital of the country with that many letters in its name?"
 	fmt.Printf("User: %s\n\n", prompt)
 
 	respOverview, err := reactPattern.Execute(ctx, prompt)
