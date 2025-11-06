@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/leofalp/aigo/internal/jsonschema"
+	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/providers/ai"
 )
 
@@ -73,25 +74,21 @@ type chatFunction struct {
 }
 
 type chatToolCall struct {
-	ID       string               `json:"id"`
-	Type     string               `json:"type"` // "function"
-	Function chatToolCallFunction `json:"function"`
-}
-
-type chatToolCallFunction struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"` // JSON string
+	ID       string `json:"id"`
+	Type     string `json:"type"` // "function"
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"` // JSON string, parsed later with ParseStringAs
+	} `json:"function"`
 }
 
 type chatResponseFormat struct {
-	Type       string                `json:"type"` // "text", "json_object", "json_schema"
-	JSONSchema *chatJSONSchemaFormat `json:"json_schema,omitempty"`
-}
-
-type chatJSONSchemaFormat struct {
-	Name   string            `json:"name"`
-	Schema jsonschema.Schema `json:"schema"`
-	Strict bool              `json:"strict,omitempty"`
+	Type       string `json:"type"` // "text", "json_object", "json_schema"
+	JSONSchema *struct {
+		Name   string            `json:"name"`
+		Schema jsonschema.Schema `json:"schema"`
+		Strict bool              `json:"strict,omitempty"`
+	} `json:"json_schema,omitempty"`
 }
 
 /*
@@ -130,22 +127,18 @@ type chatResponseMessage struct {
 }
 
 type chatUsage struct {
-	PromptTokens            int                      `json:"prompt_tokens"`
-	CompletionTokens        int                      `json:"completion_tokens"`
-	TotalTokens             int                      `json:"total_tokens"`
-	CompletionTokensDetails *chatTokensDetails       `json:"completion_tokens_details,omitempty"`
-	PromptTokensDetails     *chatPromptTokensDetails `json:"prompt_tokens_details,omitempty"`
-}
-
-type chatTokensDetails struct {
-	ReasoningTokens          int `json:"reasoning_tokens,omitempty"`
-	AcceptedPredictionTokens int `json:"accepted_prediction_tokens,omitempty"`
-	RejectedPredictionTokens int `json:"rejected_prediction_tokens,omitempty"`
-}
-
-type chatPromptTokensDetails struct {
-	CachedTokens int `json:"cached_tokens,omitempty"`
-	AudioTokens  int `json:"audio_tokens,omitempty"`
+	PromptTokens            int `json:"prompt_tokens"`
+	CompletionTokens        int `json:"completion_tokens"`
+	TotalTokens             int `json:"total_tokens"`
+	CompletionTokensDetails *struct {
+		ReasoningTokens          int `json:"reasoning_tokens,omitempty"`
+		AcceptedPredictionTokens int `json:"accepted_prediction_tokens,omitempty"`
+		RejectedPredictionTokens int `json:"rejected_prediction_tokens,omitempty"`
+	} `json:"completion_tokens_details,omitempty"`
+	PromptTokensDetails *struct {
+		CachedTokens int `json:"cached_tokens,omitempty"`
+		AudioTokens  int `json:"audio_tokens,omitempty"`
+	} `json:"prompt_tokens_details,omitempty"`
 }
 
 type chatContentFilterResults struct {
@@ -188,14 +181,13 @@ func requestToChatCompletion(request ai.ChatRequest, useLegacyFunctions bool) ch
 		if len(msg.ToolCalls) > 0 {
 			// Convert ai.ToolCall to chatToolCall
 			for _, tc := range msg.ToolCalls {
-				chatMsg.ToolCalls = append(chatMsg.ToolCalls, chatToolCall{
+				toolCall := chatToolCall{
 					ID:   tc.ID,
 					Type: tc.Type,
-					Function: chatToolCallFunction{
-						Name:      tc.Function.Name,
-						Arguments: tc.Function.Arguments,
-					},
-				})
+				}
+				toolCall.Function.Name = tc.Function.Name
+				toolCall.Function.Arguments = tc.Function.Arguments
+				chatMsg.ToolCalls = append(chatMsg.ToolCalls, toolCall)
 			}
 		}
 
@@ -310,11 +302,15 @@ func requestToChatCompletion(request ai.ChatRequest, useLegacyFunctions bool) ch
 			// Structured output with schema
 			req.ResponseFormat = &chatResponseFormat{
 				Type: "json_schema",
-				JSONSchema: &chatJSONSchemaFormat{
-					Name:   "response_schema",
-					Schema: *request.ResponseFormat.OutputSchema,
-					Strict: request.ResponseFormat.Strict,
-				},
+			}
+			req.ResponseFormat.JSONSchema = &struct {
+				Name   string            `json:"name"`
+				Schema jsonschema.Schema `json:"schema"`
+				Strict bool              `json:"strict,omitempty"`
+			}{
+				Name:   "response_schema",
+				Schema: *request.ResponseFormat.OutputSchema,
+				Strict: request.ResponseFormat.Strict,
 			}
 		} else if request.ResponseFormat.Type != "" {
 			// Simple type hint
@@ -376,14 +372,17 @@ func chatCompletionToGeneric(resp chatCompletionResponse) *ai.ChatResponse {
 	}
 
 	// Convert tool calls from standard format
+	// Map tool calls if present
 	if len(choice.Message.ToolCalls) > 0 {
 		for _, tc := range choice.Message.ToolCalls {
+			// Convert Arguments from json.RawMessage to string
+			// API already returns valid JSON, no need for ParseStringAs
 			chatResp.ToolCalls = append(chatResp.ToolCalls, ai.ToolCall{
 				ID:   tc.ID,
 				Type: tc.Type,
 				Function: ai.ToolCallFunction{
 					Name:      tc.Function.Name,
-					Arguments: tc.Function.Arguments,
+					Arguments: string(tc.Function.Arguments),
 				},
 			})
 		}
@@ -422,13 +421,13 @@ func chatCompletionToGeneric(resp chatCompletionResponse) *ai.ChatResponse {
 	return chatResp
 }
 
-// parseChatCompletionToolCallsFromContent attempts to parse tool calls from content
+// parseChatCompletionToolCallsFromContent attempts to parse tool calls from content.
 // This is a fallback for providers that don't properly format tool_calls in the standard field.
 // It handles multiple formats:
 // 1. <TOOLCALL>[{...}]</TOOLCALL> (some OpenRouter models)
 // 2. Plain JSON array [{...}]
-// 3. JSON with escaped quotes
-// 4. JSON with extra markers like <|END OF THOUGHT|>
+// 3. Provider-specific markers like <|END OF THOUGHT|>
+// Note: JSON repair and escape sequences are handled by ParseStringAs.
 func parseChatCompletionToolCallsFromContent(content string) []ai.ToolCall {
 	var toolCalls []ai.ToolCall
 
@@ -478,21 +477,12 @@ func parseChatCompletionToolCallsFromContent(content string) []ai.ToolCall {
 	return toolCalls
 }
 
-// cleanToolCallContent removes common noise from tool call content
+// cleanToolCallContent removes provider-specific markers that ParseStringAs doesn't handle.
+// Note: Escape sequences and JSON repairs are now handled by ParseStringAs/jsonrepair.
 func cleanToolCallContent(content string) string {
-	// Remove leading/trailing quotes
 	content = strings.TrimSpace(content)
-	if strings.HasPrefix(content, "\"") && strings.HasSuffix(content, "\"") {
-		content = content[1 : len(content)-1]
-	}
 
-	// Unescape common escape sequences
-	content = strings.ReplaceAll(content, "\\\"", "\"")
-	content = strings.ReplaceAll(content, "\\n", "\n")
-	content = strings.ReplaceAll(content, "\\t", "\t")
-	content = strings.ReplaceAll(content, "\\\\", "\\")
-
-	// Remove common markers that providers add
+	// Remove common markers that providers add (not handled by jsonrepair)
 	markers := []string{
 		"<|END OF THOUGHT|>",
 		"<|END_OF_THOUGHT|>",
@@ -508,23 +498,24 @@ func cleanToolCallContent(content string) string {
 	return strings.TrimSpace(content)
 }
 
-// parseToolCallsJSON attempts to parse a JSON string into tool calls
-// It's very permissive to handle various malformed formats
+// parseToolCallsJSON attempts to parse a JSON string into tool calls using ParseStringAs for robustness.
+// ParseStringAs handles JSON repair, escape sequences, comments, and other malformations automatically.
+// We do minimal preprocessing for array brackets and trailing junk to help ParseStringAs.
 func parseToolCallsJSON(jsonStr string) []ai.ToolCall {
 	var toolCalls []ai.ToolCall
 
-	// Clean the JSON string
 	jsonStr = strings.TrimSpace(jsonStr)
 	if jsonStr == "" {
 		return toolCalls
 	}
 
-	// Ensure we have array brackets
+	// Minimal preprocessing: ensure array brackets are present
+	// This helps ParseStringAs when brackets are completely missing
 	if !strings.HasPrefix(jsonStr, "[") {
 		jsonStr = "[" + jsonStr
 	}
 	if !strings.HasSuffix(jsonStr, "]") {
-		// Find the last complete object
+		// Try to find the last complete object and add closing bracket
 		lastBrace := strings.LastIndex(jsonStr, "}")
 		if lastBrace > 0 {
 			jsonStr = jsonStr[:lastBrace+1] + "]"
@@ -533,72 +524,42 @@ func parseToolCallsJSON(jsonStr string) []ai.ToolCall {
 		}
 	}
 
-	// Try format: [{"name": "...", "arguments": {...}}]
-	var calls []struct {
+	// Define the structure for parsing
+	type toolCallParsed struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
 	}
 
-	if err := json.Unmarshal([]byte(jsonStr), &calls); err == nil && len(calls) > 0 {
-		for _, call := range calls {
-			// Validate that we have at least a name
-			if call.Name == "" {
-				continue
-			}
-
-			// Convert arguments to JSON string
-			var argsStr string
-			if len(call.Arguments) > 0 {
-				argsStr = string(call.Arguments)
-			} else {
-				argsStr = "{}"
-			}
-
-			toolCalls = append(toolCalls, ai.ToolCall{
-				ID:   "", // Parsed tool calls don't have IDs
-				Type: "function",
-				Function: ai.ToolCallFunction{
-					Name:      call.Name,
-					Arguments: argsStr,
-				},
-			})
-		}
+	// Use ParseStringAs - it handles JSON repair, trailing commas, escape sequences, etc.
+	calls, err := utils.ParseStringAs[[]toolCallParsed](jsonStr)
+	if err != nil {
+		// ParseStringAs already tries to repair, so if it fails, we can't do much more
 		return toolCalls
 	}
 
-	// If standard format fails, try more aggressive cleaning
-	// Remove any trailing incomplete JSON
-	lastCloseBrace := strings.LastIndex(jsonStr, "}")
-	if lastCloseBrace > 0 && lastCloseBrace < len(jsonStr)-1 {
-		// Check if there's junk after the last }
-		remaining := strings.TrimSpace(jsonStr[lastCloseBrace+1:])
-		if remaining != "" && remaining != "]" {
-			// Truncate to last valid object
-			jsonStr = jsonStr[:lastCloseBrace+1] + "]"
-
-			// Try parsing again
-			if err := json.Unmarshal([]byte(jsonStr), &calls); err == nil && len(calls) > 0 {
-				for _, call := range calls {
-					if call.Name == "" {
-						continue
-					}
-					var argsStr string
-					if len(call.Arguments) > 0 {
-						argsStr = string(call.Arguments)
-					} else {
-						argsStr = "{}"
-					}
-					toolCalls = append(toolCalls, ai.ToolCall{
-						ID:   "", // Parsed tool calls don't have IDs
-						Type: "function",
-						Function: ai.ToolCallFunction{
-							Name:      call.Name,
-							Arguments: argsStr,
-						},
-					})
-				}
-			}
+	// Convert parsed calls to ai.ToolCall format
+	for _, call := range calls {
+		// Validate that we have at least a name
+		if call.Name == "" {
+			continue
 		}
+
+		// Convert arguments to JSON string
+		var argsStr string
+		if len(call.Arguments) > 0 {
+			argsStr = string(call.Arguments)
+		} else {
+			argsStr = "{}"
+		}
+
+		toolCalls = append(toolCalls, ai.ToolCall{
+			ID:   "", // Parsed tool calls from content don't have IDs
+			Type: "function",
+			Function: ai.ToolCallFunction{
+				Name:      call.Name,
+				Arguments: argsStr,
+			},
+		})
 	}
 
 	return toolCalls
