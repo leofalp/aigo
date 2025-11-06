@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
-	"reflect"
 	"strconv"
 	"time"
 
@@ -621,81 +619,4 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 	}
 
 	return response, nil
-}
-
-// ParseResponseAs attempts to parse the response content into the specified type T.
-// It supports:
-// - Primitive types (string, bool, int, float)
-// - Struct types via JSON unmarshaling
-//
-// This is useful when you have configured the client with an OutputSchema and want
-// to parse the structured response into a Go type.
-//
-// Example usage:
-//
-//	type MyResponse struct {
-//	    Answer string `json:"answer"`
-//	    Confidence float64 `json:"confidence"`
-//	}
-//
-//	resp, _ := client.SendMessage(ctx, "What is 2+2?")
-//	parsed, err := ParseResponseAs[MyResponse](resp)
-//	if err != nil {
-//	    // Handle parsing error
-//	}
-//	fmt.Println(parsed.Answer) // Typed access
-func ParseResponseAs[T any](response *ai.ChatResponse) (T, error) {
-	var result T
-	if response == nil {
-		return result, fmt.Errorf("nil response")
-	}
-
-	var err error
-
-	switch reflect.TypeFor[T]().Kind() {
-	case reflect.String:
-		// For string type, return content as-is via reflection
-		reflect.ValueOf(&result).Elem().SetString(response.Content)
-		return result, nil
-
-	case reflect.Bool:
-		val, err := strconv.ParseBool(response.Content)
-		if err != nil {
-			return result, fmt.Errorf("failed to parse response as bool: %w", err)
-		}
-		reflect.ValueOf(&result).Elem().SetBool(val)
-		return result, nil
-
-	case reflect.Float32, reflect.Float64:
-		val, err := strconv.ParseFloat(response.Content, 64)
-		if err != nil {
-			return result, fmt.Errorf("failed to parse response as float: %w", err)
-		}
-		reflect.ValueOf(&result).Elem().SetFloat(val)
-		return result, nil
-
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		val, err := strconv.ParseInt(response.Content, 10, 64)
-		if err != nil {
-			return result, fmt.Errorf("failed to parse response as int: %w", err)
-		}
-		reflect.ValueOf(&result).Elem().SetInt(val)
-		return result, nil
-
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		val, err := strconv.ParseUint(response.Content, 10, 64)
-		if err != nil {
-			return result, fmt.Errorf("failed to parse response as uint: %w", err)
-		}
-		reflect.ValueOf(&result).Elem().SetUint(val)
-		return result, nil
-
-	default:
-		// For structs and other complex types, use JSON unmarshaling
-		err = json.Unmarshal([]byte(response.Content), &result)
-		if err != nil {
-			return result, fmt.Errorf("failed to unmarshal response as %T: %w", result, err)
-		}
-		return result, nil
-	}
 }
