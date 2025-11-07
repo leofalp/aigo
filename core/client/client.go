@@ -4,11 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
-	"reflect"
 	"strconv"
-	"time"
 
 	"github.com/leofalp/aigo/internal/jsonschema"
 	"github.com/leofalp/aigo/internal/utils"
@@ -277,7 +274,7 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 		opt(options)
 	}
 	// Start tracing span (only if observer is set)
-	span := c.observeInit(&ctx, "Continuing conversation")
+	span := c.observeInit(&ctx, "sending message")
 	overview := ai.OverviewFromContext(&ctx)
 	timer := utils.NewTimer()
 
@@ -318,6 +315,7 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 			Type:         "json_schema",
 			OutputSchema: options.OutputSchema,
 		}
+		// TODO: consider do add hints to the LLM into the system prompt about the expected structure
 	}
 
 	// Send to LLM provider
@@ -377,7 +375,7 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 	}
 
 	// Start tracing span (only if observer is set)
-	span := c.observeInit(&ctx, "Continuing conversation")
+	span := c.observeInit(&ctx, "continue conversation")
 	overview := ai.OverviewFromContext(&ctx)
 	timer := utils.NewTimer()
 	messages := c.memoryProvider.AllMessages()
@@ -423,4 +421,124 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 	c.observeSuccess(&ctx, &span, response, timer, "continue conversation")
 
 	return response, nil
+}
+func (c *Client) observeInit(ctx *context.Context, subject string) observability.Span {
+	if c.observer == nil {
+		return nil
+	}
+
+	var span observability.Span
+
+	*ctx, span = c.observer.StartSpan(*ctx, observability.SpanClientSendMessage,
+		observability.String(observability.AttrLLMModel, c.defaultModel),
+		observability.Bool(observability.AttrClientContinuingConversation, true),
+	)
+
+	// Put span and observer in context for downstream propagation
+	*ctx = observability.ContextWithSpan(*ctx, span)
+	*ctx = observability.ContextWithObserver(*ctx, c.observer)
+
+	// DEBUG: Operation starting
+	c.observer.Debug(*ctx, subject,
+		observability.String(observability.AttrLLMModel, c.defaultModel),
+		observability.Int(observability.AttrClientToolsCount, len(c.toolDescriptions)),
+	)
+
+	return span
+}
+
+func (c *Client) observeError(ctx *context.Context, span *observability.Span, err error, timer *utils.Timer, subject string) {
+	if c.observer == nil {
+		return
+	}
+
+	(*span).RecordError(err)
+	(*span).SetStatus(observability.StatusError, "Failed to "+subject)
+
+	// ERROR: Operation failed
+	c.observer.Error(*ctx, "Failed to "+subject+" with LLM",
+		observability.Error(err),
+		observability.Duration(observability.AttrDuration, timer.GetDuration()),
+		observability.String(observability.AttrLLMModel, c.defaultModel),
+	)
+
+	// Metrics at DEBUG level
+	c.observer.Counter(observability.MetricClientRequestCount).Add(*ctx, 1,
+		observability.String(observability.AttrStatus, "error"),
+		observability.String(observability.AttrLLMModel, c.defaultModel),
+	)
+
+}
+
+func (c *Client) observeSuccess(ctx *context.Context, span *observability.Span, response *ai.ChatResponse, timer *utils.Timer, subject string) {
+	if c.observer == nil {
+		return
+	}
+
+	// Record metrics
+	c.observer.Histogram(observability.MetricClientRequestDuration).Record(*ctx, timer.GetDuration().Seconds(),
+		observability.String(observability.AttrLLMModel, c.defaultModel),
+	)
+
+	c.observer.Counter(observability.MetricClientRequestCount).Add(*ctx, 1,
+		observability.String(observability.AttrStatus, "success"),
+		observability.String(observability.AttrLLMModel, c.defaultModel),
+	)
+
+	// Prepare compact log attributes
+	logAttrs := []observability.Attribute{
+		observability.String(observability.AttrLLMModel, c.defaultModel),
+		observability.String(observability.AttrLLMFinishReason, response.FinishReason),
+		observability.Duration(observability.AttrDuration, timer.GetDuration()),
+		observability.Int(observability.AttrClientToolCalls, len(response.ToolCalls)),
+	}
+
+	// Add token usage if available
+	if response.Usage != nil {
+		c.observer.Counter(observability.MetricClientTokensTotal).Add(*ctx, int64(response.Usage.TotalTokens),
+			observability.String(observability.AttrLLMModel, c.defaultModel),
+		)
+		c.observer.Counter(observability.MetricClientTokensPrompt).Add(*ctx, int64(response.Usage.PromptTokens),
+			observability.String(observability.AttrLLMModel, c.defaultModel),
+		)
+		c.observer.Counter(observability.MetricClientTokensCompletion).Add(*ctx, int64(response.Usage.CompletionTokens),
+			observability.String(observability.AttrLLMModel, c.defaultModel),
+		)
+
+		(*span).SetAttributes(
+			observability.Int(observability.AttrLLMTokensTotal, response.Usage.TotalTokens),
+			observability.Int(observability.AttrLLMTokensPrompt, response.Usage.PromptTokens),
+			observability.Int(observability.AttrLLMTokensCompletion, response.Usage.CompletionTokens),
+		)
+
+		logAttrs = append(logAttrs,
+			observability.Int(observability.AttrLLMTokensPrompt, response.Usage.PromptTokens),
+			observability.Int(observability.AttrLLMTokensCompletion, response.Usage.CompletionTokens),
+			observability.Int(observability.AttrLLMTokensTotal, response.Usage.TotalTokens),
+		)
+	}
+
+	// Add tool call names if present
+	if len(response.ToolCalls) > 0 {
+		toolNames := make([]string, len(response.ToolCalls))
+		for i, tc := range response.ToolCalls {
+			toolNames[i] = tc.Function.Name
+		}
+		logAttrs = append(logAttrs,
+			observability.StringSlice("tool_calls", toolNames),
+		)
+	}
+
+	// Add response content preview if present
+	if response.Content != "" {
+		logAttrs = append(logAttrs,
+			observability.String("response", utils.TruncateString(response.Content, 100)),
+		)
+	}
+
+	// Single INFO log with all information
+	c.observer.Info(*ctx, subject+": LLM call completed ", logAttrs...)
+
+	(*span).SetStatus(observability.StatusOK, subject+" success")
+	(*span).End()
 }
