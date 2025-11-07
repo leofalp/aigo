@@ -1,6 +1,14 @@
 package utils
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
+
+const (
+	// DefaultMaxStringLength is the default maximum length for truncated strings
+	DefaultMaxStringLength = 500
+)
 
 // JSONToString converts v to its JSON representation.
 func JSONToString(object interface{}, indent ...bool) string {
@@ -21,4 +29,20 @@ func JSONToString(object interface{}, indent ...bool) string {
 // If an error occurs, it returns only the error text.
 func ToString(object interface{}) string {
 	return JSONToString(object)
+}
+
+// TruncateString truncates a string to maxLen characters, adding a suffix with the original length
+func TruncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 0 {
+		maxLen = DefaultMaxStringLength
+	}
+	return fmt.Sprintf("%s... (truncated, total: %d chars)", s[:maxLen], len(s))
+}
+
+// TruncateStringDefault truncates a string using DefaultMaxStringLength
+func TruncateStringDefault(s string) string {
+	return TruncateString(s, DefaultMaxStringLength)
 }

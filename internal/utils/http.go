@@ -78,7 +78,7 @@ func DoPostSync[OutputStruct any](ctx context.Context, client http.Client, url s
 
 	var resStruct OutputStruct
 	if err = json.Unmarshal(respBody, &resStruct); err != nil {
-		return res, nil, fmt.Errorf("error unmarshaling LLM response body (status %d): %w\nResponse preview: %s", res.StatusCode, err, observability.TruncateString(string(respBody), 500))
+		return res, nil, fmt.Errorf("error unmarshaling LLM response body (status %d): %w\nResponse preview: %s", res.StatusCode, err, TruncateString(string(respBody), 500))
 	}
 
 	return res, &resStruct, nil
