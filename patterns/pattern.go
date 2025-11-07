@@ -7,5 +7,5 @@ import (
 )
 
 type Pattern interface {
-	Execute(ctx context.Context, prompt string) (*ai.ChatResponse, error)
+	Execute(ctx context.Context, prompt string) (*ai.Overview, error)
 }

@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/leofalp/aigo/internal/utils"
 
 	"github.com/leofalp/aigo/core/client"
 	"github.com/leofalp/aigo/providers/ai/openai"
-	"github.com/leofalp/aigo/providers/observability"
 	"github.com/leofalp/aigo/providers/tool/duckduckgo"
 
 	_ "github.com/joho/godotenv/autoload"
@@ -57,7 +57,7 @@ func exampleDirectAdvanced() {
 	// Show structured output
 	fmt.Printf("Query: %s\n", output.Query)
 	if output.Abstract != "" {
-		fmt.Printf("Abstract: %s\n", observability.TruncateString(output.Abstract, 150))
+		fmt.Printf("Abstract: %s\n", utils.TruncateString(output.Abstract, 150))
 		fmt.Printf("Source: %s (%s)\n", output.AbstractSource, output.AbstractURL)
 	}
 	if output.Image != "" {
@@ -67,7 +67,7 @@ func exampleDirectAdvanced() {
 
 	// Also show complete JSON (optional)
 	if jsonBytes, err := json.MarshalIndent(output, "", "  "); err == nil {
-		fmt.Printf("\nComplete JSON (first 500 chars):\n%s...\n", observability.TruncateString(string(jsonBytes), 500))
+		fmt.Printf("\nComplete JSON (first 500 chars):\n%s...\n", utils.TruncateString(string(jsonBytes), 500))
 	}
 }
 
