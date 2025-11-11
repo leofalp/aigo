@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/leofalp/aigo/internal/jsonschema"
+	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/providers/ai"
 	"github.com/leofalp/aigo/providers/observability"
 )
@@ -79,9 +80,9 @@ func (t *Tool[I, O]) Call(ctx context.Context, inputJson string) (string, error)
 	}
 
 	start := time.Now()
-	var parsedInput I
 
-	err := json.Unmarshal([]byte(inputJson), &parsedInput)
+	// Flexible parse of input JSON (from llm) into the expected input type
+	parsedInput, err := utils.ParseStringAs[I](inputJson)
 	if err != nil {
 		if span != nil {
 			span.RecordError(err)
