@@ -43,7 +43,6 @@ func NewWebFetchTool() *tool.Tool[Input, Output] {
 		"WebFetch",
 		Fetch,
 		tool.WithDescription("Fetches a web page and converts its HTML content to Markdown format. Supports HTTP and HTTPS protocols. Automatically handles partial URLs by adding https:// prefix. Follows redirects and returns the final URL and clean Markdown content."),
-		tool.IsRequired(),
 	)
 }
 
