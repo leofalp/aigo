@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/leofalp/aigo/internal/utils"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,10 +19,11 @@ import (
 // ReactPattern wraps a base client and adds ReAct pattern behavior:
 // automatic tool execution loop with reasoning.
 type ReactPattern struct {
-	client        *client.Client
-	maxIterations int
-	stopOnError   bool
-	state         map[string]interface{}
+	client                     *client.Client
+	maxIterations              int
+	stopOnError                bool
+	withSystemPromptAnnotation bool
+	state                      map[string]interface{}
 }
 
 // Option is a functional option for configuring ReactPattern.
@@ -36,10 +38,17 @@ func WithMaxIterations(max int) Option {
 }
 
 // WithStopOnError configures whether to stop execution on tool errors.
-// Default: true
+// Default: false
 func WithStopOnError(stop bool) Option {
 	return func(rc *ReactPattern) {
 		rc.stopOnError = stop
+	}
+}
+
+// Default: true
+func WithSysPromptAnnotation(withSysPrompt bool) Option {
+	return func(rc *ReactPattern) {
+		rc.withSystemPromptAnnotation = withSysPrompt
 	}
 }
 
@@ -71,15 +80,20 @@ func NewReactPattern(baseClient *client.Client, opts ...Option) (*ReactPattern, 
 
 	// Create ReactPattern with defaults
 	rc := &ReactPattern{
-		client:        baseClient,
-		maxIterations: 10,
-		stopOnError:   true,
-		state:         map[string]interface{}{},
+		client:                     baseClient,
+		maxIterations:              10,
+		stopOnError:                true,
+		withSystemPromptAnnotation: false,
+		state:                      map[string]interface{}{},
 	}
 
 	// Apply options
 	for _, opt := range opts {
 		opt(rc)
+	}
+
+	if rc.withSystemPromptAnnotation {
+		baseClient.AppendToSystemPrompt("Use the ReAct (Reasoning + Acting) pattern to answer user queries with " + strconv.Itoa(rc.maxIterations) + " iterations maximum. ")
 	}
 
 	return rc, nil
