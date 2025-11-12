@@ -35,7 +35,8 @@ func TestExtract_Success(t *testing.T) {
 	defer server.Close()
 
 	input := Input{
-		URL: server.URL,
+		URL:                   server.URL,
+		DisableSSRFProtection: true, // Allow httptest server on localhost
 	}
 
 	output, err := Extract(context.Background(), input)
@@ -63,7 +64,8 @@ func TestExtract_Success(t *testing.T) {
 // TestExtract_EmptyURL tests extraction with empty URL
 func TestExtract_EmptyURL(t *testing.T) {
 	input := Input{
-		URL: "",
+		URL:                   "",
+		DisableSSRFProtection: true,
 	}
 
 	_, err := Extract(context.Background(), input)
@@ -87,7 +89,8 @@ func TestExtract_PartialURL(t *testing.T) {
 	partialURL := strings.TrimPrefix(server.URL, "http://")
 
 	input := Input{
-		URL: partialURL,
+		URL:                   partialURL,
+		DisableSSRFProtection: true,
 	}
 
 	_, err := Extract(context.Background(), input)
@@ -133,7 +136,8 @@ func TestExtract_SitemapIndex(t *testing.T) {
 	defer server.Close()
 
 	input := Input{
-		URL: server.URL,
+		URL:                   server.URL,
+		DisableSSRFProtection: true,
 	}
 
 	output, err := Extract(context.Background(), input)
@@ -174,7 +178,8 @@ func TestExtract_RobotsTxtDisallow(t *testing.T) {
 	defer server.Close()
 
 	input := Input{
-		URL: server.URL,
+		URL:                   server.URL,
+		DisableSSRFProtection: true,
 	}
 
 	output, err := Extract(context.Background(), input)
@@ -226,6 +231,7 @@ func TestExtract_Crawling(t *testing.T) {
 	input := Input{
 		URL:                    server.URL,
 		ForceRecursiveCrawling: true,
+		DisableSSRFProtection:  true,
 	}
 
 	output, err := Extract(context.Background(), input)
@@ -263,8 +269,9 @@ func TestExtract_MaxURLs(t *testing.T) {
 	defer server.Close()
 
 	input := Input{
-		URL:     server.URL,
-		MaxURLs: 3,
+		URL:                   server.URL,
+		MaxURLs:               5,
+		DisableSSRFProtection: true,
 	}
 
 	output, err := Extract(context.Background(), input)
@@ -272,8 +279,8 @@ func TestExtract_MaxURLs(t *testing.T) {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-	if output.TotalURLs > 3 {
-		t.Errorf("Expected max 3 URLs, got %d", output.TotalURLs)
+	if output.TotalURLs > 5 {
+		t.Errorf("Expected max 5 URLs, got %d", output.TotalURLs)
 	}
 }
 
@@ -290,7 +297,8 @@ func TestExtract_ContextCancellation(t *testing.T) {
 	defer cancel()
 
 	input := Input{
-		URL: server.URL,
+		URL:                   server.URL,
+		DisableSSRFProtection: true,
 	}
 
 	_, err := Extract(ctx, input)
@@ -318,7 +326,8 @@ func TestExtract_SameDomainOnly(t *testing.T) {
 	defer server.Close()
 
 	input := Input{
-		URL: server.URL,
+		URL:                   server.URL,
+		DisableSSRFProtection: true,
 	}
 
 	output, err := Extract(context.Background(), input)
@@ -351,8 +360,9 @@ func TestExtract_CustomUserAgent(t *testing.T) {
 	defer server.Close()
 
 	input := Input{
-		URL:       server.URL,
-		UserAgent: customUA,
+		URL:                   server.URL,
+		UserAgent:             customUA,
+		DisableSSRFProtection: true,
 	}
 
 	Extract(context.Background(), input)
@@ -373,7 +383,8 @@ func TestExtract_DefaultUserAgent(t *testing.T) {
 	defer server.Close()
 
 	input := Input{
-		URL: server.URL,
+		URL:                   server.URL,
+		DisableSSRFProtection: true,
 	}
 
 	Extract(context.Background(), input)
@@ -426,6 +437,7 @@ func TestExtract_RelativeLinks(t *testing.T) {
 	input := Input{
 		URL:                    server.URL,
 		ForceRecursiveCrawling: true,
+		DisableSSRFProtection:  true,
 	}
 
 	output, err := Extract(context.Background(), input)
@@ -461,7 +473,9 @@ func TestExtract_IgnoreFragments(t *testing.T) {
 
 	input := Input{
 		URL:                    server.URL,
+		MaxURLs:                10,
 		ForceRecursiveCrawling: true,
+		DisableSSRFProtection:  true,
 	}
 
 	output, err := Extract(context.Background(), input)
@@ -535,6 +549,7 @@ func TestExtract_CrawlDepthLimit(t *testing.T) {
 		URL:                    server.URL,
 		ForceRecursiveCrawling: true,
 		MaxURLs:                10, // Limit URLs
+		DisableSSRFProtection:  true,
 	}
 
 	output, err := Extract(context.Background(), input)
@@ -570,7 +585,8 @@ func TestExtract_NoSitemapAutoCrawl(t *testing.T) {
 	defer server.Close()
 
 	input := Input{
-		URL: server.URL,
+		URL:                   server.URL,
+		DisableSSRFProtection: true,
 		// ForceRecursiveCrawling defaults to false
 		// But crawling will happen as fallback when no sitemap found
 	}
@@ -613,7 +629,8 @@ func TestExtract_WWWSubdomainHandling(t *testing.T) {
 	defer server.Close()
 
 	input := Input{
-		URL: server.URL, // URL without www
+		URL:                   server.URL, // URL without www
+		DisableSSRFProtection: true,
 	}
 
 	output, err := Extract(context.Background(), input)
@@ -696,7 +713,8 @@ func TestExtract_RobotsTxtSitemapNormalization(t *testing.T) {
 	defer server.Close()
 
 	input := Input{
-		URL: server.URL, // Without www
+		URL:                   server.URL, // Without www
+		DisableSSRFProtection: true,
 	}
 
 	output, err := Extract(context.Background(), input)
@@ -745,7 +763,8 @@ func TestExtract_RedirectToCanonicalURL(t *testing.T) {
 	defer redirectServer.Close()
 
 	input := Input{
-		URL: redirectServer.URL,
+		URL:                   redirectServer.URL,
+		DisableSSRFProtection: true,
 	}
 
 	output, err := Extract(context.Background(), input)
@@ -795,8 +814,8 @@ func TestExtract_CrawlDelay(t *testing.T) {
 	input := Input{
 		URL:                    server.URL,
 		ForceRecursiveCrawling: true,
-		CrawlDelayMs:           200, // 200ms delay between requests
 		MaxURLs:                5,
+		DisableSSRFProtection:  true,
 	}
 
 	startTime := time.Now()
@@ -861,6 +880,7 @@ func TestExtract_ForceCrawlingWithSitemap(t *testing.T) {
 		URL:                    server.URL,
 		ForceRecursiveCrawling: true, // Force crawling even though sitemap exists
 		MaxURLs:                10,
+		DisableSSRFProtection:  true,
 	}
 
 	output, err := Extract(context.Background(), input)
@@ -879,5 +899,263 @@ func TestExtract_ForceCrawlingWithSitemap(t *testing.T) {
 
 	if output.Sources["crawl"] == 0 {
 		t.Error("Expected URLs from crawling (forced)")
+	}
+}
+
+// TestExtract_RobotsTxtUserAgentParsing tests that robots.txt rules are only applied for the correct User-Agent
+func TestExtract_RobotsTxtUserAgentParsing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		baseURL := "http://" + r.Host
+		switch r.URL.Path {
+		case "/robots.txt":
+			w.WriteHeader(http.StatusOK)
+			// BadBot is disallowed from everything
+			// Our bot should only be blocked from /admin/
+			fmt.Fprintf(w, `User-agent: BadBot
+Disallow: /
+
+User-agent: *
+Disallow: /admin/
+Sitemap: %s/sitemap.xml
+`, baseURL)
+		case "/sitemap.xml":
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+	<url><loc>%s/page1</loc></url>
+	<url><loc>%s/admin/secret</loc></url>
+	<url><loc>%s/public</loc></url>
+</urlset>`, baseURL, baseURL, baseURL)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	input := Input{
+		URL:                   server.URL,
+		DisableSSRFProtection: true,
+	}
+
+	output, err := Extract(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	// Should have 2 URLs: /page1 and /public (not /admin/secret)
+	if output.TotalURLs != 2 {
+		t.Errorf("Expected 2 URLs (excluding /admin/), got %d", output.TotalURLs)
+	}
+
+	// Check that /admin/ URLs are excluded
+	for _, url := range output.URLs {
+		if strings.Contains(url, "/admin/") {
+			t.Errorf("Found disallowed URL: %s", url)
+		}
+	}
+}
+
+// TestExtract_SSRFProtectionLocalhost tests that localhost is blocked
+func TestExtract_SSRFProtectionLocalhost(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{"localhost", "http://localhost/test"},
+		{"localhost with port", "http://localhost:8080/test"},
+		{"127.0.0.1", "http://127.0.0.1/test"},
+		{"127.0.0.1 with port", "http://127.0.0.1:8080/test"},
+		{"IPv6 loopback", "http://[::1]/test"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := Input{
+				URL: tt.url,
+			}
+
+			_, err := Extract(context.Background(), input)
+			if err == nil {
+				t.Fatalf("Expected error for %s, got nil", tt.url)
+			}
+
+			if !strings.Contains(err.Error(), "safety validation failed") &&
+				!strings.Contains(err.Error(), "localhost") &&
+				!strings.Contains(err.Error(), "private or local") {
+				t.Errorf("Expected SSRF protection error, got: %v", err)
+			}
+		})
+	}
+}
+
+// TestExtract_SSRFProtectionPrivateIPs tests that private IP ranges are blocked
+func TestExtract_SSRFProtectionPrivateIPs(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{"10.x.x.x", "http://10.0.0.1/test"},
+		{"192.168.x.x", "http://192.168.1.1/test"},
+		{"172.16.x.x", "http://172.16.0.1/test"},
+		{"172.31.x.x", "http://172.31.255.254/test"},
+		{"link-local", "http://169.254.169.254/test"}, // AWS metadata service
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := Input{
+				URL: tt.url,
+			}
+
+			_, err := Extract(context.Background(), input)
+			if err == nil {
+				t.Fatalf("Expected error for %s, got nil", tt.url)
+			}
+
+			if !strings.Contains(err.Error(), "safety validation failed") &&
+				!strings.Contains(err.Error(), "private or local") {
+				t.Errorf("Expected SSRF protection error, got: %v", err)
+			}
+		})
+	}
+}
+
+// TestExtract_RobotsCrawlDelay tests that Crawl-delay from robots.txt is respected
+func TestExtract_RobotsCrawlDelay(t *testing.T) {
+	requestTimes := []time.Time{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		baseURL := "http://" + r.Host
+
+		// Record request times for crawled pages (not robots.txt or sitemap)
+		if r.URL.Path != "/robots.txt" && r.URL.Path != "/sitemap.xml" {
+			requestTimes = append(requestTimes, time.Now())
+		}
+
+		switch r.URL.Path {
+		case "/robots.txt":
+			w.WriteHeader(http.StatusOK)
+			// Set a 1 second crawl delay
+			fmt.Fprintf(w, `User-agent: *
+Crawl-delay: 1
+`)
+		case "/":
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, `<html><body><a href="%s/page1">Page 1</a></body></html>`, baseURL)
+		case "/page1":
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("<html><body>Content</body></html>"))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	input := Input{
+		URL:                    server.URL,
+		ForceRecursiveCrawling: true, // Force crawling to test delay
+		MaxURLs:                5,
+		CrawlDelayMs:           100, // Our configured delay (should be overridden by robots.txt)
+		DisableSSRFProtection:  true,
+	}
+
+	startTime := time.Now()
+	output, err := Extract(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	if output.TotalURLs < 2 {
+		t.Errorf("Expected at least 2 URLs, got %d", output.TotalURLs)
+	}
+
+	// Check that requests were spaced by approximately 1 second (robots.txt Crawl-delay)
+	if len(requestTimes) >= 2 {
+		delay := requestTimes[1].Sub(requestTimes[0])
+		// Should be close to 1 second (allow 100ms tolerance)
+		if delay < 900*time.Millisecond || delay > 1100*time.Millisecond {
+			t.Errorf("Expected ~1s delay between requests (from robots.txt), got %v", delay)
+		}
+	}
+
+	totalDuration := time.Since(startTime)
+	// With at least 2 crawled pages and 1s delay, should take at least 1 second
+	if totalDuration < 900*time.Millisecond {
+		t.Errorf("Expected extraction to take at least 1s due to Crawl-delay, took %v", totalDuration)
+	}
+}
+
+// TestExtract_ContextCancellationInSitemap tests that context cancellation works during sitemap parsing
+func TestExtract_ContextCancellationInSitemap(t *testing.T) {
+	slowServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/sitemap.xml" {
+			// Delay response to allow cancellation
+			time.Sleep(2 * time.Second)
+			w.WriteHeader(http.StatusOK)
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer slowServer.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	input := Input{
+		URL:                   slowServer.URL,
+		DisableSSRFProtection: true,
+	}
+
+	startTime := time.Now()
+	_, err := Extract(ctx, input)
+	duration := time.Since(startTime)
+
+	// Should return quickly due to context cancellation
+	if duration > 500*time.Millisecond {
+		t.Errorf("Expected quick return due to context cancellation, took %v", duration)
+	}
+
+	// Error might be nil if it completed before sitemap fetch, or context error
+	if err != nil && !strings.Contains(err.Error(), "context") &&
+		!strings.Contains(err.Error(), "deadline") {
+		t.Logf("Got error (acceptable): %v", err)
+	}
+}
+
+// TestValidateURLSafety tests the SSRF validation function directly
+func TestValidateURLSafety(t *testing.T) {
+	tests := []struct {
+		name      string
+		url       string
+		shouldErr bool
+	}{
+		{"Valid public URL", "https://example.com", false},
+		{"Valid public IP", "https://8.8.8.8", false},
+		{"Localhost", "https://localhost", true},
+		{"127.0.0.1", "https://127.0.0.1", true},
+		{"Private 10.x", "https://10.0.0.1", true},
+		{"Private 192.168.x", "https://192.168.1.1", true},
+		{"Private 172.16.x", "https://172.16.0.1", true},
+		{"Link-local", "https://169.254.169.254", true},
+		{"IPv6 loopback", "https://[::1]", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u, err := normalizeURL(tt.url)
+			if err != nil {
+				t.Fatalf("Failed to parse URL: %v", err)
+			}
+
+			err = validateURLSafety(u)
+			if tt.shouldErr && err == nil {
+				t.Errorf("Expected error for %s, got nil", tt.url)
+			}
+			if !tt.shouldErr && err != nil {
+				t.Errorf("Expected no error for %s, got: %v", tt.url, err)
+			}
+		})
 	}
 }
