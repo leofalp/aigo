@@ -1159,3 +1159,248 @@ func TestValidateURLSafety(t *testing.T) {
 		})
 	}
 }
+
+// TestExtract_RobustHTMLParsing tests that the HTML parser handles various HTML formats
+func TestExtract_RobustHTMLParsing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		baseURL := "http://" + r.Host
+		switch r.URL.Path {
+		case "/":
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusOK)
+			// Complex HTML with various link formats
+			fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head>
+	<base href="%s/subdir/">
+	<link rel="stylesheet" href="style.css">
+	<link rel="canonical" href="%s/canonical">
+</head>
+<body>
+	<!-- Various anchor formats -->
+	<a href="page1">Relative to base</a>
+	<a href="/page2">Absolute path</a>
+	<a href="%s/page3">Full URL</a>
+	<a href='page4'>Single quotes</a>
+	<a HREF="page5">Uppercase HREF</a>
+	<a href="">Empty href (skip)</a>
+	<a href="#">Fragment (skip)</a>
+	<a href="javascript:void(0)">JavaScript (skip)</a>
+	<a href="mailto:test@example.com">Mailto (skip)</a>
+	<a href="tel:+1234567890">Tel (skip)</a>
+
+	<!-- Area tags -->
+	<map>
+		<area href="%s/area1" alt="Area 1">
+	</map>
+
+	<!-- Malformed HTML (parser should handle) -->
+	<a href="page6">Unclosed tag
+	<div><a href="page7">Nested</a></div>
+</body>
+</html>`, baseURL, baseURL, baseURL, baseURL)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	input := Input{
+		URL:                    server.URL,
+		ForceRecursiveCrawling: true,
+		MaxURLs:                20,
+		DisableSSRFProtection:  true,
+	}
+
+	output, err := Extract(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	// Verify URLs were extracted
+	if output.TotalURLs == 0 {
+		t.Fatal("Expected URLs to be extracted")
+	}
+
+	urlMap := make(map[string]bool)
+	for _, url := range output.URLs {
+		urlMap[url] = true
+	}
+
+	// Should have extracted valid URLs (some are mandatory, root URL may or may not be included)
+	mandatoryURLs := []string{
+		server.URL + "/subdir/page1", // Relative to base
+		server.URL + "/page2",        // Absolute path
+		server.URL + "/page3",        // Full URL
+		server.URL + "/subdir/page4", // Single quotes, relative to base
+		server.URL + "/subdir/page5", // Uppercase HREF
+		server.URL + "/canonical",    // Link tag
+		server.URL + "/area1",        // Area tag
+		server.URL + "/subdir/page6", // Unclosed tag
+		server.URL + "/subdir/page7", // Nested
+	}
+
+	for _, expected := range mandatoryURLs {
+		if !urlMap[expected] {
+			t.Errorf("Expected URL not found: %s", expected)
+		}
+	}
+
+	// Should NOT have extracted invalid URLs
+	invalidPatterns := []string{
+		"#",
+		"javascript:",
+		"mailto:",
+		"tel:",
+	}
+
+	for _, url := range output.URLs {
+		for _, pattern := range invalidPatterns {
+			if strings.Contains(url, pattern) {
+				t.Errorf("Found invalid URL pattern %s in: %s", pattern, url)
+			}
+		}
+	}
+}
+
+// TestExtract_HTMLBaseTag tests that <base> tag is properly handled
+func TestExtract_HTMLBaseTag(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		baseURL := "http://" + r.Host
+		switch r.URL.Path {
+		case "/":
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, `<html>
+<head>
+	<base href="%s/docs/">
+</head>
+<body>
+	<a href="page1.html">Page 1</a>
+	<a href="page2.html">Page 2</a>
+	<a href="/absolute">Absolute</a>
+</body>
+</html>`, baseURL)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	input := Input{
+		URL:                    server.URL,
+		ForceRecursiveCrawling: true,
+		MaxURLs:                10,
+		DisableSSRFProtection:  true,
+	}
+
+	output, err := Extract(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	urlMap := make(map[string]bool)
+	for _, url := range output.URLs {
+		urlMap[url] = true
+	}
+
+	// Relative URLs should be resolved against base href
+	if !urlMap[server.URL+"/docs/page1.html"] {
+		t.Error("Expected relative URL to be resolved against <base> tag")
+	}
+	if !urlMap[server.URL+"/docs/page2.html"] {
+		t.Error("Expected relative URL to be resolved against <base> tag")
+	}
+
+	// Absolute URLs should ignore base tag
+	if !urlMap[server.URL+"/absolute"] {
+		t.Error("Expected absolute URL to ignore <base> tag")
+	}
+}
+
+// TestExtract_MalformedHTML tests parsing of malformed HTML
+func TestExtract_MalformedHTML(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		baseURL := "http://" + r.Host
+		if r.URL.Path == "/" {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusOK)
+			// Intentionally malformed HTML
+			fmt.Fprintf(w, `<html>
+<body>
+	<a href="%s/page1">Link 1
+	<a href="%s/page2">Link 2</a>
+	<div>
+		<a href="%s/page3">Link 3
+			<p>Nested without closing</p>
+	</div>
+	<a href=%s/page4>No quotes</a>
+</body>
+<!-- Missing </html> -->`, baseURL, baseURL, baseURL, baseURL)
+		} else {
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	input := Input{
+		URL:                    server.URL,
+		ForceRecursiveCrawling: true,
+		MaxURLs:                10,
+		DisableSSRFProtection:  true,
+	}
+
+	output, err := Extract(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	// Should extract links despite malformed HTML
+	if output.TotalURLs < 3 {
+		t.Errorf("Expected at least 3 URLs from malformed HTML, got %d", output.TotalURLs)
+	}
+}
+
+// TestExtract_WithObservability tests integration with observability provider
+func TestExtract_WithObservability(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		baseURL := "http://" + r.Host
+		switch r.URL.Path {
+		case "/sitemap.xml":
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+	<url><loc>%s/page1</loc></url>
+</urlset>`, baseURL)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	// Test without observability (nil observer)
+	ctx := context.Background()
+	// Note: We can't easily inject a mock observer through the context in this test
+	// because the Extract function gets the observer from context using observability.ObserverFromContext
+	// For now, this test just verifies the code doesn't crash when observability is nil
+
+	input := Input{
+		URL:                   server.URL,
+		DisableSSRFProtection: true,
+	}
+
+	output, err := Extract(ctx, input)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	if output.TotalURLs == 0 {
+		t.Error("Expected URLs to be extracted")
+	}
+
+	// This test verifies that the code works without observability (nil observer)
+	// A proper integration test would require setting up a real observability provider
+	// For now, we just verify it doesn't crash
+	t.Log("Extraction completed successfully without observability provider")
+}
