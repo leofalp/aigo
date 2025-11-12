@@ -17,7 +17,8 @@ A comprehensive tool for extracting all URLs from a website by analyzing robots.
 - **Configurable Limits** - Control max URLs, timeout, and crawl delay
 - **Polite Crawling** - Configurable delay between requests, respects robots.txt Crawl-delay
 - **SSRF Protection** - Blocks access to localhost and private IP ranges (RFC 1918) to prevent security vulnerabilities
-- **Pure Go Implementation** - Uses only native Go HTML parsing (no external HTML libraries)
+- **Robust HTML Parsing** - Uses `golang.org/x/net/html` for standards-compliant parsing of even malformed HTML
+- **Observability Integration** - Optional integration with `aigo/providers/observability` for tracing, metrics, and logging
 
 ## Usage
 
@@ -91,6 +92,35 @@ func main() {
         context.Background(),
         "Extract all URLs from example.com and analyze their structure",
     )
+}
+```
+
+### With Observability
+
+```go
+package main
+
+import (
+    "context"
+    "github.com/leofalp/aigo/providers/observability"
+    "github.com/leofalp/aigo/providers/observability/slogobs"
+    "github.com/leofalp/aigo/providers/tool/urlextractor"
+)
+
+func main() {
+    // Create an observability provider
+    observer := slogobs.New()
+    
+    // Add observer to context
+    ctx := observability.ContextWithObserver(context.Background(), observer)
+    
+    input := urlextractor.Input{
+        URL: "example.com",
+    }
+    
+    // Extract will automatically use the observer from context for logging and metrics
+    output, err := urlextractor.Extract(ctx, input)
+    // Logs, traces, and metrics will be generated automatically
 }
 ```
 
@@ -193,6 +223,102 @@ The tool properly respects robots.txt directives:
 - Respects `Disallow` directives
 - Honors `Crawl-delay` directive to avoid overwhelming servers
 - Higher crawl delays from robots.txt override configured delays
+
+### Robust HTML Parsing
+The tool uses `golang.org/x/net/html` for parsing HTML, which provides:
+- **Standards-compliant parsing** - Handles HTML5 and older HTML versions correctly
+- **Malformed HTML support** - Automatically fixes and parses broken HTML
+- **Complete link extraction**:
+  - `<a href="...">` - Anchor tags (standard links)
+  - `<link href="...">` - Link tags (stylesheets, canonical URLs, etc.)
+  - `<area href="...">` - Image map areas
+  - `<base href="...">` - Base URL handling for relative links
+- **Attribute format flexibility**:
+  - Double quotes: `href="url"`
+  - Single quotes: `href='url'`
+  - No quotes: `href=url` (where valid)
+  - Uppercase/mixed case: `HREF="url"` or `Href="url"`
+- **Smart filtering**:
+  - Skips fragments (`#`)
+  - Skips JavaScript URLs (`javascript:`)
+  - Skips mailto links (`mailto:`)
+  - Skips telephone links (`tel:`)
+  - Skips data URLs (`data:`)
+
+Example of complex HTML that is handled correctly:
+```html
+<html>
+<head>
+  <base href="https://example.com/docs/">
+  <link rel="canonical" href="https://example.com/page">
+</head>
+<body>
+  <a href="guide.html">Relative to base</a>
+  <a href="/absolute">Absolute path</a>
+  <a HREF='mixed-quotes'>Mixed case</a>
+  <a href="">Empty (skipped)</a>
+  <a href="#">Fragment (skipped)</a>
+  <a href="javascript:void(0)">JS (skipped)</a>
+  
+  <!-- Malformed HTML is handled gracefully -->
+  <a href="page">Unclosed tag
+  <div><a href="nested">Nested</a></div>
+</body>
+```
+
+### Observability Integration
+The tool integrates with `aigo/providers/observability` for comprehensive monitoring:
+
+**Automatic features** (when observer is in context):
+- **Distributed tracing**: Spans for each extraction phase
+  - `urlextractor.extract` - Main extraction span
+  - Includes attributes: URL, max_urls, configuration
+- **Structured logging**: Detailed logs at each step
+  - Redirect following
+  - robots.txt analysis
+  - Sitemap extraction
+  - Crawling progress
+- **Metrics collection**:
+  - `urlextractor.urls.extracted` - Total URLs extracted (counter)
+  - `urlextractor.urls.by_source` - URLs by source (sitemap/crawl) (counter)
+
+**Usage**:
+```go
+import (
+    "github.com/leofalp/aigo/providers/observability"
+    "github.com/leofalp/aigo/providers/observability/slogobs"
+)
+
+// Create observer
+observer := slogobs.New(
+    slogobs.WithFormat(slogobs.FormatCompact),
+    slogobs.WithLevel(slog.LevelInfo),
+)
+
+// Add to context
+ctx := observability.ContextWithObserver(context.Background(), observer)
+
+// Use Extract - observability is automatic
+output, err := urlextractor.Extract(ctx, input)
+```
+
+**Example log output**:
+```
+INFO Following redirects to canonical URL url=https://example.com
+INFO Canonical URL determined canonical_url=https://www.example.com
+INFO Analyzing robots.txt
+INFO robots.txt found disallowed_paths=2 sitemaps=1 crawl_delay_ms=1000
+INFO Extracting URLs from sitemaps
+INFO Sitemap extraction complete urls_found=150
+INFO URL extraction complete total_urls=150 robots_found=true sitemap_found=true
+```
+
+**Benefits**:
+- Debug extraction issues with detailed logs
+- Monitor performance with distributed tracing
+- Track metrics in production
+- Correlate with other aigo components
+- No performance impact when observer is nil (observability is optional)
 
 ## Input and Output
 

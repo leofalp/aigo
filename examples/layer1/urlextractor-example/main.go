@@ -4,15 +4,28 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
+	"os"
 
+	"github.com/leofalp/aigo/providers/observability"
+	"github.com/leofalp/aigo/providers/observability/slogobs"
 	"github.com/leofalp/aigo/providers/tool/urlextractor"
 )
 
 func main() {
 	fmt.Println("=== URLExtractor Tool Example ===")
 	fmt.Println("This example demonstrates extracting URLs from websites using various methods")
+	fmt.Println()
 
-	ctx := context.Background()
+	// Create an observability provider for logging and metrics
+	observer := slogobs.New(
+		slogobs.WithFormat(slogobs.FormatCompact),
+		slogobs.WithLevel(slog.LevelInfo),
+		slogobs.WithOutput(os.Stdout),
+	)
+
+	// Add observer to context for automatic logging and tracing
+	ctx := observability.ContextWithObserver(context.Background(), observer)
 
 	// Example 1: Simple extraction with default settings
 	fmt.Println("📄 Example 1: Basic URL Extraction")
@@ -38,12 +51,15 @@ func main() {
 }
 
 func basicExtraction(ctx context.Context) {
+	fmt.Println("=== Basic Extraction (with observability) ===")
 	// Simple extraction with partial URL
 	input := urlextractor.Input{
-		URL: "neosperience.com", // Automatically becomes https://example.com
+		URL: "neosperience.com", // Automatically becomes https://neosperience.com
 	}
 
 	fmt.Printf("Extracting URLs from: %s\n", input.URL)
+	fmt.Println("(Watch for observability logs below)")
+	fmt.Println()
 
 	output, err := urlextractor.Extract(ctx, input)
 	if err != nil {
@@ -71,6 +87,7 @@ func basicExtraction(ctx context.Context) {
 }
 
 func customConfiguration(ctx context.Context) {
+	fmt.Println("=== Custom Configuration ===")
 	// Extraction with custom limits and timeout
 	input := urlextractor.Input{
 		URL:                    "example.org",
@@ -108,6 +125,7 @@ func customConfiguration(ctx context.Context) {
 }
 
 func sitemapOnly(ctx context.Context) {
+	fmt.Println("=== Sitemap-Only Extraction ===")
 	// Extract only from sitemap, don't force crawling
 	input := urlextractor.Input{
 		URL:     "example.net",
@@ -137,6 +155,7 @@ func sitemapOnly(ctx context.Context) {
 }
 
 func deepCrawling(ctx context.Context) {
+	fmt.Println("=== Deep Crawling with Observability ===")
 	// Comprehensive crawling with statistics
 	input := urlextractor.Input{
 		URL:                    "example.com",
@@ -305,3 +324,11 @@ func formatBool(b bool) string {
 	}
 	return "✗ Not found"
 }
+
+// Note: All extraction operations above automatically generate:
+// - Structured logs (visible in console)
+// - Distributed tracing spans
+// - Metrics (URLs extracted, sources used)
+//
+// This is possible because we added the observability provider to the context.
+// Without the observer, the tool works the same but without logging/metrics.

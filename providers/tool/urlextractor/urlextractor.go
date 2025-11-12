@@ -13,7 +13,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/leofalp/aigo/providers/observability"
 	"github.com/leofalp/aigo/providers/tool"
+	"golang.org/x/net/html"
 )
 
 const (
@@ -98,6 +100,9 @@ func Extract(ctx context.Context, input Input) (Output, error) {
 		}
 	}
 
+	// Extract observability provider from context
+	observer := observability.ObserverFromContext(ctx)
+
 	// Create extractor
 	extractor := &urlExtractor{
 		baseURL:             baseURL,
@@ -108,6 +113,7 @@ func Extract(ctx context.Context, input Input) (Output, error) {
 		client:              &http.Client{Timeout: DefaultTimeout},
 		forceRecursiveCrawl: input.ForceRecursiveCrawling,
 		crawlDelayMs:        DefaultCrawlDelayMs,
+		observer:            observer,
 	}
 
 	// Apply custom configuration
@@ -145,41 +151,67 @@ type urlExtractor struct {
 	client              *http.Client
 	forceRecursiveCrawl bool
 	crawlDelayMs        int
-	robotsCrawlDelay    int // Crawl-delay from robots.txt (in milliseconds)
+	robotsCrawlDelay    int                    // Crawl-delay from robots.txt (in milliseconds)
+	observer            observability.Provider // Observability provider
 }
 
 // extract performs the complete URL extraction process
 func (e *urlExtractor) extract(ctx context.Context) (Output, error) {
+	// Start tracing if observability is available
+	var span observability.Span
+	if e.observer != nil {
+		ctx, span = e.observer.StartSpan(ctx, "urlextractor.extract",
+			observability.String("url", e.baseURL.String()),
+			observability.Int("max_urls", e.maxURLs),
+		)
+		defer span.End()
+	}
+
 	output := Output{
 		Sources: make(map[string]int),
 	}
 
 	// Step 1: Follow redirects to get the canonical base URL
+	e.log(ctx, "info", "Following redirects to canonical URL", observability.String("url", e.baseURL.String()))
 	canonicalURL := e.followRedirectsToCanonicalURL(ctx)
 	if canonicalURL != nil {
 		e.baseURL = canonicalURL
+		e.log(ctx, "info", "Canonical URL determined", observability.String("canonical_url", canonicalURL.String()))
 	}
 	output.BaseURL = e.baseURL.String()
 
 	// Step 2: Analyze robots.txt
+	e.log(ctx, "info", "Analyzing robots.txt")
 	robotsFound := e.analyzeRobots(ctx)
 	if robotsFound {
 		output.RobotsTxtFound = true
+		e.log(ctx, "info", "robots.txt found",
+			observability.Int("disallowed_paths", len(e.disallowed)),
+			observability.Int("sitemaps", len(e.sitemaps)),
+			observability.Int("crawl_delay_ms", e.robotsCrawlDelay),
+		)
 	}
 
 	// Step 3: Extract from sitemaps
+	e.log(ctx, "info", "Extracting URLs from sitemaps")
 	sitemapURLCount := e.extractFromSitemaps(ctx)
 	if sitemapURLCount > 0 {
 		output.SitemapFound = true
 		output.Sources["sitemap"] = sitemapURLCount
+		e.log(ctx, "info", "Sitemap extraction complete", observability.Int("urls_found", sitemapURLCount))
 	}
 
 	// Step 4: Perform crawling if forced or if no sitemaps were found at all
 	shouldCrawl := e.forceRecursiveCrawl || (!output.SitemapFound && len(e.urls) == 0)
 	if shouldCrawl {
+		e.log(ctx, "info", "Starting recursive crawling",
+			observability.Bool("forced", e.forceRecursiveCrawl),
+			observability.Bool("fallback", !output.SitemapFound),
+		)
 		crawledURLCount := e.crawlWithQueue(ctx)
 		if crawledURLCount > 0 {
 			output.Sources["crawl"] = crawledURLCount
+			e.log(ctx, "info", "Crawling complete", observability.Int("urls_found", crawledURLCount))
 		}
 	}
 
@@ -190,6 +222,15 @@ func (e *urlExtractor) extract(ctx context.Context) (Output, error) {
 	}
 
 	output.TotalURLs = len(output.URLs)
+
+	e.log(ctx, "info", "URL extraction complete",
+		observability.Int("total_urls", output.TotalURLs),
+		observability.Bool("robots_found", output.RobotsTxtFound),
+		observability.Bool("sitemap_found", output.SitemapFound),
+	)
+
+	// Record metrics
+	e.recordMetrics(ctx, output)
 
 	return output, nil
 }
@@ -570,54 +611,82 @@ func (e *urlExtractor) extractLinks(ctx context.Context, pageURL string) []strin
 	return e.parseHTMLLinks(string(body), pageURL)
 }
 
-// parseHTMLLinks extracts links from HTML using native Go string parsing
+// parseHTMLLinks extracts links from HTML using golang.org/x/net/html parser
 func (e *urlExtractor) parseHTMLLinks(htmlContent, baseURL string) []string {
 	discoveredLinks := make([]string, 0)
-	lowerHTML := strings.ToLower(htmlContent)
 
-	// Find all href attributes in lowercase version, extract from original
-	searchPatterns := []string{
-		`href="`,
-		`href='`,
+	// Parse HTML
+	doc, err := html.Parse(strings.NewReader(htmlContent))
+	if err != nil {
+		// If parsing fails, return empty list (malformed HTML)
+		return discoveredLinks
 	}
 
-	for _, pattern := range searchPatterns {
-		searchStartIndex := 0
-		for {
-			patternIndex := strings.Index(lowerHTML[searchStartIndex:], pattern)
-			if patternIndex == -1 {
-				break
-			}
-			patternIndex = searchStartIndex + patternIndex + len(pattern)
+	// Track base href if present
+	baseHref := baseURL
 
-			// Find end of URL based on quote type
-			endQuoteChar := pattern[len(pattern)-1:] // " or '
-			endQuoteIndex := strings.Index(lowerHTML[patternIndex:], endQuoteChar)
-			if endQuoteIndex == -1 {
-				searchStartIndex = patternIndex
-				continue
-			}
-			endQuoteIndex = patternIndex + endQuoteIndex
+	// Traverse DOM and extract links
+	var extractLinks func(*html.Node)
+	extractLinks = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "base":
+				// Handle <base href="..."> tag
+				for _, attr := range n.Attr {
+					if attr.Key == "href" && attr.Val != "" {
+						// Update base href for resolving relative URLs
+						if resolved := e.resolveURL(attr.Val, baseURL); resolved != "" {
+							baseHref = resolved
+						}
+					}
+				}
 
-			if endQuoteIndex > patternIndex {
-				// Extract from original HTML (not lowercased)
-				linkHref := strings.TrimSpace(htmlContent[patternIndex:endQuoteIndex])
-				if linkHref != "" && !strings.HasPrefix(linkHref, "#") && !strings.HasPrefix(linkHref, "javascript:") && !strings.HasPrefix(linkHref, "mailto:") {
-					// Resolve relative URLs
-					if absoluteURL := e.resolveURL(linkHref, baseURL); absoluteURL != "" {
-						discoveredLinks = append(discoveredLinks, absoluteURL)
+			case "a", "link", "area":
+				// Extract href from <a>, <link>, <area> tags
+				for _, attr := range n.Attr {
+					if attr.Key == "href" && attr.Val != "" {
+						href := strings.TrimSpace(attr.Val)
+						if e.isValidLink(href) {
+							if absoluteURL := e.resolveURL(href, baseHref); absoluteURL != "" {
+								discoveredLinks = append(discoveredLinks, absoluteURL)
+							}
+						}
 					}
 				}
 			}
+		}
 
-			searchStartIndex = endQuoteIndex + 1
-			if searchStartIndex >= len(lowerHTML) {
-				break
-			}
+		// Recursively process child nodes
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			extractLinks(child)
 		}
 	}
 
+	extractLinks(doc)
 	return discoveredLinks
+}
+
+// isValidLink checks if a link should be extracted
+func (e *urlExtractor) isValidLink(href string) bool {
+	// Skip empty links
+	if href == "" {
+		return false
+	}
+
+	// Skip fragments
+	if strings.HasPrefix(href, "#") {
+		return false
+	}
+
+	// Skip javascript: and mailto: links
+	if strings.HasPrefix(strings.ToLower(href), "javascript:") ||
+		strings.HasPrefix(strings.ToLower(href), "mailto:") ||
+		strings.HasPrefix(strings.ToLower(href), "tel:") ||
+		strings.HasPrefix(strings.ToLower(href), "data:") {
+		return false
+	}
+
+	return true
 }
 
 // resolveURL converts relative URLs to absolute
@@ -712,6 +781,46 @@ func normalizeURL(rawURL string) (*url.URL, error) {
 	}
 
 	return parsedURL, nil
+}
+
+// log is a helper function to log messages if observability is available
+func (e *urlExtractor) log(ctx context.Context, level string, msg string, attrs ...observability.Attribute) {
+	if e.observer == nil {
+		return
+	}
+
+	switch level {
+	case "debug":
+		e.observer.Debug(ctx, msg, attrs...)
+	case "info":
+		e.observer.Info(ctx, msg, attrs...)
+	case "warn":
+		e.observer.Warn(ctx, msg, attrs...)
+	case "error":
+		e.observer.Error(ctx, msg, attrs...)
+	}
+}
+
+// recordMetrics records metrics if observability is available
+func (e *urlExtractor) recordMetrics(ctx context.Context, output Output) {
+	if e.observer == nil {
+		return
+	}
+
+	// Record total URLs extracted
+	counter := e.observer.Counter("urlextractor.urls.extracted")
+	counter.Add(ctx, int64(output.TotalURLs),
+		observability.String("base_url", output.BaseURL),
+	)
+
+	// Record URLs by source
+	for source, count := range output.Sources {
+		sourceCounter := e.observer.Counter("urlextractor.urls.by_source")
+		sourceCounter.Add(ctx, int64(count),
+			observability.String("source", source),
+			observability.String("base_url", output.BaseURL),
+		)
+	}
 }
 
 // validateURLSafety checks if a URL is safe to access (SSRF protection)
