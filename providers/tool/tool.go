@@ -14,7 +14,6 @@ import (
 type Tool[I, O any] struct {
 	Name        string
 	Description string
-	Required    bool
 	Parameters  *jsonschema.Schema
 	Output      *jsonschema.Schema
 	Function    func(ctx context.Context, input I) (O, error)
@@ -50,7 +49,6 @@ func NewTool[I, O any](name string, function func(ctx context.Context, input I) 
 
 	tool := &Tool[I, O]{
 		Name:        name,
-		Required:    toolOptions.Required,
 		Description: toolOptions.Description,
 		Parameters:  jsonschema.GenerateJSONSchema[I](),
 		Output:      jsonschema.GenerateJSONSchema[O](),

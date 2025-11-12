@@ -29,6 +29,7 @@ type Client struct {
 	observer         observability.Provider // nil if not set (zero overhead)
 	toolCatalog      *tool.Catalog
 	toolDescriptions []ai.ToolDescription
+	requiredTools    []ai.ToolDescription
 	state            map[string]any
 }
 
@@ -43,7 +44,8 @@ type ClientOptions struct {
 	Observer                        observability.Provider // Defaults to nil (zero overhead)
 	SystemPrompt                    string                 // System prompt for all requests
 	Tools                           []tool.GenericTool     // Tools available to the LLM
-	EnrichSystemPromptWithToolDescr bool                   // If true, automatically append tool descriptions to system prompt (default: false)
+	RequiredTools                   []tool.GenericTool
+	EnrichSystemPromptWithToolDescr bool // If true, automatically append tool descriptions to system prompt (default: false)
 }
 
 // Functional option pattern for ergonomic API
@@ -69,6 +71,12 @@ func WithObserver(observer observability.Provider) func(*ClientOptions) {
 func WithSystemPrompt(prompt string) func(*ClientOptions) {
 	return func(o *ClientOptions) {
 		o.SystemPrompt = prompt
+	}
+}
+
+func WithRequiredTool(tools ...tool.GenericTool) func(*ClientOptions) {
+	return func(o *ClientOptions) {
+		o.RequiredTools = append(o.Tools, tools...)
 	}
 }
 
@@ -133,13 +141,18 @@ func NewClient(llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client, 
 		options.DefaultModel = os.Getenv(envDefaultModel)
 	}
 
+	options.Tools = append(options.Tools, options.RequiredTools...)
 	// Build tool catalog and descriptions
 	toolCatalog := tool.NewCatalogWithTools(options.Tools...)
 	toolDescriptions := make([]ai.ToolDescription, 0, len(options.Tools))
+	requiredTools := make([]ai.ToolDescription, 0, len(options.RequiredTools))
 
 	for _, t := range options.Tools {
-		info := t.ToolInfo()
-		toolDescriptions = append(toolDescriptions, info)
+		toolDescriptions = append(toolDescriptions, t.ToolInfo())
+	}
+
+	for _, t := range options.RequiredTools {
+		requiredTools = append(requiredTools, t.ToolInfo())
 	}
 
 	// Enrich system prompt if enabled
@@ -156,6 +169,7 @@ func NewClient(llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client, 
 		observer:         options.Observer,
 		toolCatalog:      toolCatalog,
 		toolDescriptions: toolDescriptions,
+		requiredTools:    requiredTools,
 		state:            map[string]any{},
 	}, nil
 }
@@ -178,6 +192,10 @@ func (c *Client) ToolCatalog() *tool.Catalog {
 // Returns nil if no observer is configured (zero overhead mode).
 func (c *Client) Observer() observability.Provider {
 	return c.observer
+}
+
+func (c *Client) AppendToSystemPrompt(appendix string) {
+	c.systemPrompt += "\n" + appendix
 }
 
 // enrichSystemPromptWithTools appends tool usage guidance to the system prompt.
