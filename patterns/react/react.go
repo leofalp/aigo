@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/leofalp/aigo/internal/utils"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/leofalp/aigo/internal/utils"
 
 	"github.com/leofalp/aigo/core/client"
 	"github.com/leofalp/aigo/providers/ai"
@@ -82,8 +83,8 @@ func NewReactPattern(baseClient *client.Client, opts ...Option) (*ReactPattern, 
 	rc := &ReactPattern{
 		client:                     baseClient,
 		maxIterations:              10,
-		stopOnError:                true,
-		withSystemPromptAnnotation: false,
+		stopOnError:                false,
+		withSystemPromptAnnotation: true,
 		state:                      map[string]interface{}{},
 	}
 
