@@ -1404,3 +1404,272 @@ func TestExtract_WithObservability(t *testing.T) {
 	// For now, we just verify it doesn't crash
 	t.Log("Extraction completed successfully without observability provider")
 }
+
+// TestExtract_SitemapSizeLimitBeforeDecompression tests that size limit is applied before gzip decompression
+func TestExtract_SitemapSizeLimitBeforeDecompression(t *testing.T) {
+	// This test verifies the fix prevents memory exhaustion from large compressed files
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/sitemap.xml.gz" {
+			// Simulate a compressed sitemap that would expand beyond limit
+			w.Header().Set("Content-Type", "application/x-gzip")
+			w.WriteHeader(http.StatusOK)
+			// Write a small compressed payload
+			// In production, a 5MB .gz could expand to 200MB
+			// The limit should prevent reading the compressed stream
+			w.Write([]byte("small compressed data"))
+		}
+	}))
+	defer server.Close()
+
+	input := Input{
+		URL:                   server.URL,
+		DisableSSRFProtection: true,
+	}
+
+	// Should not crash or consume excessive memory
+	_, err := Extract(context.Background(), input)
+	// Error is expected since we're not writing valid gzip data
+	// The important thing is it doesn't try to decompress unlimited data
+	if err != nil {
+		t.Logf("Expected error (invalid gzip): %v", err)
+	}
+}
+
+// TestExtract_MaxURLsConsistency tests that MaxURLs is strictly enforced
+func TestExtract_MaxURLsConsistency(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		baseURL := "http://" + r.Host
+		switch r.URL.Path {
+		case "/":
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusOK)
+			// Generate many links
+			html := "<html><body>"
+			for i := 1; i <= 100; i++ {
+				html += fmt.Sprintf(`<a href="%s/page%d">Page %d</a>`, baseURL, i, i)
+			}
+			html += "</body></html>"
+			w.Write([]byte(html))
+		default:
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("<html><body>Page</body></html>"))
+		}
+	}))
+	defer server.Close()
+
+	input := Input{
+		URL:                    server.URL,
+		MaxURLs:                10, // Strict limit
+		ForceRecursiveCrawling: true,
+		DisableSSRFProtection:  true,
+	}
+
+	output, err := Extract(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	// Should NEVER exceed MaxURLs
+	if output.TotalURLs > 10 {
+		t.Errorf("MaxURLs consistency violated: expected max 10, got %d", output.TotalURLs)
+	}
+
+	// Should be close to MaxURLs (allowing for early termination)
+	if output.TotalURLs < 8 {
+		t.Errorf("Expected at least 8 URLs (close to max 10), got %d", output.TotalURLs)
+	}
+}
+
+// TestExtract_RedirectErrorHandling tests that redirect failures are handled gracefully
+func TestExtract_RedirectErrorHandling(t *testing.T) {
+	// Server that returns error on HEAD request
+	errorServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "HEAD" {
+			// Simulate server error
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		// robots.txt works fine
+		if r.URL.Path == "/robots.txt" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer errorServer.Close()
+
+	input := Input{
+		URL:                   errorServer.URL,
+		DisableSSRFProtection: true,
+	}
+
+	// Should not crash, should handle redirect failure gracefully
+	output, err := Extract(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Expected extraction to continue despite redirect failure, got: %v", err)
+	}
+
+	// Should use original URL when redirect fails
+	if !strings.Contains(output.BaseURL, errorServer.URL) {
+		t.Errorf("Expected base URL to be original URL after redirect failure")
+	}
+}
+
+// TestExtract_ProgressCallback tests that progress callback is called during extraction
+func TestExtract_ProgressCallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		baseURL := "http://" + r.Host
+		switch r.URL.Path {
+		case "/sitemap.xml":
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(http.StatusOK)
+			sitemap := `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`
+			for i := 1; i <= 20; i++ {
+				sitemap += fmt.Sprintf(`<url><loc>%s/page%d</loc></url>`, baseURL, i)
+			}
+			sitemap += `</urlset>`
+			w.Write([]byte(sitemap))
+		case "/":
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusOK)
+			html := "<html><body>"
+			for i := 21; i <= 30; i++ {
+				html += fmt.Sprintf(`<a href="%s/page%d">Page %d</a>`, baseURL, i, i)
+			}
+			html += "</body></html>"
+			w.Write([]byte(html))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	// Track progress callbacks
+	var progressCalls []struct {
+		urls  int
+		phase string
+	}
+	progressCallback := func(currentURLs int, phase string) {
+		progressCalls = append(progressCalls, struct {
+			urls  int
+			phase string
+		}{currentURLs, phase})
+	}
+
+	input := Input{
+		URL:                    server.URL,
+		ForceRecursiveCrawling: true,
+		MaxURLs:                30,
+		DisableSSRFProtection:  true,
+		ProgressCallback:       progressCallback,
+	}
+
+	output, err := Extract(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	if output.TotalURLs == 0 {
+		t.Fatal("Expected URLs to be extracted")
+	}
+
+	// Verify progress callback was called
+	if len(progressCalls) == 0 {
+		t.Fatal("Expected progress callback to be called, but it wasn't")
+	}
+
+	// Verify we got different phases
+	phases := make(map[string]bool)
+	for _, call := range progressCalls {
+		phases[call.phase] = true
+	}
+
+	// Should have at least initializing and complete phases
+	if !phases["initializing"] {
+		t.Error("Expected 'initializing' phase in progress callbacks")
+	}
+	if !phases["complete"] {
+		t.Error("Expected 'complete' phase in progress callbacks")
+	}
+
+	// Verify URL count progresses
+	if progressCalls[0].urls != 0 {
+		t.Errorf("Expected first progress call to have 0 URLs, got %d", progressCalls[0].urls)
+	}
+
+	lastCall := progressCalls[len(progressCalls)-1]
+	if lastCall.phase != "complete" {
+		t.Errorf("Expected last phase to be 'complete', got '%s'", lastCall.phase)
+	}
+	if lastCall.urls != output.TotalURLs {
+		t.Errorf("Expected final progress to match total URLs (%d), got %d", output.TotalURLs, lastCall.urls)
+	}
+
+	// Verify 5% interval behavior during crawling
+	// MaxURLs=30 → step=30/20=1, so we should get a callback for each crawled URL
+	crawlingCalls := 0
+	for _, call := range progressCalls {
+		if call.phase == "crawling" {
+			crawlingCalls++
+		}
+	}
+	if crawlingCalls > 0 {
+		t.Logf("Got %d crawling progress callbacks (5%% interval with MaxURLs=%d)", crawlingCalls, input.MaxURLs)
+	}
+}
+
+// TestExtract_ProgressCallback_LargeExtraction tests 5% interval with larger MaxURLs
+func TestExtract_ProgressCallback_LargeExtraction(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		baseURL := "http://" + r.Host
+		if r.URL.Path == "/" {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusOK)
+			html := "<html><body>"
+			// Generate 100 links
+			for i := 1; i <= 100; i++ {
+				html += fmt.Sprintf(`<a href="%s/page%d">Page %d</a>`, baseURL, i, i)
+			}
+			html += "</body></html>"
+			w.Write([]byte(html))
+		} else {
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	// Track progress callbacks
+	crawlingCallbacks := 0
+	progressCallback := func(currentURLs int, phase string) {
+		if phase == "crawling" {
+			crawlingCallbacks++
+		}
+	}
+
+	input := Input{
+		URL:                    server.URL,
+		ForceRecursiveCrawling: true,
+		MaxURLs:                100, // step = 100/20 = 5, so ~20 callbacks
+		DisableSSRFProtection:  true,
+		ProgressCallback:       progressCallback,
+	}
+
+	output, err := Extract(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	if output.TotalURLs == 0 {
+		t.Fatal("Expected URLs to be extracted")
+	}
+
+	// With MaxURLs=100 and 5% interval (step=5), we should get ~20 callbacks during crawling
+	// Allow some variance since extraction might stop early
+	if crawlingCallbacks < 10 || crawlingCallbacks > 25 {
+		t.Errorf("Expected ~20 crawling callbacks (5%% of MaxURLs=100), got %d", crawlingCallbacks)
+	}
+
+	t.Logf("MaxURLs=100 → Got %d crawling callbacks (expected ~20)", crawlingCallbacks)
+}

@@ -14,11 +14,14 @@ A comprehensive tool for extracting all URLs from a website by analyzing robots.
 - **Same-Domain Filtering** - Only extracts URLs from the same domain (handles www subdomain correctly)
 - **Disallow Rules** - Respects robots.txt disallow directives (with correct User-Agent parsing)
 - **URL Deduplication** - Returns a unique list of URLs
-- **Configurable Limits** - Control max URLs, timeout, and crawl delay
+- **Configurable Limits** - Control max URLs, timeout, and crawl delay with strict enforcement
 - **Polite Crawling** - Configurable delay between requests, respects robots.txt Crawl-delay
 - **SSRF Protection** - Blocks access to localhost and private IP ranges (RFC 1918) to prevent security vulnerabilities
 - **Robust HTML Parsing** - Uses `golang.org/x/net/html` for standards-compliant parsing of even malformed HTML
 - **Observability Integration** - Optional integration with `aigo/providers/observability` for tracing, metrics, and logging
+- **Progress Tracking** - Optional progress callback for monitoring long-running extractions
+- **Memory Protection** - Sitemap size limits applied before decompression to prevent memory exhaustion
+- **Graceful Error Handling** - Proper error handling for redirects and network failures with detailed logging
 
 ## Usage
 
@@ -61,7 +64,7 @@ func main() {
 ```go
 input := urlextractor.Input{
     URL:                    "example.com",
-    MaxURLs:                5000,            // Extract up to 5000 URLs
+    MaxURLs:                5000,            // Extract up to 5000 URLs (strictly enforced)
     TimeoutSeconds:         600,             // 10 minute timeout
     UserAgent:              "MyBot/1.0",
     CrawlDelayMs:           200,             // 200ms delay between requests
@@ -69,6 +72,26 @@ input := urlextractor.Input{
 }
 
 output, err := urlextractor.Extract(context.Background(), input)
+```
+
+### With Progress Tracking
+
+```go
+input := urlextractor.Input{
+    URL:      "example.com",
+    MaxURLs:  10000,
+    ProgressCallback: func(currentURLs int, phase string) {
+        fmt.Printf("Progress: %d URLs extracted (phase: %s)\n", currentURLs, phase)
+    },
+}
+
+output, err := urlextractor.Extract(context.Background(), input)
+// Progress callback is called periodically:
+// - At initialization
+// - During robots.txt analysis
+// - During sitemap extraction
+// - During crawling (every 10 URLs)
+// - At completion
 ```
 
 ### Integration with AI Client
@@ -223,6 +246,64 @@ The tool properly respects robots.txt directives:
 - Respects `Disallow` directives
 - Honors `Crawl-delay` directive to avoid overwhelming servers
 - Higher crawl delays from robots.txt override configured delays
+- **Improved error handling**: Logs warnings when redirect following fails, continues with original URL
+
+### MaxURLs Strict Enforcement
+The tool now strictly enforces the `MaxURLs` limit:
+- **Consistent checking**: Verifies limit before adding each URL
+- **No overshoot**: Will never exceed the specified maximum
+- **Early termination**: Stops processing as soon as limit is reached
+- **Predictable behavior**: Deterministic URL selection up to the limit
+
+Previous behavior could sometimes exceed the limit due to queued URLs. Now the limit is guaranteed.
+
+### Memory Protection: Sitemap Size Limits
+The tool applies size limits **before** gzip decompression to prevent memory exhaustion:
+
+**Problem prevented**:
+- A 5MB compressed `.gz` sitemap could decompress to 200MB
+- Without proper limits, this could cause out-of-memory crashes
+
+**Solution implemented**:
+```go
+// Limit is applied to compressed stream BEFORE decompression
+limitedBody := io.LimitReader(resp.Body, MaxBodySize)
+gzReader := gzip.NewReader(limitedBody)  // Safe decompression
+```
+
+This ensures that even malicious or extremely large compressed sitemaps cannot exhaust memory.
+
+### Progress Tracking
+For long-running extractions, you can provide a progress callback:
+
+```go
+input := urlextractor.Input{
+    URL: "large-site.com",
+    ProgressCallback: func(currentURLs int, phase string) {
+        log.Printf("Extraction progress: %d URLs, phase: %s", currentURLs, phase)
+    },
+}
+```
+
+**Phases reported**:
+- `initializing` - Starting extraction (0 URLs)
+- `analyzing_robots_txt` - Analyzing robots.txt
+- `extracting_sitemaps` - Extracting from sitemaps (updated periodically)
+- `crawling` - Recursive crawling (updated every 5% of maxURLs, ~20 updates total)
+- `complete` - Extraction finished (final URL count)
+
+**Smart progress interval**: The callback frequency during crawling automatically adapts to the total URL count:
+- Small extraction (MaxURLs=20): Reports every 1 URL (20 updates)
+- Medium extraction (MaxURLs=100): Reports every 5 URLs (20 updates)
+- Large extraction (MaxURLs=10,000): Reports every 500 URLs (20 updates)
+
+This ensures consistent, responsive feedback without excessive callbacks.
+
+**Benefits**:
+- Monitor long-running extractions
+- Provide user feedback in AI agents
+- Track progress for large sites (10,000+ URLs)
+- No performance impact when callback is nil
 
 ### Robust HTML Parsing
 The tool uses `golang.org/x/net/html` for parsing HTML, which provides:
@@ -265,6 +346,33 @@ Example of complex HTML that is handled correctly:
   <div><a href="nested">Nested</a></div>
 </body>
 ```
+
+### Error Handling and Resilience
+
+#### Redirect Following
+The tool now properly handles redirect failures:
+
+**Before**:
+- Silent failures when redirects fail
+- No visibility into redirect issues
+- Potential for duplicate URLs
+
+**After**:
+- Errors are logged with observability integration
+- Falls back to original URL gracefully
+- Clear warning messages for debugging
+- Example log:
+  ```
+  WARN Failed to follow redirects, using original URL 
+       url=https://example.com error="connection refused"
+  ```
+
+#### Graceful Degradation
+The tool continues operating even when:
+- Redirects fail → Uses original URL
+- robots.txt is missing → Continues without it
+- Sitemaps are unavailable → Falls back to crawling
+- Individual pages fail → Skips and continues
 
 ### Observability Integration
 The tool integrates with `aigo/providers/observability` for comprehensive monitoring:
@@ -331,22 +439,31 @@ type Input struct {
     // Supports both full URLs (https://example.com) and partial URLs (example.com)
     // Partial URLs automatically get https:// prefix added
     URL string `json:"url"`
-    
+
     // MaxURLs is the maximum number of URLs to extract (default: 1000, max: 10000)
+    // This limit is now STRICTLY enforced - will never be exceeded
     MaxURLs int `json:"max_urls,omitempty"`
-    
+
     // TimeoutSeconds is the total extraction timeout in seconds (default: 300, max: 600)
     TimeoutSeconds int `json:"timeout_seconds,omitempty"`
-    
+
     // UserAgent is the User-Agent header to use (default: "aigo-urlextractor-tool/1.0")
     UserAgent string `json:"user_agent,omitempty"`
-    
+
     // CrawlDelayMs is the delay in milliseconds between crawl requests (default: 100, max: 5000)
+    // Use this to be polite to the server and avoid overwhelming it
     CrawlDelayMs int `json:"crawl_delay_ms,omitempty"`
-    
+
     // ForceRecursiveCrawling forces crawling even if sitemaps contain URLs (default: false)
     // If false, crawling only happens when no URLs are found from sitemaps
     ForceRecursiveCrawling bool `json:"force_recursive_crawling,omitempty"`
+
+    // ProgressCallback is called periodically during extraction (optional)
+    // Parameters: currentURLs (number found so far), phase (current operation)
+    // During crawling, called every 5% of maxURLs (~20 total updates)
+    // Useful for providing feedback during long-running extractions
+    // Note: This is not serialized to JSON (internal use only)
+    ProgressCallback func(currentURLs int, phase string) `json:"-"`
 }
 ```
 

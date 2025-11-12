@@ -114,6 +114,7 @@ func Extract(ctx context.Context, input Input) (Output, error) {
 		forceRecursiveCrawl: input.ForceRecursiveCrawling,
 		crawlDelayMs:        DefaultCrawlDelayMs,
 		observer:            observer,
+		progressCallback:    input.ProgressCallback,
 	}
 
 	// Apply custom configuration
@@ -153,6 +154,7 @@ type urlExtractor struct {
 	crawlDelayMs        int
 	robotsCrawlDelay    int                    // Crawl-delay from robots.txt (in milliseconds)
 	observer            observability.Provider // Observability provider
+	progressCallback    func(int, string)      // Progress callback for long operations
 }
 
 // extract performs the complete URL extraction process
@@ -171,16 +173,28 @@ func (e *urlExtractor) extract(ctx context.Context) (Output, error) {
 		Sources: make(map[string]int),
 	}
 
+	// Report initial progress
+	e.reportProgress(0, "initializing")
+
 	// Step 1: Follow redirects to get the canonical base URL
 	e.log(ctx, "info", "Following redirects to canonical URL", observability.String("url", e.baseURL.String()))
-	canonicalURL := e.followRedirectsToCanonicalURL(ctx)
+	canonicalURL, err := e.followRedirectsToCanonicalURL(ctx)
+	if err != nil {
+		e.log(ctx, "warn", "Failed to follow redirects, using original URL",
+			observability.String("url", e.baseURL.String()),
+			observability.Error(err),
+		)
+	}
 	if canonicalURL != nil {
 		e.baseURL = canonicalURL
 		e.log(ctx, "info", "Canonical URL determined", observability.String("canonical_url", canonicalURL.String()))
+	} else if err == nil {
+		e.log(ctx, "debug", "No redirect found, using original URL")
 	}
 	output.BaseURL = e.baseURL.String()
 
 	// Step 2: Analyze robots.txt
+	e.reportProgress(0, "analyzing_robots_txt")
 	e.log(ctx, "info", "Analyzing robots.txt")
 	robotsFound := e.analyzeRobots(ctx)
 	if robotsFound {
@@ -193,6 +207,7 @@ func (e *urlExtractor) extract(ctx context.Context) (Output, error) {
 	}
 
 	// Step 3: Extract from sitemaps
+	e.reportProgress(len(e.urls), "extracting_sitemaps")
 	e.log(ctx, "info", "Extracting URLs from sitemaps")
 	sitemapURLCount := e.extractFromSitemaps(ctx)
 	if sitemapURLCount > 0 {
@@ -208,6 +223,7 @@ func (e *urlExtractor) extract(ctx context.Context) (Output, error) {
 			observability.Bool("forced", e.forceRecursiveCrawl),
 			observability.Bool("fallback", !output.SitemapFound),
 		)
+		e.reportProgress(len(e.urls), "crawling")
 		crawledURLCount := e.crawlWithQueue(ctx)
 		if crawledURLCount > 0 {
 			output.Sources["crawl"] = crawledURLCount
@@ -223,6 +239,9 @@ func (e *urlExtractor) extract(ctx context.Context) (Output, error) {
 
 	output.TotalURLs = len(output.URLs)
 
+	// Report final progress
+	e.reportProgress(output.TotalURLs, "complete")
+
 	e.log(ctx, "info", "URL extraction complete",
 		observability.Int("total_urls", output.TotalURLs),
 		observability.Bool("robots_found", output.RobotsTxtFound),
@@ -236,15 +255,15 @@ func (e *urlExtractor) extract(ctx context.Context) (Output, error) {
 }
 
 // followRedirectsToCanonicalURL makes a HEAD request to the base URL and follows redirects
-// to determine the canonical domain. Returns the final URL after redirects, or nil on error.
+// to determine the canonical domain. Returns the final URL after redirects and any error encountered.
 // This ensures that if example.com redirects to www.example.com, we use www.example.com as the base.
-func (e *urlExtractor) followRedirectsToCanonicalURL(ctx context.Context) *url.URL {
+func (e *urlExtractor) followRedirectsToCanonicalURL(ctx context.Context) (*url.URL, error) {
 	// Try the homepage first
 	homepageURL := e.baseURL.String()
 
 	req, err := http.NewRequestWithContext(ctx, "HEAD", homepageURL, nil)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("failed to create HEAD request: %w", err)
 	}
 	req.Header.Set("User-Agent", e.userAgent)
 
@@ -268,25 +287,25 @@ func (e *urlExtractor) followRedirectsToCanonicalURL(ctx context.Context) *url.U
 
 	// Return the final URL after following redirects
 	if resp.Request != nil && resp.Request.URL != nil {
-		return resp.Request.URL
+		return resp.Request.URL, nil
 	}
 
-	return nil
+	return nil, nil
 }
 
 // tryRobotsTxtForCanonicalURL tries to get the canonical URL from robots.txt request
-func (e *urlExtractor) tryRobotsTxtForCanonicalURL(ctx context.Context) *url.URL {
+func (e *urlExtractor) tryRobotsTxtForCanonicalURL(ctx context.Context) (*url.URL, error) {
 	robotsURL := e.baseURL.Scheme + "://" + e.baseURL.Host + "/robots.txt"
 
 	req, err := http.NewRequestWithContext(ctx, "GET", robotsURL, nil)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("failed to create robots.txt request: %w", err)
 	}
 	req.Header.Set("User-Agent", e.userAgent)
 
 	resp, err := e.client.Do(req)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("failed to fetch robots.txt: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -297,10 +316,10 @@ func (e *urlExtractor) tryRobotsTxtForCanonicalURL(ctx context.Context) *url.URL
 			Scheme: resp.Request.URL.Scheme,
 			Host:   resp.Request.URL.Host,
 		}
-		return finalURL
+		return finalURL, nil
 	}
 
-	return nil
+	return nil, fmt.Errorf("no redirect information available")
 }
 
 // analyzeRobots fetches and parses robots.txt with proper User-Agent handling
@@ -442,6 +461,9 @@ func (e *urlExtractor) extractFromSitemaps(ctx context.Context) int {
 			}
 		}
 
+		// Report progress periodically
+		e.reportProgress(len(e.urls), "extracting_sitemaps")
+
 		// Add URLs
 		for _, extractedURL := range extractedURLs {
 			if len(e.urls) >= e.maxURLs {
@@ -489,8 +511,27 @@ func (e *urlExtractor) crawlWithQueue(ctx context.Context) int {
 			continue
 		}
 
+		// Check if we've reached the limit before adding
+		if len(e.urls) >= e.maxURLs {
+			break
+		}
+
 		// Mark as visited
 		e.urls[currentURL] = true
+
+		// Report progress every 5% of maxURLs (= maxURLs/20)
+		// This gives ~20 progress updates regardless of total URL count:
+		// - MaxURLs=20    → step=1  (20 updates)
+		// - MaxURLs=100   → step=5  (20 updates)
+		// - MaxURLs=10000 → step=500 (20 updates)
+		// Ensures consistent progress feedback while avoiding excessive callbacks
+		step := e.maxURLs / 20
+		if step < 1 {
+			step = 1 // Minimum step of 1 for small extractions
+		}
+		if len(e.urls) > 0 && len(e.urls)%step == 0 {
+			e.reportProgress(len(e.urls), "crawling")
+		}
 
 		// Apply crawl delay - use robots.txt value if higher than configured
 		effectiveDelay := e.crawlDelayMs
@@ -504,19 +545,19 @@ func (e *urlExtractor) crawlWithQueue(ctx context.Context) int {
 		// Fetch page and extract links
 		discoveredLinks := e.extractLinks(ctx, currentURL)
 
-		// Add new links to queue
+		// Add new links to queue (only if we haven't reached the limit)
 		for _, discoveredLink := range discoveredLinks {
+			// Stop if we've reached max URLs
+			if len(e.urls) >= e.maxURLs {
+				break
+			}
+
 			// Only queue if not already queued and not already visited
 			if !queued[discoveredLink] && !e.urls[discoveredLink] {
 				if e.isSameDomain(discoveredLink) && !e.isDisallowed(discoveredLink) {
 					toVisit = append(toVisit, discoveredLink)
 					queued[discoveredLink] = true
 				}
-			}
-
-			// Stop adding if we've reached max URLs
-			if len(e.urls)+len(toVisit) >= e.maxURLs {
-				break
 			}
 		}
 	}
@@ -538,10 +579,14 @@ func (e *urlExtractor) parseSitemap(ctx context.Context, sitemapURL string) ([]s
 	}
 	defer resp.Body.Close()
 
+	// Limit body size BEFORE decompression to prevent memory exhaustion
+	// A 5MB .gz file could decompress to 200MB without this limit
+	limitedBody := io.LimitReader(resp.Body, MaxBodySize)
+
 	// Handle gzip compression
-	var reader io.Reader = resp.Body
+	var reader io.Reader = limitedBody
 	if strings.HasSuffix(sitemapURL, ".gz") {
-		gzReader, err := gzip.NewReader(resp.Body)
+		gzReader, err := gzip.NewReader(limitedBody)
 		if err != nil {
 			return nil, nil
 		}
@@ -549,9 +594,8 @@ func (e *urlExtractor) parseSitemap(ctx context.Context, sitemapURL string) ([]s
 		reader = gzReader
 	}
 
-	// Limit body size
-	limitedReader := io.LimitReader(reader, MaxBodySize)
-	body, err := io.ReadAll(limitedReader)
+	// Read the (potentially decompressed) content
+	body, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, nil
 	}
@@ -893,6 +937,13 @@ func isPrivateOrLocalIP(ip net.IP) bool {
 	return false
 }
 
+// reportProgress calls the progress callback if it's set
+func (e *urlExtractor) reportProgress(currentURLs int, phase string) {
+	if e.progressCallback != nil {
+		e.progressCallback(currentURLs, phase)
+	}
+}
+
 // Input represents the input parameters for the URL extractor tool
 type Input struct {
 	// URL is the website URL to extract URLs from (can be partial like "example.com")
@@ -914,6 +965,11 @@ type Input struct {
 	// ForceRecursiveCrawling forces recursive crawling even if sitemaps are found
 	// If false, crawling only happens when no URLs are found from sitemaps
 	ForceRecursiveCrawling bool `json:"force_recursive_crawling,omitempty" jsonschema:"description=Force recursive crawling even if sitemaps contain URLs"`
+
+	// ProgressCallback is called periodically during extraction to report progress
+	// Parameters: currentURLs (number of URLs found so far), phase (current operation)
+	// This is useful for long-running extractions to provide user feedback
+	ProgressCallback func(currentURLs int, phase string) `json:"-"`
 
 	// DisableSSRFProtection disables SSRF protection (for testing only - DO NOT USE IN PRODUCTION)
 	// This allows accessing localhost and private IP ranges which are normally blocked

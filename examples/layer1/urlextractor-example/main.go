@@ -32,6 +32,11 @@ func main() {
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	basicExtraction(ctx)
 
+	// Example 1b: Extraction with progress tracking
+	fmt.Println("\n\n📊 Example 1b: Extraction with Progress Tracking")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	extractionWithProgress(ctx)
+
 	// Example 2: Extraction with custom limits
 	fmt.Println("\n\n⚙️  Example 2: Custom Configuration")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -152,6 +157,41 @@ func sitemapOnly(ctx context.Context) {
 
 	// Categorize URLs by path
 	categorizeURLs(output.URLs)
+}
+
+func extractionWithProgress(ctx context.Context) {
+	fmt.Println("=== Extraction with Progress Tracking ===")
+
+	// Progress callback to track extraction progress
+	// During crawling, this will be called every 5% of MaxURLs (~20 times total)
+	progressCallback := func(currentURLs int, phase string) {
+		fmt.Printf("  ⏳ Progress: %d URLs found (phase: %s)\n", currentURLs, phase)
+	}
+
+	input := urlextractor.Input{
+		URL:              "neosperience.com",
+		MaxURLs:          50, // Progress reported every 5% (step=50/20=2, so every 2-3 URLs)
+		ProgressCallback: progressCallback,
+	}
+
+	fmt.Printf("Extracting URLs from: %s with progress tracking\n\n", input.URL)
+
+	output, err := urlextractor.Extract(ctx, input)
+	if err != nil {
+		log.Printf("Error: %v\n", err)
+		return
+	}
+
+	fmt.Printf("\n✓ Extraction completed\n")
+	fmt.Printf("Total URLs: %d\n", output.TotalURLs)
+	fmt.Printf("Sources used: %v\n", output.Sources)
+
+	fmt.Println("\nProgress callback behavior:")
+	fmt.Println("  - Called at: initialization, robots.txt, sitemaps, crawling, completion")
+	fmt.Println("  - Smart interval: Every 5% of MaxURLs during crawling (~20 updates)")
+	fmt.Println("  - For MaxURLs=50: Reports every ~2-3 URLs")
+	fmt.Println("  - For MaxURLs=1000: Reports every ~50 URLs")
+	fmt.Println("  - Automatically adapts to extraction size!")
 }
 
 func deepCrawling(ctx context.Context) {
@@ -332,3 +372,12 @@ func formatBool(b bool) string {
 //
 // This is possible because we added the observability provider to the context.
 // Without the observer, the tool works the same but without logging/metrics.
+//
+// The progress callback feature (Example 1b) provides real-time feedback during
+// long-running extractions, perfect for AI agents that need to show progress to users.
+//
+// Progress callback uses a smart 5% interval that automatically scales:
+// - Small extractions (MaxURLs=20): callback every 1 URL
+// - Medium extractions (MaxURLs=100): callback every 5 URLs
+// - Large extractions (MaxURLs=10000): callback every 500 URLs
+// This ensures ~20 progress updates regardless of total size, avoiding callback spam.
