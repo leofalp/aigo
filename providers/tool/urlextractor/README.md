@@ -6,15 +6,17 @@ A comprehensive tool for extracting all URLs from a website by analyzing robots.
 
 - **URL Normalization** - Automatically handles partial URLs (e.g., `example.com` → `https://example.com`)
 - **Redirect Following** - Follows HTTP redirects to determine the canonical domain (e.g., `neosperience.com` → `www.neosperience.com`)
-- **robots.txt Analysis** - Parses robots.txt for sitemap references and disallowed paths
+- **robots.txt Analysis** - Parses robots.txt with proper User-Agent handling for sitemap references and disallowed paths
+- **Crawl-delay Support** - Respects `Crawl-delay` directive from robots.txt
 - **Sitemap Support** - Extracts URLs from sitemap.xml files (including sitemap indexes)
 - **Compressed Sitemaps** - Handles .gz compressed sitemap files
 - **Recursive Crawling** - Falls back to crawling HTML pages if sitemaps are unavailable
 - **Same-Domain Filtering** - Only extracts URLs from the same domain (handles www subdomain correctly)
-- **Disallow Rules** - Respects robots.txt disallow directives
+- **Disallow Rules** - Respects robots.txt disallow directives (with correct User-Agent parsing)
 - **URL Deduplication** - Returns a unique list of URLs
 - **Configurable Limits** - Control max URLs, timeout, and crawl delay
-- **Polite Crawling** - Configurable delay between requests to avoid overwhelming servers
+- **Polite Crawling** - Configurable delay between requests, respects robots.txt Crawl-delay
+- **SSRF Protection** - Blocks access to localhost and private IP ranges (RFC 1918) to prevent security vulnerabilities
 - **Pure Go Implementation** - Uses only native Go HTML parsing (no external HTML libraries)
 
 ## Usage
@@ -96,7 +98,19 @@ func main() {
 
 The tool follows a multi-step process to extract URLs:
 
-### 1. URL Normalization and Redirect Following
+### 1. Security Validation (SSRF Protection)
+- **Validates that the target URL is not accessing private networks**
+- Blocks the following to prevent Server-Side Request Forgery (SSRF):
+  - Localhost (`localhost`, `127.0.0.1`, `::1`)
+  - Private IPv4 ranges (RFC 1918):
+    - `10.0.0.0/8` (10.0.0.0 - 10.255.255.255)
+    - `172.16.0.0/12` (172.16.0.0 - 172.31.255.255)
+    - `192.168.0.0/16` (192.168.0.0 - 192.168.255.255)
+  - Link-local addresses (`169.254.0.0/16`, `fe80::/10`)
+  - Private IPv6 ranges (`fc00::/7`)
+- This protects against attacks where malicious URLs could scan internal networks
+
+### 2. URL Normalization and Redirect Following
 - Adds `https://` prefix to partial URLs
 - Validates URL format
 - **Follows HTTP redirects to determine the canonical domain**
@@ -106,20 +120,33 @@ The tool follows a multi-step process to extract URLs:
 - Makes a HEAD request to the homepage to detect redirects
 - Falls back to robots.txt request if homepage fails
 
-### 2. robots.txt Analysis
+### 3. robots.txt Analysis (with Proper User-Agent Handling)
 - Fetches `/robots.txt` from the website
+- **Parses User-Agent blocks correctly**:
+  - Only applies rules for `User-agent: *` or matching the tool's User-Agent
+  - Ignores rules meant for other bots (e.g., `User-agent: BadBot`)
+  - Example:
+    ```
+    User-agent: BadBot
+    Disallow: /          # This is ignored (not for us)
+    
+    User-agent: *
+    Disallow: /admin/    # This is applied
+    Crawl-delay: 1       # This is respected
+    ```
 - Extracts sitemap references (e.g., `Sitemap: https://example.com/sitemap.xml`)
 - Normalizes sitemap URLs to match base domain (handles www subdomain mismatches)
-- Identifies disallowed paths (e.g., `Disallow: /admin/`)
+- Identifies disallowed paths for the correct User-Agent
+- **Respects `Crawl-delay` directive** - overrides configured delay if robots.txt specifies a longer delay
 
-### 3. Sitemap Extraction
+### 4. Sitemap Extraction
 - Checks for sitemap references from robots.txt
 - Falls back to `/sitemap.xml` if not specified
 - Supports sitemap index files (sitemaps containing other sitemaps)
 - Handles compressed `.gz` sitemaps
 - Recursively processes all discovered sitemaps
 
-### 4. Queue-Based Crawling (When Needed or Forced)
+### 5. Queue-Based Crawling (When Needed or Forced)
 - **Triggered when**:
   - `ForceRecursiveCrawling` is set to true, OR
   - No sitemap found AND no URLs extracted
@@ -138,9 +165,34 @@ The tool follows a multi-step process to extract URLs:
   - Respects robots.txt disallow rules
   - Applies configurable delay between requests (default: 100ms) to be polite to servers
 
-### 5. Deduplication
+### 6. Deduplication
 - Removes duplicate URLs
 - Returns unique list
+
+## Security Considerations
+
+### SSRF Protection
+This tool includes built-in protection against Server-Side Request Forgery (SSRF) attacks:
+
+- **Blocked by default**: localhost, 127.0.0.1, private IP ranges (10.x.x.x, 192.168.x.x, 172.16-31.x.x), link-local addresses
+- **Use case**: Prevents malicious actors from using the tool to scan internal networks or access internal services
+- **Important**: If you're using this tool in a controlled environment where you need to access private IPs, you must explicitly acknowledge this risk
+
+Example of blocked URLs:
+```go
+// These will return an error
+urlextractor.Extract(ctx, urlextractor.Input{URL: "http://localhost:8080"})
+urlextractor.Extract(ctx, urlextractor.Input{URL: "http://192.168.1.1"})
+urlextractor.Extract(ctx, urlextractor.Input{URL: "http://10.0.0.1"})
+urlextractor.Extract(ctx, urlextractor.Input{URL: "http://169.254.169.254"}) // AWS metadata
+```
+
+### robots.txt Compliance
+The tool properly respects robots.txt directives:
+- Parses User-Agent blocks correctly (only applies rules for `*` or matching agents)
+- Respects `Disallow` directives
+- Honors `Crawl-delay` directive to avoid overwhelming servers
+- Higher crawl delays from robots.txt override configured delays
 
 ## Input and Output
 

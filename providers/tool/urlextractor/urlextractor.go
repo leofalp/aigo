@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -90,6 +91,13 @@ func Extract(ctx context.Context, input Input) (Output, error) {
 		return Output{}, fmt.Errorf("invalid URL: %w", err)
 	}
 
+	// SSRF protection: validate URL is not targeting private networks
+	if !input.DisableSSRFProtection {
+		if err := validateURLSafety(baseURL); err != nil {
+			return Output{}, fmt.Errorf("URL safety validation failed: %w", err)
+		}
+	}
+
 	// Create extractor
 	extractor := &urlExtractor{
 		baseURL:             baseURL,
@@ -137,6 +145,7 @@ type urlExtractor struct {
 	client              *http.Client
 	forceRecursiveCrawl bool
 	crawlDelayMs        int
+	robotsCrawlDelay    int // Crawl-delay from robots.txt (in milliseconds)
 }
 
 // extract performs the complete URL extraction process
@@ -253,7 +262,7 @@ func (e *urlExtractor) tryRobotsTxtForCanonicalURL(ctx context.Context) *url.URL
 	return nil
 }
 
-// analyzeRobots fetches and parses robots.txt
+// analyzeRobots fetches and parses robots.txt with proper User-Agent handling
 func (e *urlExtractor) analyzeRobots(ctx context.Context) bool {
 	robotsURL := e.baseURL.Scheme + "://" + e.baseURL.Host + "/robots.txt"
 
@@ -270,23 +279,59 @@ func (e *urlExtractor) analyzeRobots(ctx context.Context) bool {
 	defer resp.Body.Close()
 
 	scanner := bufio.NewScanner(resp.Body)
+
+	// Track which User-Agent block we're in
+	currentUserAgent := ""
+	inOurBlock := false // true if we're in a block for our user-agent or *
+
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 
-		// Extract sitemap references
-		if strings.HasPrefix(strings.ToLower(line), "sitemap:") {
-			sitemapURL := strings.TrimSpace(line[8:])
-			// Normalize sitemap URL to handle www subdomain
-			normalizedSitemapURL := e.normalizeSitemapURL(sitemapURL)
-			e.sitemaps = append(e.sitemaps, normalizedSitemapURL)
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
 		}
 
-		// Extract disallow rules (simplified - only for * user-agent)
-		if strings.HasPrefix(strings.ToLower(line), "disallow:") {
+		lineLower := strings.ToLower(line)
+
+		// Check for User-agent directive
+		if strings.HasPrefix(lineLower, "user-agent:") {
+			userAgentValue := strings.TrimSpace(line[11:])
+			currentUserAgent = strings.ToLower(userAgentValue)
+			// We apply rules for "*" or if the user-agent matches ours
+			inOurBlock = (currentUserAgent == "*" || strings.Contains(strings.ToLower(e.userAgent), currentUserAgent))
+			continue
+		}
+
+		// Only process directives if we're in a relevant User-Agent block
+		if !inOurBlock {
+			continue
+		}
+
+		// Extract sitemap references (global, not user-agent specific)
+		if strings.HasPrefix(lineLower, "sitemap:") {
+			sitemapURL := strings.TrimSpace(line[8:])
+			normalizedSitemapURL := e.normalizeSitemapURL(sitemapURL)
+			e.sitemaps = append(e.sitemaps, normalizedSitemapURL)
+			continue
+		}
+
+		// Extract disallow rules for our user-agent
+		if strings.HasPrefix(lineLower, "disallow:") {
 			disallowPath := strings.TrimSpace(line[9:])
 			if disallowPath != "" {
 				e.disallowed[disallowPath] = true
 			}
+			continue
+		}
+
+		// Extract crawl-delay for our user-agent
+		if strings.HasPrefix(lineLower, "crawl-delay:") {
+			delayStr := strings.TrimSpace(line[12:])
+			if delaySeconds, err := time.ParseDuration(delayStr + "s"); err == nil {
+				e.robotsCrawlDelay = int(delaySeconds.Milliseconds())
+			}
+			continue
 		}
 	}
 
@@ -328,6 +373,13 @@ func (e *urlExtractor) extractFromSitemaps(ctx context.Context) int {
 	processedSitemaps := make(map[string]bool)
 
 	for len(e.sitemaps) > 0 && len(e.urls) < e.maxURLs {
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			return urlCount
+		default:
+		}
+
 		// Pop sitemap from queue
 		sitemapURL := e.sitemaps[0]
 		e.sitemaps = e.sitemaps[1:]
@@ -399,9 +451,13 @@ func (e *urlExtractor) crawlWithQueue(ctx context.Context) int {
 		// Mark as visited
 		e.urls[currentURL] = true
 
-		// Apply crawl delay if configured (be polite to the server)
-		if e.crawlDelayMs > 0 {
-			time.Sleep(time.Duration(e.crawlDelayMs) * time.Millisecond)
+		// Apply crawl delay - use robots.txt value if higher than configured
+		effectiveDelay := e.crawlDelayMs
+		if e.robotsCrawlDelay > effectiveDelay {
+			effectiveDelay = e.robotsCrawlDelay
+		}
+		if effectiveDelay > 0 {
+			time.Sleep(time.Duration(effectiveDelay) * time.Millisecond)
 		}
 
 		// Fetch page and extract links
@@ -658,6 +714,76 @@ func normalizeURL(rawURL string) (*url.URL, error) {
 	return parsedURL, nil
 }
 
+// validateURLSafety checks if a URL is safe to access (SSRF protection)
+// It blocks access to:
+// - Private IP ranges (RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+// - Loopback addresses (127.0.0.0/8, ::1)
+// - Link-local addresses (169.254.0.0/16, fe80::/10)
+// - Localhost
+func validateURLSafety(u *url.URL) error {
+	host := u.Hostname()
+
+	// Check for localhost
+	if host == "localhost" {
+		return fmt.Errorf("localhost is not allowed")
+	}
+
+	// Try to resolve hostname to IP
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		// If we can't resolve, allow it - DNS might be temporarily unavailable
+		// The actual HTTP request will fail anyway if the host doesn't exist
+		return nil
+	}
+
+	// Check each resolved IP
+	for _, ip := range ips {
+		if isPrivateOrLocalIP(ip) {
+			return fmt.Errorf("private or local IP addresses are not allowed: %s", ip.String())
+		}
+	}
+
+	return nil
+}
+
+// isPrivateOrLocalIP checks if an IP is private, loopback, or link-local
+func isPrivateOrLocalIP(ip net.IP) bool {
+	// Loopback addresses
+	if ip.IsLoopback() {
+		return true
+	}
+
+	// Link-local addresses
+	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return true
+	}
+
+	// Private IPv4 ranges (RFC 1918)
+	privateIPv4Ranges := []string{
+		"10.0.0.0/8",     // 10.0.0.0 - 10.255.255.255
+		"172.16.0.0/12",  // 172.16.0.0 - 172.31.255.255
+		"192.168.0.0/16", // 192.168.0.0 - 192.168.255.255
+	}
+
+	for _, cidr := range privateIPv4Ranges {
+		_, subnet, _ := net.ParseCIDR(cidr)
+		if subnet.Contains(ip) {
+			return true
+		}
+	}
+
+	// Private IPv6 ranges
+	if ip.To4() == nil { // IPv6
+		// Unique local addresses (fc00::/7)
+		_, ula, _ := net.ParseCIDR("fc00::/7")
+		if ula.Contains(ip) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // Input represents the input parameters for the URL extractor tool
 type Input struct {
 	// URL is the website URL to extract URLs from (can be partial like "example.com")
@@ -679,6 +805,10 @@ type Input struct {
 	// ForceRecursiveCrawling forces recursive crawling even if sitemaps are found
 	// If false, crawling only happens when no URLs are found from sitemaps
 	ForceRecursiveCrawling bool `json:"force_recursive_crawling,omitempty" jsonschema:"description=Force recursive crawling even if sitemaps contain URLs"`
+
+	// DisableSSRFProtection disables SSRF protection (for testing only - DO NOT USE IN PRODUCTION)
+	// This allows accessing localhost and private IP ranges which are normally blocked
+	DisableSSRFProtection bool `json:"-"`
 }
 
 // Output represents the output of the URL extractor tool
