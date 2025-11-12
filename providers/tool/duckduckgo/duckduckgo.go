@@ -36,8 +36,8 @@ func (f *flexibleInt) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (f flexibleInt) String() string {
-	return string(f)
+func (f *flexibleInt) String() string {
+	return string(*f)
 }
 
 // makeAbsoluteURL converts relative DuckDuckGo URLs to absolute URLs
