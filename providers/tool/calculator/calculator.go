@@ -11,7 +11,6 @@ func NewCalculatorTool() *tool.Tool[Input, Output] {
 		"Calculator",
 		Calc,
 		tool.WithDescription("A simple calculator to perform basic arithmetic operations like addition, subtraction, multiplication, and division."),
-		tool.IsRequired(),
 	)
 }
 

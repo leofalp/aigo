@@ -59,7 +59,6 @@ func NewDuckDuckGoSearchTool() *tool.Tool[Input, Output] {
 		"DuckDuckGoSearch",
 		Search,
 		tool.WithDescription("Search the web using DuckDuckGo search engine. Returns instant answers, abstracts, and related topics summary for a given query."),
-		tool.IsRequired(),
 	)
 }
 
@@ -68,7 +67,6 @@ func NewDuckDuckGoSearchAdvancedTool() *tool.Tool[Input, AdvancedOutput] {
 		"DuckDuckGoSearchAdvanced",
 		SearchAdvanced,
 		tool.WithDescription("Advanced web search using DuckDuckGo. Returns complete structured results including abstracts, answers, definitions, related topics with full metadata, and image information with absolute URLs."),
-		tool.IsRequired(),
 	)
 }
 

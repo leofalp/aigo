@@ -26,18 +26,11 @@ type GenericTool interface {
 
 type funcToolOptions struct {
 	Description string
-	Required    bool
 }
 
 func WithDescription(description string) func(tool *funcToolOptions) {
 	return func(s *funcToolOptions) {
 		s.Description = description
-	}
-}
-
-func IsRequired() func(tool *funcToolOptions) {
-	return func(s *funcToolOptions) {
-		s.Required = true
 	}
 }
 
