@@ -250,8 +250,6 @@ func requestToResponses(request ai.ChatRequest) responseCreateRequest {
 
 	// Convert tools
 	if len(request.Tools) > 0 {
-		var requestedTools []string
-
 		for _, tl := range request.Tools {
 			req.Tools = append(req.Tools, responseTool{
 				Type:        "function",
@@ -259,29 +257,41 @@ func requestToResponses(request ai.ChatRequest) responseCreateRequest {
 				Description: tl.Description,
 				Parameters:  *tl.Parameters,
 			})
-
-			if tl.Required {
-				requestedTools = append(requestedTools, tl.Name)
-			}
 		}
 
-		// Set tool_choice
-		req.ToolChoice = request.ToolChoiceForced // to force "none" or a specific tool
-		if req.ToolChoice == "" {
-			if len(requestedTools) > 0 {
-				// TODO implement specific tool call forcing
-				var toolChoiceArray []map[string]interface{}
-				for _, toolName := range requestedTools {
-					toolChoiceArray = append(toolChoiceArray, map[string]interface{}{
+		// Set tool_choice with priority handling
+		var toolChoice any = "auto" // Default to "auto" if not specified
+
+		if request.ToolChoice != nil {
+			// Priority 1: Explicit forced choice (e.g., "none", "auto", "required", or specific tool name)
+			if request.ToolChoice.ToolChoiceForced != "" {
+				toolChoice = request.ToolChoice.ToolChoiceForced
+			} else if request.ToolChoice.AtLeastOneRequired {
+				// Priority 2: Force at least one tool call
+				toolChoice = "required"
+			} else if len(request.ToolChoice.RequiredTools) > 0 {
+				// Priority 3: Force specific tool(s)
+				if len(request.ToolChoice.RequiredTools) == 1 {
+					// Single required tool - force it specifically
+					toolChoice = map[string]any{
 						"type": "function",
-						"name": toolName,
-					})
+						"name": request.ToolChoice.RequiredTools[0].Name,
+					}
+				} else {
+					// Multiple required tools - Responses API supports arrays for forcing specific tools
+					var toolChoiceArray []map[string]any
+					for _, tl := range request.ToolChoice.RequiredTools {
+						toolChoiceArray = append(toolChoiceArray, map[string]any{
+							"type": "function",
+							"name": tl.Name,
+						})
+					}
+					toolChoice = toolChoiceArray
 				}
-				req.ToolChoice = toolChoiceArray
-			} else {
-				req.ToolChoice = "auto" // Model decides whether to call tools
 			}
 		}
+
+		req.ToolChoice = toolChoice
 	}
 
 	// Handle ResponseFormat

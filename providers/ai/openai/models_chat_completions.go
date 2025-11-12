@@ -236,6 +236,48 @@ func requestToChatCompletion(request ai.ChatRequest, useLegacyFunctions bool) ch
 
 	// Convert tools
 	if len(request.Tools) > 0 {
+		var toolChoice any = "auto" // Default to "auto" if not specified
+
+		if request.ToolChoice != nil {
+			// Priority 1: Explicit forced choice (e.g., "none", "auto", "required", or specific tool name)
+			if request.ToolChoice.ToolChoiceForced != "" {
+				toolChoice = request.ToolChoice.ToolChoiceForced
+			} else if request.ToolChoice.AtLeastOneRequired {
+				// Priority 2: Force at least one tool call
+				toolChoice = "required"
+			} else if len(request.ToolChoice.RequiredTools) > 0 {
+				// Priority 3: Force specific tool(s)
+				if len(request.ToolChoice.RequiredTools) == 1 {
+					// Single required tool - force it specifically
+					toolChoice = map[string]any{
+						"type": "function",
+						"name": request.ToolChoice.RequiredTools[0].Name,
+					}
+				} else {
+					// Multiple required tools - use allowed_tools restriction (new format only)
+					if useLegacyFunctions {
+						// Legacy format doesn't support multiple forced tools, fallback to "required"
+						toolChoice = "required"
+					} else {
+						toolChoice = map[string]any{
+							"type": "allowed_tools",
+							"mode": "required",
+							"tools": func() []map[string]string {
+								var tools []map[string]string
+								for _, tl := range request.ToolChoice.RequiredTools {
+									tools = append(tools, map[string]string{
+										"type": "function",
+										"name": tl.Name,
+									})
+								}
+								return tools
+							}(),
+						}
+					}
+				}
+			}
+		}
+
 		if useLegacyFunctions {
 			// Use legacy functions format
 			for _, tl := range request.Tools {
@@ -245,24 +287,7 @@ func requestToChatCompletion(request ai.ChatRequest, useLegacyFunctions bool) ch
 					Parameters:  *tl.Parameters,
 				})
 			}
-
-			// Set function_call
-			if request.ToolChoiceForced != "" {
-				req.FunctionCall = request.ToolChoiceForced
-			} else {
-				hasRequired := false
-				for _, tl := range request.Tools {
-					if tl.Required {
-						hasRequired = true
-						break
-					}
-				}
-				if hasRequired {
-					req.FunctionCall = "auto" // TODO: support specific function forcing
-				} else {
-					req.FunctionCall = "auto"
-				}
-			}
+			req.FunctionCall = toolChoice
 		} else {
 			// Use new tools format
 			for _, tl := range request.Tools {
@@ -275,24 +300,7 @@ func requestToChatCompletion(request ai.ChatRequest, useLegacyFunctions bool) ch
 					},
 				})
 			}
-
-			// Set tool_choice
-			if request.ToolChoiceForced != "" {
-				req.ToolChoice = request.ToolChoiceForced
-			} else {
-				hasRequired := false
-				for _, tl := range request.Tools {
-					if tl.Required {
-						hasRequired = true
-						break
-					}
-				}
-				if hasRequired {
-					req.ToolChoice = "required"
-				} else {
-					req.ToolChoice = "auto"
-				}
-			}
+			req.ToolChoice = toolChoice
 		}
 	}
 

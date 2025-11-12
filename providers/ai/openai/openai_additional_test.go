@@ -252,9 +252,11 @@ func TestResponsesRequestHonorsForcedToolChoiceNone(t *testing.T) {
 	p = p.WithCapabilities(Capabilities{SupportsResponses: true, ToolCallMode: ToolCallModeTools})
 
 	_, err := p.SendMessage(context.Background(), ai.ChatRequest{
-		Messages:         []ai.Message{{Role: ai.RoleUser, Content: "hi"}},
-		Tools:            []ai.ToolDescription{{Name: "f", Description: "d", Parameters: schema}},
-		ToolChoiceForced: "none",
+		Messages: []ai.Message{{Role: ai.RoleUser, Content: "hi"}},
+		Tools:    []ai.ToolDescription{{Name: "f", Description: "d", Parameters: schema}},
+		ToolChoice: &ai.ToolChoice{
+			ToolChoiceForced: "none",
+		},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
