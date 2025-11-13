@@ -252,7 +252,7 @@ type SendMessageOption func(*SendMessageOptions)
 //	resp, _ := client.SendMessage(ctx, "What is 2+2?",
 //	    client.WithOutputSchema(jsonschema.GenerateJSONSchema[MyResponse]()),
 //	)
-//	parsed, _ := client.ParseResponseAs[MyResponse](resp)
+//	parsed, _ := utils.ParseStringAs[ProductReview](resp.Content)
 func WithOutputSchema(schema *jsonschema.Schema) SendMessageOption {
 	return func(o *SendMessageOptions) {
 		o.OutputSchema = schema
