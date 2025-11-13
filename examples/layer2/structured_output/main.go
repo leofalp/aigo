@@ -7,6 +7,7 @@ import (
 
 	"github.com/leofalp/aigo/core/client"
 	"github.com/leofalp/aigo/internal/jsonschema"
+	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/providers/ai/openai"
 	"github.com/leofalp/aigo/providers/memory/inmemory"
 
@@ -34,7 +35,7 @@ func main() {
 	fmt.Println("=== Structured Output Examples ===")
 	fmt.Println("This example demonstrates:")
 	fmt.Println("- Using WithOutputSchema to guide LLM output structure")
-	fmt.Println("- Parsing responses with ParseResponseAs[T]")
+	fmt.Println("- Parsing responses with utils.ParseStringAs[T]")
 	fmt.Println("- Type-safe access to structured data")
 	fmt.Println()
 
@@ -83,7 +84,7 @@ func exampleProductReview(ctx context.Context) {
 	}
 
 	// Parse response into structured type
-	review, err := client.ParseResponseAs[ProductReview](resp)
+	review, err := utils.ParseStringAs[ProductReview](resp.Content)
 	if err != nil {
 		log.Fatalf("Failed to parse response: %v", err)
 	}
@@ -120,7 +121,7 @@ func exampleSentimentAnalysis(ctx context.Context) {
 	}
 
 	// Parse into sentiment analysis struct
-	sentiment, err := client.ParseResponseAs[SentimentAnalysis](resp)
+	sentiment, err := utils.ParseStringAs[SentimentAnalysis](resp.Content)
 	if err != nil {
 		log.Fatalf("Failed to parse response: %v", err)
 	}
@@ -146,7 +147,7 @@ func examplePrimitiveTypes(ctx context.Context) {
 		log.Fatalf("Failed to send message: %v", err)
 	}
 
-	boolResult, err := client.ParseResponseAs[bool](resp)
+	boolResult, err := utils.ParseStringAs[bool](resp.Content)
 	if err != nil {
 		log.Printf("Failed to parse as bool: %v", err)
 		fmt.Printf("Raw response: %s\n", resp.Content)
@@ -161,7 +162,7 @@ func examplePrimitiveTypes(ctx context.Context) {
 		log.Fatalf("Failed to send message: %v", err)
 	}
 
-	intResult, err := client.ParseResponseAs[int](resp)
+	intResult, err := utils.ParseStringAs[int](resp.Content)
 	if err != nil {
 		log.Printf("Failed to parse as int: %v", err)
 		fmt.Printf("Raw response: %s\n", resp.Content)
@@ -186,7 +187,7 @@ func exampleWithoutSchema(ctx context.Context) {
 	}
 
 	// Parse as string (always works)
-	story, err := client.ParseResponseAs[string](resp)
+	story, err := utils.ParseStringAs[string](resp.Content)
 	if err != nil {
 		log.Fatalf("Failed to parse response: %v", err)
 	}
