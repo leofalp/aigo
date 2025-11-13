@@ -5,7 +5,7 @@ A comprehensive tool for extracting all URLs from a website by analyzing robots.
 ## Features
 
 - **URL Normalization** - Automatically handles partial URLs (e.g., `example.com` → `https://example.com`)
-- **Redirect Following** - Follows HTTP redirects to determine the canonical domain (e.g., `neosperience.com` → `www.neosperience.com`)
+- **Redirect Following** - Follows HTTP redirects to determine the canonical domain (e.g., `example.com` → `www.example.com`)
 - **robots.txt Analysis** - Parses robots.txt with proper User-Agent handling for sitemap references and disallowed paths
 - **Crawl-delay Support** - Respects `Crawl-delay` directive from robots.txt
 - **Sitemap Support** - Extracts URLs from sitemap.xml files (including sitemap indexes)
@@ -22,6 +22,10 @@ A comprehensive tool for extracting all URLs from a website by analyzing robots.
 - **Progress Tracking** - Optional progress callback for monitoring long-running extractions
 - **Memory Protection** - Sitemap size limits applied before decompression to prevent memory exhaustion
 - **Graceful Error Handling** - Proper error handling for redirects and network failures with detailed logging
+- **Smart Page Categorization** - Automatically categorizes URLs into 9 standard page types (home, contact, about, products, blog, faq, privacy, login, cart) using multilingual pattern matching in 11 languages: Italian, English, Spanish, French, German, Portuguese, Russian, Chinese, Japanese, Arabic, and Dutch
+- **File Extension Handling** - Automatically handles common web file extensions (.html, .php, .aspx, .jsp, etc.) so `/contact.html` matches `/contact` patterns
+- **URL Decoding** - Properly decodes URL-encoded characters (e.g., `%C3%BC` → `ü`) for accurate pattern matching
+- **Regional Variants** - Supports regional language variants (en-us, en-gb, pt-br, es-mx, zh-cn, etc.) for multilingual sites
 
 ## Usage
 
@@ -52,6 +56,20 @@ func main() {
     fmt.Printf("Base URL: %s\n", output.BaseURL)
     fmt.Printf("Robots.txt found: %v\n", output.RobotsTxtFound)
     fmt.Printf("Sitemap found: %v\n", output.SitemapFound)
+    
+    // Standard pages categorization (automatically detected)
+    if len(output.StandardPages) > 0 {
+        fmt.Println("\nStandard pages found:")
+        if homePages, ok := output.StandardPages["home"]; ok {
+            fmt.Printf("  Home: %v\n", homePages)
+        }
+        if contactPages, ok := output.StandardPages["contact"]; ok {
+            fmt.Printf("  Contact: %v\n", contactPages)
+        }
+        if aboutPages, ok := output.StandardPages["about"]; ok {
+            fmt.Printf("  About: %v\n", aboutPages)
+        }
+    }
     
     for _, url := range output.URLs {
         fmt.Println(url)
@@ -167,8 +185,8 @@ The tool follows a multi-step process to extract URLs:
 - Adds `https://` prefix to partial URLs
 - Validates URL format
 - **Follows HTTP redirects to determine the canonical domain**
-  - Example: Input `neosperience.com` → redirects to `www.neosperience.com`
-  - The base URL is updated to `www.neosperience.com` (the canonical domain)
+  - Example: Input `example.com` → redirects to `www.example.com`
+  - The base URL is updated to `www.example.com` (the canonical domain)
   - All subsequent operations use the canonical domain
 - Makes a HEAD request to the homepage to detect redirects
 - Falls back to robots.txt request if homepage fails
@@ -373,6 +391,82 @@ The tool continues operating even when:
 - robots.txt is missing → Continues without it
 - Sitemaps are unavailable → Falls back to crawling
 - Individual pages fail → Skips and continues
+
+### Smart Page Categorization
+
+The tool automatically categorizes extracted URLs into 9 standard page types using multilingual pattern matching:
+
+**Categories Detected**:
+1. **home** - Home pages (/, /home, /index, /it, /en, /pt-br, /inicio, /accueil, /startseite)
+2. **contact** - Contact pages (/contatti, /contact, /contacto, /kontakt, /contato, /lianxi)
+3. **about** - About pages (/chi-siamo, /about-us, /nosotros, /a-propos, /uber-uns, /sobre-nos, /o-nas, /guanyu)
+4. **products** - Products/Services (/prodotti, /products, /servicios, /produkte, /produtos, /chanpin)
+5. **blog** - Blog/News (/blog, /notizie, /news, /actualites, /novidades, /novosti, /xinwen)
+6. **faq** - FAQ/Support (/faq, /aiuto, /help, /preguntas, /ajuda, /pomoshch, /bangzhu)
+7. **privacy** - Privacy/Legal (/privacy, /termini, /datenschutz, /impressum, /privacidade, /yinsi)
+8. **login** - Login/Account (/login, /accedi, /signin, /anmelden, /entrar, /vkhod, /denglu)
+9. **cart** - Cart/Checkout (/carrello, /cart, /carrito, /panier, /carrinho, /korzina, /gouwuche)
+
+**Supported Languages**:
+- 🇮🇹 **Italian** (Italiano)
+- 🇬🇧 **English**
+- 🇪🇸 **Spanish** (Español)
+- 🇫🇷 **French** (Français)
+- 🇩🇪 **German** (Deutsch)
+- 🇵🇹 **Portuguese** (Português) - Including Brazilian (pt-br) and European (pt-pt) variants
+- 🇷🇺 **Russian** (Русский)
+- 🇨🇳 **Chinese** (中文) - Simplified (zh-cn), Traditional (zh-tw), and Hong Kong (zh-hk) variants
+- 🇯🇵 **Japanese** (日本語)
+- 🇸🇦 **Arabic** (العربية)
+- 🇳🇱 **Dutch** (Nederlands)
+
+**How It Works**:
+- **Case-insensitive**: `/Contact` matches `contact` pattern
+- **Path-aware**: `https://example.com/en/contact` matches `contact` pattern
+- **Multilingual**: Supports 11 languages with regional variants
+- **File extension aware**: `/contact.html`, `/contact.php` match `/contact` pattern
+- **URL decoding**: `/%C3%BCber-uns` (encoded) matches `/uber-uns` pattern
+- **Segment matching**: Patterns match complete path segments, not substrings
+  - ✅ `/en/contact` matches `/contact`
+  - ✅ `/contact/form` matches `/contact`
+  - ✅ `/contact.html` matches `/contact` (extension stripped)
+  - ✅ `/it/` matches home category (language prefix)
+  - ❌ `/contacto` does NOT match `/contact` (different word)
+  - ❌ `/it/contatti` does NOT match `/it` home pattern (has additional segments)
+
+**Output Example**:
+```json
+{
+  "standard_pages": {
+    "home": ["https://example.com/"],
+    "contact": [
+      "https://example.com/contatti",
+      "https://example.com/en/contact"
+    ],
+    "about": ["https://example.com/chi-siamo"],
+    "products": ["https://example.com/prodotti"],
+    "blog": ["https://example.com/blog"],
+    "privacy": ["https://example.com/privacy"],
+    "login": ["https://example.com/login"]
+  }
+}
+```
+
+**Benefits for LLMs**:
+- Quickly identify key pages without parsing all URLs
+- Understand website structure at a glance
+- Find contact forms, privacy policies, login pages easily
+- Multi-language website support with 11 languages and regional variants
+- Handles real-world URLs with file extensions and URL encoding
+- Works with multilingual sites using language prefixes (/it/, /en/, /pt-br/, etc.)
+- Useful for "find contact page" or "does this site have a blog?" queries in any supported language
+
+**Technical Features**:
+- **File Extension Normalization**: Automatically handles `.html`, `.htm`, `.php`, `.asp`, `.aspx`, `.jsp`, `.cfm`, `.shtml`, and other common web extensions
+- **URL Decoding**: Decodes URL-encoded characters (e.g., `%C3%BC` → `ü`, `%20` → space) before pattern matching
+- **Trailing Slash Normalization**: `/contact` and `/contact/` are treated identically
+- **Empty Segment Filtering**: Handles malformed URLs with double slashes (e.g., `//contact`)
+- **Language Prefix Detection**: Recognizes language codes as home pages (`/it`, `/en`, `/pt-br`) only when they are standalone paths, not when followed by other segments
 
 ### Observability Integration
 The tool integrates with `aigo/providers/observability` for comprehensive monitoring:
@@ -595,7 +689,7 @@ The tool handles:
 - **Absolute URLs**: `https://example.com/page`
 - **Relative URLs**: `/page`, `page`, `./page`
 - **WWW Subdomain**: Treats `example.com` and `www.example.com` as the same domain
-  - Example: Input `neosperience.com`, sitemap references `www.neosperience.com` → both accepted
+  - Example: Input `example.com`, sitemap references `www.example.com` → both accepted
 - **Fragments**: Ignores `#section` links
 - **JavaScript**: Ignores `javascript:` URLs
 - **Email**: Ignores `mailto:` links
