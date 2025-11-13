@@ -59,7 +59,7 @@ func basicExtraction(ctx context.Context) {
 	fmt.Println("=== Basic Extraction (with observability) ===")
 	// Simple extraction with partial URL
 	input := urlextractor.Input{
-		URL: "neosperience.com", // Automatically becomes https://neosperience.com
+		URL: "example.com", // Automatically becomes https://example.com
 	}
 
 	fmt.Printf("Extracting URLs from: %s\n", input.URL)
@@ -76,6 +76,20 @@ func basicExtraction(ctx context.Context) {
 	fmt.Printf("Total URLs found: %d\n", output.TotalURLs)
 	fmt.Printf("Robots.txt found: %v\n", output.RobotsTxtFound)
 	fmt.Printf("Sitemap found: %v\n", output.SitemapFound)
+
+	// Show standard pages categorization (automatic)
+	if len(output.StandardPages) > 0 {
+		fmt.Println("\n📋 Standard Pages Detected:")
+		categories := []string{"home", "contact", "about", "products", "blog", "faq", "privacy", "login", "cart"}
+		for _, cat := range categories {
+			if urls, ok := output.StandardPages[cat]; ok && len(urls) > 0 {
+				fmt.Printf("  ✓ %s: %d URL(s)\n", cat, len(urls))
+				for _, url := range urls {
+					fmt.Printf("    - %s\n", url)
+				}
+			}
+		}
+	}
 
 	// Show first 5 URLs
 	fmt.Println("\nFirst 5 URLs:")
@@ -169,7 +183,7 @@ func extractionWithProgress(ctx context.Context) {
 	}
 
 	input := urlextractor.Input{
-		URL:              "neosperience.com",
+		URL:              "example.com",
 		MaxURLs:          50, // Progress reported every 5% (step=50/20=2, so every 2-3 URLs)
 		ProgressCallback: progressCallback,
 	}
@@ -381,3 +395,8 @@ func formatBool(b bool) string {
 // - Medium extractions (MaxURLs=100): callback every 5 URLs
 // - Large extractions (MaxURLs=10000): callback every 500 URLs
 // This ensures ~20 progress updates regardless of total size, avoiding callback spam.
+//
+// StandardPages categorization automatically identifies common page types:
+// - 9 categories: home, contact, about, products, blog, faq, privacy, login, cart
+// - Multilingual: Italian, English, Spanish, French, German
+// - Useful for LLMs to quickly find specific pages like "contact" or "privacy policy"

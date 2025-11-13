@@ -54,14 +54,14 @@ func NewURLExtractorTool() *tool.Tool[Input, Output] {
 	return tool.NewTool[Input, Output](
 		"URLExtractor",
 		Extract,
-		tool.WithDescription("Extracts all URLs from a website by analyzing robots.txt, sitemap.xml files, and performing recursive crawling if needed. Returns a deduplicated list of URLs from the same domain."),
+		tool.WithDescription("Extracts all URLs from a website by analyzing robots.txt, sitemap.xml files, and performing recursive crawling if needed. Returns a deduplicated list of URLs from the same domain, automatically categorized into standard page types (home, contact, about, products, blog, faq, privacy, login, cart) using multilingual pattern matching. This categorization helps identify key pages quickly - useful for understanding website structure and finding important pages like contact forms or privacy policies. If you don't find the pages you need into the standard categories, you can always analyze the full list of extracted URLs."),
 	)
 }
 
 // Extract extracts all URLs from the specified website.
 // It follows this process:
 //  1. Normalizes the input URL and follows HTTP redirects to determine the canonical domain
-//     (e.g., "neosperience.com" may redirect to "www.neosperience.com")
+//     (e.g., "example.com" may redirect to "www.example.com")
 //  2. Analyzes robots.txt for sitemap references and disallowed paths
 //  3. Extracts URLs from sitemap.xml files (including sitemap indexes)
 //  4. If sitemaps yield no URLs or ForceRecursiveCrawling is true, performs queue-based crawling
@@ -177,7 +177,10 @@ func (e *urlExtractor) extract(ctx context.Context) (Output, error) {
 	e.reportProgress(0, "initializing")
 
 	// Step 1: Follow redirects to get the canonical base URL
-	e.log(ctx, "info", "Following redirects to canonical URL", observability.String("url", e.baseURL.String()))
+	e.log(ctx, "info", "Starting URL extraction",
+		observability.String("url", e.baseURL.String()),
+		observability.Int("max_urls", e.maxURLs),
+	)
 	canonicalURL, err := e.followRedirectsToCanonicalURL(ctx)
 	if err != nil {
 		e.log(ctx, "warn", "Failed to follow redirects, using original URL",
@@ -187,47 +190,33 @@ func (e *urlExtractor) extract(ctx context.Context) (Output, error) {
 	}
 	if canonicalURL != nil {
 		e.baseURL = canonicalURL
-		e.log(ctx, "info", "Canonical URL determined", observability.String("canonical_url", canonicalURL.String()))
 	} else if err == nil {
-		e.log(ctx, "debug", "No redirect found, using original URL")
+		e.log(ctx, "debug", "No redirect found, using original URL. error: "+err.Error())
 	}
 	output.BaseURL = e.baseURL.String()
 
 	// Step 2: Analyze robots.txt
 	e.reportProgress(0, "analyzing_robots_txt")
-	e.log(ctx, "info", "Analyzing robots.txt")
 	robotsFound := e.analyzeRobots(ctx)
 	if robotsFound {
 		output.RobotsTxtFound = true
-		e.log(ctx, "info", "robots.txt found",
-			observability.Int("disallowed_paths", len(e.disallowed)),
-			observability.Int("sitemaps", len(e.sitemaps)),
-			observability.Int("crawl_delay_ms", e.robotsCrawlDelay),
-		)
 	}
 
 	// Step 3: Extract from sitemaps
 	e.reportProgress(len(e.urls), "extracting_sitemaps")
-	e.log(ctx, "info", "Extracting URLs from sitemaps")
 	sitemapURLCount := e.extractFromSitemaps(ctx)
 	if sitemapURLCount > 0 {
 		output.SitemapFound = true
 		output.Sources["sitemap"] = sitemapURLCount
-		e.log(ctx, "info", "Sitemap extraction complete", observability.Int("urls_found", sitemapURLCount))
 	}
 
 	// Step 4: Perform crawling if forced or if no sitemaps were found at all
 	shouldCrawl := e.forceRecursiveCrawl || (!output.SitemapFound && len(e.urls) == 0)
 	if shouldCrawl {
-		e.log(ctx, "info", "Starting recursive crawling",
-			observability.Bool("forced", e.forceRecursiveCrawl),
-			observability.Bool("fallback", !output.SitemapFound),
-		)
 		e.reportProgress(len(e.urls), "crawling")
 		crawledURLCount := e.crawlWithQueue(ctx)
 		if crawledURLCount > 0 {
 			output.Sources["crawl"] = crawledURLCount
-			e.log(ctx, "info", "Crawling complete", observability.Int("urls_found", crawledURLCount))
 		}
 	}
 
@@ -239,13 +228,20 @@ func (e *urlExtractor) extract(ctx context.Context) (Output, error) {
 
 	output.TotalURLs = len(output.URLs)
 
+	// Categorize URLs into standard page types
+	output.StandardPages = CategorizeURLs(output.URLs)
+
 	// Report final progress
 	e.reportProgress(output.TotalURLs, "complete")
 
 	e.log(ctx, "info", "URL extraction complete",
+		observability.String("canonical_url", e.baseURL.String()),
 		observability.Int("total_urls", output.TotalURLs),
 		observability.Bool("robots_found", output.RobotsTxtFound),
 		observability.Bool("sitemap_found", output.SitemapFound),
+		observability.Int("sitemap_urls", output.Sources["sitemap"]),
+		observability.Int("crawled_urls", output.Sources["crawl"]),
+		observability.Int("standard_pages_found", len(output.StandardPages)),
 	)
 
 	// Record metrics
@@ -988,13 +984,20 @@ type Output struct {
 	TotalURLs int `json:"total_urls" jsonschema:"description=Total number of URLs extracted"`
 
 	// RobotsTxtFound indicates if robots.txt was found
-	RobotsTxtFound bool `json:"robots_txt_found" jsonschema:"description=Whether robots.txt file was found and analyzed"`
+	RobotsTxtFound bool `json:"robots_txt_found" jsonschema:"description=Whether robots.txt file was found"`
 
 	// SitemapFound indicates if sitemap.xml was found
-	SitemapFound bool `json:"sitemap_found" jsonschema:"description=Whether sitemap.xml files were found and processed"`
+	SitemapFound bool `json:"sitemap_found" jsonschema:"description=Whether sitemap.xml file was found"`
 
-	// Sources shows how many URLs came from each source (sitemap, crawl)
-	Sources map[string]int `json:"sources" jsonschema:"description=Number of URLs discovered from each source (sitemap or crawl)"`
+	// Sources indicates how many URLs came from each source (sitemap, crawl)
+	Sources map[string]int `json:"sources" jsonschema:"description=Number of URLs found from each source (sitemap or crawl)"`
+
+	// StandardPages categorizes URLs into common page types (home, contact, about, products, blog, faq, privacy, login, cart)
+	// This helps LLMs quickly identify important pages on the website.
+	// Categories are detected using multilingual patterns (Italian, English, Spanish, French, German).
+	// Multiple URLs can appear in the same category, and URLs can match multiple categories.
+	// Example: {"home": ["https://example.com/"], "contact": ["https://example.com/contact", "https://example.com/en/contact"]}
+	StandardPages map[string][]string `json:"standard_pages,omitempty" jsonschema:"description=URLs categorized by standard page types: home contact about products blog faq privacy login cart. Useful for LLMs to quickly identify key pages."`
 }
 
 // Sitemap represents a sitemap.xml structure
