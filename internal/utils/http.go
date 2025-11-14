@@ -13,9 +13,14 @@ import (
 	"github.com/leofalp/aigo/providers/observability"
 )
 
-func DoPostSync[OutputStruct any](ctx context.Context, client http.Client, url string, apiKey string, body any) (*http.Response, *OutputStruct, error) {
+func DoPostSync[OutputStruct any](ctx context.Context, client *http.Client, url string, apiKey string, body any) (*http.Response, *OutputStruct, error) {
 	// Get observer from context if available
 	span := observability.SpanFromContext(ctx)
+
+	httpClient := client
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
 
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
@@ -36,10 +41,12 @@ func DoPostSync[OutputStruct any](ctx context.Context, client http.Client, url s
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
 
 	requestStart := time.Now()
-	res, err := client.Do(req)
+	res, err := httpClient.Do(req)
 	requestDuration := time.Since(requestStart)
 
 	if err != nil {
