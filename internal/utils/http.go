@@ -13,6 +13,17 @@ import (
 	"github.com/leofalp/aigo/providers/observability"
 )
 
+// DoPostSync performs a synchronous HTTP POST request with JSON body and parses the response.
+// It handles observability tracing, authorization headers, and proper resource cleanup.
+//
+// Error Handling Strategy:
+//   - Context errors (timeout, cancellation) are propagated immediately
+//   - HTTP errors (connection failures, non-2xx status) return the error
+//   - Response body close errors are logged but don't override primary errors
+//   - JSON parsing errors include response preview for debugging
+//
+// The function always closes the response body via defer, logging any close errors
+// without overriding the primary error returned by the function.
 func DoPostSync[OutputStruct any](ctx context.Context, client *http.Client, url string, apiKey string, body any) (*http.Response, *OutputStruct, error) {
 	// Get observer from context if available
 	span := observability.SpanFromContext(ctx)
@@ -59,9 +70,10 @@ func DoPostSync[OutputStruct any](ctx context.Context, client *http.Client, url 
 		return res, nil, fmt.Errorf("error sending request: %w", err)
 	}
 	defer func(Body io.ReadCloser) {
-		errS := Body.Close()
-		if errS != nil { // TODO handle error into deferred function
-			slog.Error("error closing response body", "error", errS.Error())
+		if closeErr := Body.Close(); closeErr != nil {
+			// Log the close error, but don't override the main error
+			// If the main function returns an error, it takes precedence
+			slog.Warn("failed to close response body", "error", closeErr.Error(), "url", url)
 		}
 	}(res.Body)
 
