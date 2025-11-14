@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/leofalp/aigo/internal/utils"
+	"github.com/leofalp/aigo/patterns"
 
 	"github.com/leofalp/aigo/core/client"
 	"github.com/leofalp/aigo/providers/ai"
@@ -118,7 +119,7 @@ func NewReactPattern(baseClient *client.Client, opts ...Option) (*ReactPattern, 
 //   - This maintains proper conversation flow: user → assistant+tools → tool results → assistant
 //
 // Returns the final response from the LLM after the reasoning loop completes.
-func (r *ReactPattern) Execute(ctx context.Context, prompt string) (*ai.Overview, error) {
+func (r *ReactPattern) Execute(ctx context.Context, prompt string) (*patterns.Overview, error) {
 	var response *ai.ChatResponse
 	var err error
 
@@ -128,7 +129,7 @@ func (r *ReactPattern) Execute(ctx context.Context, prompt string) (*ai.Overview
 	execTimer := utils.NewTimer()
 	reactMemory := r.client.Memory()
 	toolCatalog := r.client.ToolCatalog()
-	overview := ai.OverviewFromContext(&ctx)
+	overview := patterns.OverviewFromContext(&ctx)
 	// Start top-level ReAct span
 	observer := r.client.Observer()
 	if observer == nil {
