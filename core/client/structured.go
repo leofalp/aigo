@@ -38,11 +38,11 @@ import (
 //	fmt.Printf("Rating: %d/5\n", resp.Data.Rating)
 //	fmt.Printf("Tokens used: %d\n", resp.Raw.Usage.TotalTokens)
 type StructuredClient[T any] struct {
-	base   *Client
+	Client
 	schema *jsonschema.Schema
 }
 
-// NewStructuredClient creates a new structured client wrapper that automatically handles
+// NewStructuredClientFromBaseClient creates a new structured client wrapper that automatically handles
 // structured output for type T. The JSON schema is generated once at creation time
 // and reused for all requests.
 //
@@ -56,14 +56,34 @@ type StructuredClient[T any] struct {
 //	    client.WithMemory(memory),
 //	    client.WithTools(tool1, tool2),
 //	)
-//	structuredClient := client.NewStructuredClient[MyResponse](baseClient)
-func NewStructuredClient[T any](base *Client) *StructuredClient[T] {
+//	structuredClient := client.NewStructuredClientFromBaseClient[MyResponse](baseClient)
+func NewStructuredClientFromBaseClient[T any](base *Client) *StructuredClient[T] {
+	if base == nil {
+		return nil
+	}
 	schema := jsonschema.GenerateJSONSchema[T]()
 	base.SetDefaultOutputSchema(schema)
 	return &StructuredClient[T]{
-		base:   base,
+		Client: *base,
 		schema: schema,
 	}
+}
+
+// NewStructuredClient creates a new StructuredClient[T] by first creating a base Client
+// with the provided LLM provider and options, then wrapping it to handle structured output.
+//
+// This is a convenience method for quickly creating a structured client without
+// manually creating the base client first.
+//
+// Example:
+//
+//	structuredClient, err := client.NewStructuredClient[MyResponse](provider, client.WithMemory(memory))
+func NewStructuredClient[T any](llmProvider ai.Provider, opts ...func(*ClientOptions)) (*StructuredClient[T], error) {
+	base, err := NewClient(llmProvider, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return NewStructuredClientFromBaseClient[T](base), nil
 }
 
 // SendMessage sends a user message to the LLM and returns the parsed structured response.
@@ -85,7 +105,7 @@ func NewStructuredClient[T any](base *Client) *StructuredClient[T] {
 //   - Raw: The original ChatResponse with metadata (usage, reasoning, etc.)
 func (sc *StructuredClient[T]) SendMessage(ctx context.Context, prompt string, opts ...SendMessageOption) (*ai.StructuredChatResponse[T], error) {
 	// Outcut schema is already set as default in base client and can be overridden by opts
-	resp, err := sc.base.SendMessage(ctx, prompt, opts...)
+	resp, err := sc.Client.SendMessage(ctx, prompt, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -109,26 +129,12 @@ func (sc *StructuredClient[T]) ContinueConversation(ctx context.Context, opts ..
 	// Prepend schema option (user can override with their own opts)
 	opts = append([]SendMessageOption{WithOutputSchema(sc.schema)}, opts...)
 
-	resp, err := sc.base.ContinueConversation(ctx, opts...)
+	resp, err := sc.Client.ContinueConversation(ctx, opts...)
 	if err != nil {
 		return nil, err
 	}
 
 	return sc.parseResponse(resp)
-}
-
-// Base returns the underlying base client for advanced usage.
-//
-// This can be useful when you need to perform operations that don't require
-// structured output, or to access client methods not exposed by StructuredClient.
-//
-// Example:
-//
-//	structuredClient := client.NewStructuredClient[MyType](baseClient)
-//	memory := structuredClient.Base().Memory()
-//	observer := structuredClient.Base().Observer()
-func (sc *StructuredClient[T]) Base() *Client {
-	return sc.base
 }
 
 // Schema returns the JSON schema used for structured output.

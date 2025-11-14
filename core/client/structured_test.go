@@ -50,14 +50,11 @@ func TestStructuredClient_SendMessage(t *testing.T) {
 		},
 	}
 
-	// Create base client
-	baseClient, err := NewClient(mockProvider)
+	// Create structured client using NewStructuredClient (creates base client internally)
+	structuredClient, err := NewStructuredClient[TestResponse](mockProvider)
 	if err != nil {
-		t.Fatalf("Failed to create base client: %v", err)
+		t.Fatalf("Failed to create structured client: %v", err)
 	}
-
-	// Create structured client
-	structuredClient := NewStructuredClient[TestResponse](baseClient)
 
 	// Send message
 	resp, err := structuredClient.SendMessage(context.Background(), "What is the meaning of life?")
@@ -111,16 +108,14 @@ func TestStructuredClient_ContinueConversation(t *testing.T) {
 		},
 	}
 
-	// Create client with memory for stateful conversation
-	baseClient, err := NewClient(
+	// Create structured client with memory using NewStructuredClient
+	structuredClient, err := NewStructuredClient[ConversationResponse](
 		mockProvider,
 		WithMemory(inmemory.New()),
 	)
 	if err != nil {
-		t.Fatalf("Failed to create base client: %v", err)
+		t.Fatalf("Failed to create structured client: %v", err)
 	}
-
-	structuredClient := NewStructuredClient[ConversationResponse](baseClient)
 
 	// First message
 	resp1, err := structuredClient.SendMessage(context.Background(), "Hello")
@@ -166,12 +161,10 @@ func TestStructuredClient_SchemaOverride(t *testing.T) {
 		},
 	}
 
-	baseClient, err := NewClient(mockProvider)
+	structuredClient, err := NewStructuredClient[DefaultResponse](mockProvider)
 	if err != nil {
-		t.Fatalf("Failed to create base client: %v", err)
+		t.Fatalf("Failed to create structured client: %v", err)
 	}
-
-	structuredClient := NewStructuredClient[DefaultResponse](baseClient)
 
 	// Normal call uses default schema
 	resp1, err := structuredClient.SendMessage(context.Background(), "test")
@@ -200,8 +193,8 @@ func TestStructuredClient_SchemaOverride(t *testing.T) {
 	}
 }
 
-// TestStructuredClient_Base tests accessing the underlying base client
-func TestStructuredClient_Base(t *testing.T) {
+// TestStructuredClientFromBaseClient tests creating structured client from existing base client
+func TestStructuredClientFromBaseClient(t *testing.T) {
 	type TestResponse struct {
 		Data string `json:"data"`
 	}
@@ -226,17 +219,37 @@ func TestStructuredClient_Base(t *testing.T) {
 		t.Fatalf("Failed to create base client: %v", err)
 	}
 
-	structuredClient := NewStructuredClient[TestResponse](baseClient)
-
-	// Access base client
-	base := structuredClient.Base()
-	if base == nil {
-		t.Fatal("Expected Base() to return non-nil client")
+	// Create structured client from base client
+	structuredClient := NewStructuredClientFromBaseClient[TestResponse](baseClient)
+	if structuredClient == nil {
+		t.Fatal("Expected NewStructuredClientFromBaseClient to return non-nil client")
 	}
 
-	// Verify base client has expected configuration
-	if base.Memory() != memory {
-		t.Error("Expected Base() to return client with same memory")
+	// Verify embedded client has expected configuration (via embedded Client)
+	if structuredClient.Memory() != memory {
+		t.Error("Expected embedded client to have same memory")
+	}
+
+	// Send message to verify it works
+	resp, err := structuredClient.SendMessage(context.Background(), "test")
+	if err != nil {
+		t.Fatalf("SendMessage failed: %v", err)
+	}
+	if resp.Data.Data != "test" {
+		t.Errorf("Expected Data='test', got '%s'", resp.Data.Data)
+	}
+}
+
+// TestStructuredClientFromBaseClient_NilBase tests nil safety
+func TestStructuredClientFromBaseClient_NilBase(t *testing.T) {
+	type TestResponse struct {
+		Data string `json:"data"`
+	}
+
+	// Should handle nil base client gracefully
+	structuredClient := NewStructuredClientFromBaseClient[TestResponse](nil)
+	if structuredClient != nil {
+		t.Error("Expected NewStructuredClientFromBaseClient to return nil for nil base")
 	}
 }
 
@@ -256,12 +269,10 @@ func TestStructuredClient_Schema(t *testing.T) {
 		},
 	}
 
-	baseClient, err := NewClient(mockProvider)
+	structuredClient, err := NewStructuredClient[TestResponse](mockProvider)
 	if err != nil {
-		t.Fatalf("Failed to create base client: %v", err)
+		t.Fatalf("Failed to create structured client: %v", err)
 	}
-
-	structuredClient := NewStructuredClient[TestResponse](baseClient)
 
 	// Access schema
 	schema := structuredClient.Schema()
@@ -298,12 +309,10 @@ func TestStructuredClient_ParseError(t *testing.T) {
 		},
 	}
 
-	baseClient, err := NewClient(mockProvider)
+	structuredClient, err := NewStructuredClient[TestResponse](mockProvider)
 	if err != nil {
-		t.Fatalf("Failed to create base client: %v", err)
+		t.Fatalf("Failed to create structured client: %v", err)
 	}
-
-	structuredClient := NewStructuredClient[TestResponse](baseClient)
 
 	// Should fail to parse
 	_, err = structuredClient.SendMessage(context.Background(), "test")
@@ -350,12 +359,10 @@ func TestStructuredClient_ComplexType(t *testing.T) {
 		},
 	}
 
-	baseClient, err := NewClient(mockProvider)
+	structuredClient, err := NewStructuredClient[Person](mockProvider)
 	if err != nil {
-		t.Fatalf("Failed to create base client: %v", err)
+		t.Fatalf("Failed to create structured client: %v", err)
 	}
-
-	structuredClient := NewStructuredClient[Person](baseClient)
 
 	resp, err := structuredClient.SendMessage(context.Background(), "Get person info")
 	if err != nil {
@@ -371,5 +378,105 @@ func TestStructuredClient_ComplexType(t *testing.T) {
 	}
 	if resp.Data.Address.City != "New York" {
 		t.Errorf("Expected City='New York', got '%s'", resp.Data.Address.City)
+	}
+}
+
+// TestStructuredClient_EmbeddedClientMethods tests that embedded Client methods are accessible
+func TestStructuredClient_EmbeddedClientMethods(t *testing.T) {
+	type TestResponse struct {
+		Result string `json:"result"`
+	}
+
+	mockProvider := &mockProvider{
+		sendMessageFunc: func(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
+			return &ai.ChatResponse{
+				Id:           "test",
+				Content:      `{"result":"success"}`,
+				FinishReason: "stop",
+			}, nil
+		},
+	}
+
+	memory := inmemory.New()
+	observer := &testObserver{}
+
+	structuredClient, err := NewStructuredClient[TestResponse](
+		mockProvider,
+		WithMemory(memory),
+		WithObserver(observer),
+		WithSystemPrompt("Test prompt"),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create structured client: %v", err)
+	}
+
+	// Test that embedded Client methods are accessible
+	if structuredClient.Memory() != memory {
+		t.Error("Expected Memory() to return configured memory")
+	}
+
+	if structuredClient.Observer() != observer {
+		t.Error("Expected Observer() to return configured observer")
+	}
+
+	// Test AppendToSystemPrompt (embedded Client method)
+	structuredClient.AppendToSystemPrompt("\nAdditional instructions.")
+
+	// Verify it works by sending a message
+	_, err = structuredClient.SendMessage(context.Background(), "test")
+	if err != nil {
+		t.Fatalf("SendMessage failed: %v", err)
+	}
+}
+
+// TestStructuredClient_WithOptions tests NewStructuredClient with various options
+func TestStructuredClient_WithOptions(t *testing.T) {
+	type TestResponse struct {
+		Output string `json:"output"`
+	}
+
+	mockProvider := &mockProvider{
+		sendMessageFunc: func(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
+			// Verify options were applied
+			if request.SystemPrompt != "Custom prompt" {
+				t.Errorf("Expected SystemPrompt='Custom prompt', got '%s'", request.SystemPrompt)
+			}
+			if request.Model != "gpt-4" {
+				t.Errorf("Expected Model='gpt-4', got '%s'", request.Model)
+			}
+
+			return &ai.ChatResponse{
+				Id:           "test",
+				Content:      `{"output":"result"}`,
+				FinishReason: "stop",
+			}, nil
+		},
+	}
+
+	memory := inmemory.New()
+
+	// Create with multiple options
+	structuredClient, err := NewStructuredClient[TestResponse](
+		mockProvider,
+		WithMemory(memory),
+		WithSystemPrompt("Custom prompt"),
+		WithDefaultModel("gpt-4"),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create structured client: %v", err)
+	}
+
+	// Verify options were applied
+	if structuredClient.Memory() != memory {
+		t.Error("Expected memory option to be applied")
+	}
+
+	// Send message to verify all options work together
+	resp, err := structuredClient.SendMessage(context.Background(), "test query")
+	if err != nil {
+		t.Fatalf("SendMessage failed: %v", err)
+	}
+	if resp.Data.Output != "result" {
+		t.Errorf("Expected Output='result', got '%s'", resp.Data.Output)
 	}
 }
