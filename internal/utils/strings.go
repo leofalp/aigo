@@ -14,7 +14,7 @@ const (
 func JSONToString(object interface{}, indent ...bool) string {
 	var encoded []byte
 	var err error
-	if indent != nil && len(indent) > 0 && indent[0] {
+	if len(indent) > 0 && indent[0] {
 		encoded, err = json.MarshalIndent(object, "", "  ")
 	} else {
 		encoded, err = json.Marshal(object)
