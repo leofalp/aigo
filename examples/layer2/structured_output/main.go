@@ -72,7 +72,7 @@ func exampleAutomatic(ctx context.Context) {
 	}
 
 	// Step 2: Wrap in StructuredClient - TYPE SPECIFIED ONCE!
-	reviewClient := client.NewStructuredClient[ProductReview](baseClient)
+	reviewClient := client.NewStructuredClientFromBaseClient[ProductReview](baseClient)
 
 	reviewText := `I recently bought the XPhone 15 Pro and I'm impressed!
 	The camera quality is outstanding and the battery lasts all day.
@@ -118,7 +118,7 @@ func exampleAutomatic(ctx context.Context) {
 		Confidence int    `json:"confidence" jsonschema:"required,description=Confidence 1-10"`
 	}
 
-	conversationClient := client.NewStructuredClient[ConversationResponse](baseClient)
+	conversationClient := client.NewStructuredClientFromBaseClient[ConversationResponse](baseClient)
 
 	resp1, _ := conversationClient.SendMessage(ctx, "What is the capital of France?")
 	fmt.Printf("Q: What is the capital of France?\n")

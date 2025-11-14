@@ -13,7 +13,7 @@ import (
 
 func main() {
 	fmt.Println("=== Brave Search API Example ===")
-	fmt.Println("This example demonstrates the Brave Search tool capabilities\n")
+	fmt.Println("This example demonstrates the Brave Search tool capabilities")
 
 	// Check if API key is set
 	if os.Getenv("BRAVE_SEARCH_API_KEY") == "" {

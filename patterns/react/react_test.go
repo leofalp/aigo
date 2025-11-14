@@ -193,19 +193,23 @@ func TestReactPattern_Execute_Success(t *testing.T) {
 
 	// Execute
 	ctx := context.Background()
-	resp, err := reactPattern.Execute(ctx, "Test prompt")
+	overview, err := reactPattern.Execute(ctx, "Test prompt")
 
 	// Assert
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
 	}
 
-	if resp == nil {
-		t.Fatal("Expected response, got nil")
+	if overview == nil {
+		t.Fatal("Expected overview, got nil")
 	}
 
-	if resp.Content != "Done" {
-		t.Errorf("Expected 'Done', got '%s'", resp.Content)
+	if overview.LastResponse == nil {
+		t.Fatal("Expected last response, got nil")
+	}
+
+	if overview.LastResponse.Content != "Done" {
+		t.Errorf("Expected 'Done', got '%s'", overview.LastResponse.Content)
 	}
 
 	if mockTool.callCount != 1 {
@@ -434,19 +438,23 @@ func TestReactPattern_Execute_ToolError_ContinueOnError(t *testing.T) {
 
 	// Execute
 	ctx := context.Background()
-	resp, err := reactPattern.Execute(ctx, "Test prompt")
+	overview, err := reactPattern.Execute(ctx, "Test prompt")
 
 	// Assert - should complete despite tool error
 	if err != nil {
 		t.Errorf("Expected no error with StopOnError=false, got: %v", err)
 	}
 
-	if resp == nil {
-		t.Fatal("Expected response, got nil")
+	if overview == nil {
+		t.Fatal("Expected overview, got nil")
 	}
 
-	if resp.Content != "Final answer despite error" {
-		t.Errorf("Expected final answer, got: %s", resp.Content)
+	if overview.LastResponse == nil {
+		t.Fatal("Expected last response, got nil")
+	}
+
+	if overview.LastResponse.Content != "Final answer despite error" {
+		t.Errorf("Expected final answer, got: %s", overview.LastResponse.Content)
 	}
 }
 
@@ -575,8 +583,8 @@ func TestNewReactPattern_DefaultOptions(t *testing.T) {
 		t.Errorf("Expected default maxIterations to be 10, got: %d", reactPattern.maxIterations)
 	}
 
-	if reactPattern.stopOnError != true {
-		t.Errorf("Expected default stopOnError to be true, got: %v", reactPattern.stopOnError)
+	if reactPattern.stopOnError != false {
+		t.Errorf("Expected default stopOnError to be false, got: %v", reactPattern.stopOnError)
 	}
 }
 
@@ -642,15 +650,19 @@ func TestReactPattern_CaseInsensitiveToolLookup(t *testing.T) {
 
 			// Execute
 			ctx := context.Background()
-			resp, err := reactPattern.Execute(ctx, "Test prompt")
+			overview, err := reactPattern.Execute(ctx, "Test prompt")
 
 			// Assert - should succeed regardless of case
 			if err != nil {
 				t.Errorf("Expected no error with tool name '%s', got: %v", tc.toolCallName, err)
 			}
 
-			if resp == nil {
-				t.Fatal("Expected response, got nil")
+			if overview == nil {
+				t.Fatal("Expected overview, got nil")
+			}
+
+			if overview.LastResponse == nil {
+				t.Fatal("Expected last response, got nil")
 			}
 
 			if mockTool.callCount != 1 {
@@ -700,14 +712,18 @@ func TestReactPattern_CaseInsensitiveCatalogNormalization(t *testing.T) {
 
 	// Execute to trigger catalog normalization
 	ctx := context.Background()
-	resp, err := reactPattern.Execute(ctx, "Test prompt")
+	overview, err := reactPattern.Execute(ctx, "Test prompt")
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-	if resp == nil {
-		t.Fatal("Expected response, got nil")
+	if overview == nil {
+		t.Fatal("Expected overview, got nil")
+	}
+
+	if overview.LastResponse == nil {
+		t.Fatal("Expected last response, got nil")
 	}
 
 	// Verify tool was called (proves case-insensitive lookup worked)

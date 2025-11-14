@@ -10,7 +10,7 @@ import (
 
 func main() {
 	fmt.Println("=== WebFetch Tool Example ===")
-	fmt.Println("This example demonstrates fetching web pages and converting them to Markdown\n")
+	fmt.Println("This example demonstrates fetching web pages and converting them to Markdown")
 
 	ctx := context.Background()
 
