@@ -22,7 +22,7 @@ import (
 func main() {
 	fmt.Println("=== ReAct Pattern with Brave Search Example ===")
 	fmt.Println("This example demonstrates how an AI agent uses Brave Search")
-	fmt.Println("to find real-time information from the web.\n")
+	fmt.Println("to find real-time information from the web.")
 
 	// Check required API keys
 	if os.Getenv("BRAVE_SEARCH_API_KEY") == "" {
