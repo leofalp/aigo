@@ -99,6 +99,14 @@ type ChatResponse struct {
 	//HttpResponse *http.Response `json:"-"` // Raw HTTP response, if applicable
 }
 
+// StructuredChatResponse wraps a ChatResponse with parsed structured data.
+// This type is returned by StructuredClient to provide both the parsed data
+// and access to the raw response for metadata like usage and reasoning.
+type StructuredChatResponse[T any] struct {
+	ChatResponse    // Raw response with metadata (usage, reasoning, etc.)
+	Data         *T // Parsed structured data
+}
+
 /*
 	##### ENUMS #####
 */

@@ -33,74 +33,111 @@ type SentimentAnalysis struct {
 
 func main() {
 	fmt.Println("=== Structured Output Examples ===")
-	fmt.Println("This example demonstrates:")
-	fmt.Println("- Using WithOutputSchema to guide LLM output structure")
-	fmt.Println("- Parsing responses with utils.ParseStringAs[T]")
-	fmt.Println("- Type-safe access to structured data")
 	fmt.Println()
+	fmt.Println("This example shows TWO approaches for structured output:")
+	fmt.Println("1. AUTOMATIC (StructuredClient) - Recommended ⭐")
+	fmt.Println("2. MANUAL (WithOutputSchema + ParseStringAs)")
 
 	ctx := context.Background()
 
-	// Example 1: Product Review with structured output
-	fmt.Println("--- Example 1: Product Review Analysis ---")
-	exampleProductReview(ctx)
+	// Approach 1: Automatic with StructuredClient (Recommended)
+	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")
+	fmt.Println("║  APPROACH 1: StructuredClient (Automatic) - RECOMMENDED ⭐   ║")
+	fmt.Println("╚═══════════════════════════════════════════════════════════════╝")
+	exampleAutomatic(ctx)
 
-	fmt.Println("\n--- Example 2: Sentiment Analysis ---")
-	exampleSentimentAnalysis(ctx)
+	fmt.Println()
+	fmt.Println()
 
-	fmt.Println("\n--- Example 3: Simple Primitive Types ---")
-	examplePrimitiveTypes(ctx)
-
-	fmt.Println("\n--- Example 4: Without Schema (String Response) ---")
-	exampleWithoutSchema(ctx)
+	// Approach 2: Manual with WithOutputSchema
+	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")
+	fmt.Println("║  APPROACH 2: Manual (WithOutputSchema + ParseStringAs)       ║")
+	fmt.Println("╚═══════════════════════════════════════════════════════════════╝")
+	exampleManual(ctx)
 }
 
-func exampleProductReview(ctx context.Context) {
-	// Create client
-	c, err := client.NewClient(
+// exampleAutomatic demonstrates the recommended approach using StructuredClient
+func exampleAutomatic(ctx context.Context) {
+	fmt.Println("--- Product Review Analysis (Automatic) ---")
+	fmt.Println()
+
+	// Step 1: Create base client
+	baseClient, err := client.NewClient(
 		openai.NewOpenAIProvider(),
 		client.WithMemory(inmemory.New()),
-		client.WithSystemPrompt("You are a product review analyzer. Analyze the given text and extract structured review information."),
+		client.WithSystemPrompt("You are a product review analyzer."),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
 	}
 
-	// Sample review text
+	// Step 2: Wrap in StructuredClient - TYPE SPECIFIED ONCE!
+	reviewClient := client.NewStructuredClient[ProductReview](baseClient)
+
 	reviewText := `I recently bought the XPhone 15 Pro and I'm impressed!
 	The camera quality is outstanding and the battery lasts all day.
 	The design is sleek and premium. However, it's quite expensive and
 	doesn't come with a charger in the box. Overall, I'd recommend it
 	to anyone looking for a flagship phone. Rating: 4/5`
 
-	fmt.Printf("Review Text: %s\n\n", reviewText)
+	fmt.Printf("📝 Review: %s\n\n", reviewText)
 
-	// Send message with output schema for this specific request
-	resp, err := c.SendMessage(ctx, fmt.Sprintf("Analyze this review: %s", reviewText),
-		client.WithOutputSchema(jsonschema.GenerateJSONSchema[ProductReview]()),
-	)
+	// Step 3: Send message - schema applied & response parsed automatically!
+	resp, err := reviewClient.SendMessage(ctx, fmt.Sprintf("Analyze this review: %s", reviewText))
 	if err != nil {
 		log.Fatalf("Failed to send message: %v", err)
 	}
 
-	// Parse response into structured type
-	review, err := utils.ParseStringAs[ProductReview](resp.Content)
-	if err != nil {
-		log.Fatalf("Failed to parse response: %v", err)
+	// Step 4: Access typed data directly - NO MANUAL PARSING!
+	fmt.Println("✅ Parsed Results:")
+	fmt.Printf("  Product:   %s\n", resp.Data.ProductName)
+	fmt.Printf("  Rating:    %d/5\n", resp.Data.Rating)
+	fmt.Printf("  Pros:      %v\n", resp.Data.Pros)
+	fmt.Printf("  Cons:      %v\n", resp.Data.Cons)
+	fmt.Printf("  Summary:   %s\n", resp.Data.Summary)
+	fmt.Printf("  Recommend: %v\n", resp.Data.Recommend)
+
+	// Access raw metadata
+	fmt.Printf("\n📊 Metadata:\n")
+	fmt.Printf("  Tokens: %d\n", resp.Usage.TotalTokens)
+	fmt.Printf("  Model:  %s\n", resp.Model)
+
+	fmt.Println("\n✨ Benefits:")
+	fmt.Println("  ✓ Type specified ONCE (at client creation)")
+	fmt.Println("  ✓ Schema generated automatically")
+	fmt.Println("  ✓ Response parsed automatically")
+	fmt.Println("  ✓ Type-safe data access")
+	fmt.Println("  ✓ Metadata still accessible")
+
+	// Multi-turn conversation example
+	fmt.Println("\n--- Multi-turn Conversation (Automatic) ---")
+	fmt.Println()
+
+	type ConversationResponse struct {
+		Answer     string `json:"answer" jsonschema:"required"`
+		Confidence int    `json:"confidence" jsonschema:"required,description=Confidence 1-10"`
 	}
 
-	// Type-safe access to structured data
-	fmt.Printf("✓ Product: %s\n", review.ProductName)
-	fmt.Printf("✓ Rating: %d/5\n", review.Rating)
-	fmt.Printf("✓ Pros: %v\n", review.Pros)
-	fmt.Printf("✓ Cons: %v\n", review.Cons)
-	fmt.Printf("✓ Summary: %s\n", review.Summary)
-	fmt.Printf("✓ Recommend: %v\n", review.Recommend)
+	conversationClient := client.NewStructuredClient[ConversationResponse](baseClient)
+
+	resp1, _ := conversationClient.SendMessage(ctx, "What is the capital of France?")
+	fmt.Printf("Q: What is the capital of France?\n")
+	fmt.Printf("A: %s (confidence: %d/10)\n", resp1.Data.Answer, resp1.Data.Confidence)
+
+	resp2, _ := conversationClient.SendMessage(ctx, "What's its population?")
+	fmt.Printf("\nQ: What's its population?\n")
+	fmt.Printf("A: %s (confidence: %d/10)\n", resp2.Data.Answer, resp2.Data.Confidence)
+
+	fmt.Println("\n💡 All responses automatically follow the same schema!")
 }
 
-func exampleSentimentAnalysis(ctx context.Context) {
-	// Create client
-	c, err := client.NewClient(
+// exampleManual demonstrates the manual approach for comparison
+func exampleManual(ctx context.Context) {
+	fmt.Println("--- Sentiment Analysis (Manual) ---")
+	fmt.Println()
+
+	// Step 1: Create client
+	baseClient, err := client.NewClient(
 		openai.NewOpenAIProvider(),
 		client.WithSystemPrompt("You are a sentiment analysis expert."),
 	)
@@ -108,92 +145,44 @@ func exampleSentimentAnalysis(ctx context.Context) {
 		log.Fatalf("Failed to create client: %v", err)
 	}
 
-	text := "I absolutely love this new feature! It's exactly what I needed and works flawlessly."
+	text := "I absolutely love this new feature! It's exactly what I needed."
 
-	fmt.Printf("Text: %s\n\n", text)
+	fmt.Printf("📝 Text: %s\n\n", text)
 
-	// Send with sentiment analysis schema
-	resp, err := c.SendMessage(ctx, fmt.Sprintf("Analyze the sentiment: %s", text),
-		client.WithOutputSchema(jsonschema.GenerateJSONSchema[SentimentAnalysis]()),
+	// Step 2: Generate schema manually - TYPE SPECIFIED FIRST TIME
+	schema := jsonschema.GenerateJSONSchema[SentimentAnalysis]()
+
+	// Step 3: Send with schema
+	resp, err := baseClient.SendMessage(ctx, fmt.Sprintf("Analyze the sentiment: %s", text),
+		client.WithOutputSchema(schema), // Schema passed manually
 	)
 	if err != nil {
 		log.Fatalf("Failed to send message: %v", err)
 	}
 
-	// Parse into sentiment analysis struct
+	// Step 4: Parse manually - TYPE SPECIFIED SECOND TIME
 	sentiment, err := utils.ParseStringAs[SentimentAnalysis](resp.Content)
 	if err != nil {
 		log.Fatalf("Failed to parse response: %v", err)
 	}
 
-	fmt.Printf("✓ Sentiment: %s\n", sentiment.Sentiment)
-	fmt.Printf("✓ Confidence: %.2f\n", sentiment.Confidence)
-	fmt.Printf("✓ Keywords: %v\n", sentiment.Keywords)
-}
+	// Step 5: Access data
+	fmt.Println("✅ Parsed Results:")
+	fmt.Printf("  Sentiment:  %s\n", sentiment.Sentiment)
+	fmt.Printf("  Confidence: %.2f\n", sentiment.Confidence)
+	fmt.Printf("  Keywords:   %v\n", sentiment.Keywords)
 
-func examplePrimitiveTypes(ctx context.Context) {
-	c, err := client.NewClient(
-		openai.NewOpenAIProvider(),
-		client.WithSystemPrompt("You are a helpful assistant that provides concise answers."),
-	)
-	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
-	}
+	fmt.Printf("\n📊 Metadata:\n")
+	fmt.Printf("  Tokens: %d\n", resp.Usage.TotalTokens)
 
-	// Example: Parse as boolean
-	fmt.Println("Question: Is Paris the capital of France? (answer only true or false)")
-	resp, err := c.SendMessage(ctx, "Is Paris the capital of France? Answer only with 'true' or 'false'")
-	if err != nil {
-		log.Fatalf("Failed to send message: %v", err)
-	}
+	fmt.Println("\n⚠️  Downsides:")
+	fmt.Println("  ✗ Type specified TWICE (schema + parsing)")
+	fmt.Println("  ✗ Manual schema generation required")
+	fmt.Println("  ✗ Manual parsing required")
+	fmt.Println("  ✗ More boilerplate code")
 
-	boolResult, err := utils.ParseStringAs[bool](resp.Content)
-	if err != nil {
-		log.Printf("Failed to parse as bool: %v", err)
-		fmt.Printf("Raw response: %s\n", resp.Content)
-	} else {
-		fmt.Printf("✓ Boolean result: %v\n", boolResult)
-	}
-
-	// Example: Parse as integer
-	fmt.Println("\nQuestion: How many continents are there? (answer with just a number)")
-	resp, err = c.SendMessage(ctx, "How many continents are there? Answer with just the number.")
-	if err != nil {
-		log.Fatalf("Failed to send message: %v", err)
-	}
-
-	intResult, err := utils.ParseStringAs[int](resp.Content)
-	if err != nil {
-		log.Printf("Failed to parse as int: %v", err)
-		fmt.Printf("Raw response: %s\n", resp.Content)
-	} else {
-		fmt.Printf("✓ Integer result: %d\n", intResult)
-	}
-}
-
-func exampleWithoutSchema(ctx context.Context) {
-	// Client without output schema - works with plain strings
-	c, err := client.NewClient(
-		openai.NewOpenAIProvider(),
-		client.WithSystemPrompt("You are a creative writer."),
-	)
-	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
-	}
-
-	resp, err := c.SendMessage(ctx, "Write a one-sentence story about a robot.")
-	if err != nil {
-		log.Fatalf("Failed to send message: %v", err)
-	}
-
-	// Parse as string (always works)
-	story, err := utils.ParseStringAs[string](resp.Content)
-	if err != nil {
-		log.Fatalf("Failed to parse response: %v", err)
-	}
-
-	fmt.Printf("✓ Story: %s\n", story)
-
-	// Or just use the raw content
-	fmt.Printf("✓ Raw content: %s\n", resp.Content)
+	fmt.Println("\n💡 Use this approach only when you need:")
+	fmt.Println("  • Different schemas for different requests")
+	fmt.Println("  • Fine-grained control over schema generation")
+	fmt.Println("  • To delay parsing until later")
 }

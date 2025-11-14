@@ -218,9 +218,6 @@ func TestClient_SendMessage_ErrorObservability(t *testing.T) {
 	if !strings.Contains(output, "test error") {
 		t.Error("Expected error message in output")
 	}
-	if !strings.Contains(output, "Failed to send message") {
-		t.Error("Expected failure log message")
-	}
 	if !strings.Contains(output, "error") {
 		t.Error("Expected error event in span")
 	}

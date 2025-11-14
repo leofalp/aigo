@@ -9,6 +9,7 @@ import (
 
 	"github.com/leofalp/aigo/internal/jsonschema"
 	"github.com/leofalp/aigo/internal/utils"
+	"github.com/leofalp/aigo/patterns"
 	"github.com/leofalp/aigo/providers/ai"
 	"github.com/leofalp/aigo/providers/memory"
 	"github.com/leofalp/aigo/providers/observability"
@@ -22,15 +23,16 @@ const (
 // Client is an immutable orchestrator for LLM interactions.
 // All configuration must be provided at construction time via Options.
 type Client struct {
-	systemPrompt     string
-	defaultModel     string
-	llmProvider      ai.Provider
-	memoryProvider   memory.Provider
-	observer         observability.Provider // nil if not set (zero overhead)
-	toolCatalog      *tool.Catalog
-	toolDescriptions []ai.ToolDescription
-	requiredTools    []ai.ToolDescription
-	state            map[string]any
+	systemPrompt        string
+	defaultModel        string
+	defaultOutputSchema *jsonschema.Schema // Optional: JSON schema for structured output (applied to all requests unless overridden)
+	llmProvider         ai.Provider
+	memoryProvider      memory.Provider
+	observer            observability.Provider // nil if not set (zero overhead)
+	toolCatalog         *tool.Catalog
+	toolDescriptions    []ai.ToolDescription
+	requiredTools       []ai.ToolDescription
+	state               map[string]any
 }
 
 // ClientOptions contains all configuration for a Client.
@@ -40,6 +42,7 @@ type ClientOptions struct {
 
 	// Optional with sensible defaults
 	DefaultModel                    string                 // Model to use for requests (can be overridden per-request in future)
+	DefaultOutputSchema             *jsonschema.Schema     // Optional: JSON schema for structured output (applied to all requests unless overridden)
 	MemoryProvider                  memory.Provider        // Optional: if nil, client operates in stateless mode
 	Observer                        observability.Provider // Defaults to nil (zero overhead)
 	SystemPrompt                    string                 // System prompt for all requests
@@ -107,6 +110,33 @@ func WithEnrichSystemPromptWithToolsDescriptions() func(*ClientOptions) {
 	}
 }
 
+// WithDefaultOutputSchema sets a default JSON schema for structured output.
+// This schema will be applied to all requests unless overridden per-request
+// using WithOutputSchema in SendMessage or ContinueConversation.
+//
+// This is useful when you want consistent structured output across all interactions,
+// such as in ReAct patterns or multi-turn conversations.
+//
+// Example usage:
+//
+//	type MyResponse struct {
+//	    Answer string `json:"answer" jsonschema:"required"`
+//	    Confidence float64 `json:"confidence" jsonschema:"required"`
+//	}
+//
+//	client := NewClient(provider,
+//	    WithMemory(memory),
+//	    WithDefaultOutputSchema(jsonschema.GenerateJSONSchema[MyResponse]()),
+//	)
+//
+// Note: For most use cases, consider using StructuredClient[T] instead,
+// which provides type-safe parsing in addition to schema application.
+func WithDefaultOutputSchema(schema *jsonschema.Schema) func(*ClientOptions) {
+	return func(o *ClientOptions) {
+		o.DefaultOutputSchema = schema
+	}
+}
+
 // NewClient creates a new immutable Client instance.
 // The llmProvider is required as the first argument.
 // All other configuration is provided via functional options.
@@ -162,15 +192,16 @@ func NewClient(llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client, 
 	}
 
 	return &Client{
-		systemPrompt:     systemPrompt,
-		defaultModel:     options.DefaultModel,
-		llmProvider:      options.LlmProvider,
-		memoryProvider:   options.MemoryProvider,
-		observer:         options.Observer,
-		toolCatalog:      toolCatalog,
-		toolDescriptions: toolDescriptions,
-		requiredTools:    requiredTools,
-		state:            map[string]any{},
+		systemPrompt:        systemPrompt,
+		defaultModel:        options.DefaultModel,
+		defaultOutputSchema: options.DefaultOutputSchema,
+		llmProvider:         options.LlmProvider,
+		memoryProvider:      options.MemoryProvider,
+		observer:            options.Observer,
+		toolCatalog:         toolCatalog,
+		toolDescriptions:    toolDescriptions,
+		requiredTools:       requiredTools,
+		state:               map[string]any{},
 	}, nil
 }
 
@@ -194,8 +225,17 @@ func (c *Client) Observer() observability.Provider {
 	return c.observer
 }
 
+// AppendToSystemPrompt appends additional text to the existing system prompt.
+// This can be used to dynamically modify the system prompt after client creation.
 func (c *Client) AppendToSystemPrompt(appendix string) {
 	c.systemPrompt += "\n" + appendix
+}
+
+// SetDefaultOutputSchema sets the default JSON schema for structured output.
+// This schema will be applied to all requests unless overridden per-request
+// using WithOutputSchema in SendMessage or ContinueConversation.
+func (c *Client) SetDefaultOutputSchema(schema *jsonschema.Schema) {
+	c.defaultOutputSchema = schema
 }
 
 // enrichSystemPromptWithTools appends tool usage guidance to the system prompt.
@@ -293,7 +333,7 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 	}
 	// Start tracing span (only if observer is set)
 	span := c.observeInit(&ctx, "sending message")
-	overview := ai.OverviewFromContext(&ctx)
+	overview := patterns.OverviewFromContext(&ctx)
 	timer := utils.NewTimer()
 
 	// Build messages list based on memory provider availability
@@ -327,11 +367,17 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 		Tools:        c.toolDescriptions,
 	}
 
-	// Add response format if output schema is provided for this request
-	if options.OutputSchema != nil {
+	// Add response format if output schema is provided
+	// Priority: per-request schema > default schema
+	schema := options.OutputSchema
+	if schema == nil {
+		schema = c.defaultOutputSchema
+	}
+
+	if schema != nil {
 		request.ResponseFormat = &ai.ResponseFormat{
 			Type:         "json_schema",
-			OutputSchema: options.OutputSchema,
+			OutputSchema: schema,
 		}
 		// TODO: consider do add hints to the LLM into the system prompt about the expected structure
 	}
@@ -394,7 +440,7 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 
 	// Start tracing span (only if observer is set)
 	span := c.observeInit(&ctx, "continue conversation")
-	overview := ai.OverviewFromContext(&ctx)
+	overview := patterns.OverviewFromContext(&ctx)
 	timer := utils.NewTimer()
 	messages := c.memoryProvider.AllMessages()
 
@@ -414,10 +460,17 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 	}
 
 	// Add response format if output schema is provided for this request
-	if options.OutputSchema != nil {
+	// Add response format if output schema is provided
+	// Priority: per-request schema > default schema
+	schema := options.OutputSchema
+	if schema == nil {
+		schema = c.defaultOutputSchema
+	}
+
+	if schema != nil {
 		request.ResponseFormat = &ai.ResponseFormat{
 			Type:         "json_schema",
-			OutputSchema: options.OutputSchema,
+			OutputSchema: schema,
 		}
 	}
 
@@ -434,7 +487,9 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 
 	overview.AddRequest(&request)
 	overview.AddResponse(response)
-	overview.IncludeUsage(response.Usage)
+	if response.Usage != nil {
+		overview.IncludeUsage(response.Usage)
+	}
 
 	c.observeSuccess(&ctx, &span, response, timer, "continue conversation")
 
