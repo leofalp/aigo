@@ -129,7 +129,7 @@ func (p *OpenAIProvider) SendMessageViaResponses(ctx context.Context, request ai
 	}
 
 	req := requestToResponses(request)
-	httpResponse, resp, err := utils.DoPostSync[responseCreateResponse](ctx, *p.client, p.baseURL+responsesEndpoint, p.apiKey, req)
+	httpResponse, resp, err := utils.DoPostSync[responseCreateResponse](ctx, p.client, p.baseURL+responsesEndpoint, p.apiKey, req)
 	if err != nil {
 		if observer != nil {
 			observer.Trace(ctx, "HTTP request failed",
@@ -187,7 +187,7 @@ func (p *OpenAIProvider) SendMessageViaChatCompletions(ctx context.Context, requ
 	}
 
 	req := requestToChatCompletion(request, useLegacyFunctions)
-	httpResponse, resp, err := utils.DoPostSync[chatCompletionResponse](ctx, *p.client, p.baseURL+chatCompletionsEndpoint, p.apiKey, req)
+	httpResponse, resp, err := utils.DoPostSync[chatCompletionResponse](ctx, p.client, p.baseURL+chatCompletionsEndpoint, p.apiKey, req)
 	if err != nil {
 		if observer != nil {
 			observer.Trace(ctx, "HTTP request failed",

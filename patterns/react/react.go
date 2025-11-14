@@ -197,6 +197,7 @@ func (r *ReactPattern) Execute(ctx context.Context, prompt string) (*patterns.Ov
 			if err != nil {
 				r.observeToolError(&ctx, err, iteration, toolCall.Function.Name)
 				if r.stopOnError {
+					r.observeStopOnError(&ctx, iteration, err)
 					return nil, fmt.Errorf("tool execution failed at iteration %d: %w", iteration, err)
 				}
 			} else {
@@ -352,6 +353,8 @@ func (r *ReactPattern) observeMaxInteration(ctx *context.Context) {
 	observer.Counter("react.executions.total").Add(*ctx, 1,
 		observability.String("status", "max_iterations_reached"),
 	)
+
+	span.End()
 }
 
 func (r *ReactPattern) observeNextIteration(ctx *context.Context, iteration int, toolsExecuted int, response *ai.ChatResponse) {
@@ -359,7 +362,6 @@ func (r *ReactPattern) observeNextIteration(ctx *context.Context, iteration int,
 		return
 	}
 	observer := r.state["observer"].(observability.Provider)
-	span := r.state["span"].(observability.Span)
 	timer := r.state["iterationTimer"].(*utils.Timer)
 
 	observer.Info(*ctx, "ReAct iteration completed - continuing to next iteration",
@@ -372,8 +374,6 @@ func (r *ReactPattern) observeNextIteration(ctx *context.Context, iteration int,
 	// Record iteration metrics
 	observer.Counter("react.iterations.total").Add(*ctx, 1)
 	observer.Counter("react.tools_executed.total").Add(*ctx, int64(toolsExecuted))
-
-	span.End()
 }
 
 func (r *ReactPattern) observeIterationError(ctx *context.Context, err error, iteration int) {
@@ -383,7 +383,9 @@ func (r *ReactPattern) observeIterationError(ctx *context.Context, err error, it
 	observer := r.state["observer"].(observability.Provider)
 	span := r.state["span"].(observability.Span)
 	timer := r.state["iterationTimer"].(*utils.Timer)
+	execTimer := r.state["execTimer"].(*utils.Timer)
 
+	execTimer.Stop()
 	span.RecordError(err)
 	span.SetStatus(observability.StatusError, "ReAct iteration failed")
 	observer.Error(*ctx, "Iteration failed",
@@ -391,6 +393,7 @@ func (r *ReactPattern) observeIterationError(ctx *context.Context, err error, it
 		observability.Duration("duration", timer.GetDuration()),
 		observability.Error(err),
 	)
+	span.End()
 }
 
 func (r *ReactPattern) observeToolError(ctx *context.Context, err error, iteration int, functionName string) {
@@ -408,12 +411,35 @@ func (r *ReactPattern) observeToolError(ctx *context.Context, err error, iterati
 			observability.String("tool_name", functionName),
 			observability.Int("iteration", iteration),
 		)
+		return
 	}
 
 	observer.Warn(*ctx, "Tool execution failed, continuing",
 		observability.Error(err),
 		observability.String("tool_name", functionName),
 	)
+}
+
+func (r *ReactPattern) observeStopOnError(ctx *context.Context, iteration int, err error) {
+	if r.state["observer"] == nil {
+		return
+	}
+	observer := r.state["observer"].(observability.Provider)
+	span := r.state["span"].(observability.Span)
+	timer := r.state["execTimer"].(*utils.Timer)
+
+	timer.Stop()
+
+	span.RecordError(err)
+	span.SetStatus(observability.StatusError, "ReAct pattern stopped due to tool error")
+	observer.Error(*ctx, "ReAct pattern terminated due to tool error",
+		observability.Error(err),
+		observability.Int("iteration", iteration),
+	)
+	observer.Counter("react.executions.total").Add(*ctx, 1,
+		observability.String("status", "error"),
+	)
+	span.End()
 }
 
 func (r *ReactPattern) observeStartIteration(ctx *context.Context, iteration int) {
@@ -434,11 +460,16 @@ func (r *ReactPattern) observeSuccess(ctx *context.Context, response *ai.ChatRes
 	observer := r.state["observer"].(observability.Provider)
 	span := r.state["span"].(observability.Span)
 	timer := r.state["iterationTimer"].(*utils.Timer)
+	execTimer := r.state["execTimer"].(*utils.Timer)
+
+	execTimer.Stop()
+	totalDuration := execTimer.GetDuration()
 
 	span.SetStatus(observability.StatusOK, "ReAct completed successfully")
 	observer.Info(*ctx, "ReAct pattern completed - no tool calls, final answer received",
 		observability.Int("total_iterations", iteration),
-		observability.Duration("total_duration", timer.GetDuration()),
+		observability.Duration("total_duration", totalDuration),
+		observability.Duration("last_iteration_duration", timer.GetDuration()),
 		observability.String("finish_reason", response.FinishReason),
 		observability.Bool("has_content", response.Content != ""),
 	)
@@ -448,7 +479,9 @@ func (r *ReactPattern) observeSuccess(ctx *context.Context, response *ai.ChatRes
 		observability.String("status", "success"),
 	)
 	observer.Histogram("react.iterations.count").Record(*ctx, float64(iteration))
-	observer.Histogram("react.duration.seconds").Record(*ctx, timer.GetDuration().Seconds())
+	observer.Histogram("react.duration.seconds").Record(*ctx, totalDuration.Seconds())
+
+	span.End()
 }
 
 func (r *ReactPattern) observeTools(ctx *context.Context, response *ai.ChatResponse, iteration int) {

@@ -501,10 +501,11 @@ func (c *Client) observeInit(ctx *context.Context, subject string) observability
 	}
 
 	var span observability.Span
+	isContinuingConversation := subject == "continue conversation"
 
 	*ctx, span = c.observer.StartSpan(*ctx, observability.SpanClientSendMessage,
 		observability.String(observability.AttrLLMModel, c.defaultModel),
-		observability.Bool(observability.AttrClientContinuingConversation, true),
+		observability.Bool(observability.AttrClientContinuingConversation, isContinuingConversation),
 	)
 
 	// Put span and observer in context for downstream propagation
@@ -515,6 +516,7 @@ func (c *Client) observeInit(ctx *context.Context, subject string) observability
 	c.observer.Debug(*ctx, subject,
 		observability.String(observability.AttrLLMModel, c.defaultModel),
 		observability.Int(observability.AttrClientToolsCount, len(c.toolDescriptions)),
+		observability.Bool(observability.AttrClientContinuingConversation, isContinuingConversation),
 	)
 
 	return span
