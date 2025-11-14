@@ -79,7 +79,7 @@ func WithSystemPrompt(prompt string) func(*ClientOptions) {
 
 func WithRequiredTool(tools ...tool.GenericTool) func(*ClientOptions) {
 	return func(o *ClientOptions) {
-		o.RequiredTools = append(o.Tools, tools...)
+		o.RequiredTools = append(o.RequiredTools, tools...)
 	}
 }
 
