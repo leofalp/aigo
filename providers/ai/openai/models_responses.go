@@ -10,7 +10,7 @@ import (
 	RESPONSES API - INPUT
 */
 
-// responseCreateRequest is the full request for the `/v1/responses` endpoint
+// responseCreateRequest is the full request body for `/v1/responses`
 type responseCreateRequest struct {
 	Model              string                 `json:"model"`
 	Models             []string               `json:"models,omitempty"` // for model fallback
@@ -21,9 +21,10 @@ type responseCreateRequest struct {
 	MaxOutputTokens    *int                   `json:"max_output_tokens,omitempty"`
 	Stream             *bool                  `json:"stream,omitempty"`
 	Reasoning          *reasoningConfig       `json:"reasoning,omitempty"`
-	Text               *textConfig            `json:"text,omitempty"`
+	Text               *textConfig            `json:"text,omitempty"`            // legacy/simple formatting control
+	ResponseFormat     *responseFormat        `json:"response_format,omitempty"` // structured or hinted output format
 	Tools              []responseTool         `json:"tools,omitempty"`
-	ToolChoice         interface{}            `json:"tool_choice,omitempty"` // "auto", "none", "required" or object
+	ToolChoice         interface{}            `json:"tool_choice,omitempty"` // "auto", "none", "required" or object/array
 	ParallelToolCalls  *bool                  `json:"parallel_tool_calls,omitempty"`
 	Background         *bool                  `json:"background,omitempty"`
 	Store              *bool                  `json:"store,omitempty"`
@@ -32,13 +33,13 @@ type responseCreateRequest struct {
 	Include            []string               `json:"include,omitempty"`    // e.g. ["reasoning.encrypted_content"]
 }
 
-// inputItem represents an item in the input array
+// inputItem represents a single message (developer/user/assistant) for Responses API
 type inputItem struct {
 	Role    string      `json:"role"`    // developer, user, assistant
 	Content interface{} `json:"content"` // string or []contentItem
 }
 
-// contentItem for multimodal content
+// contentItem supports multimodal entries
 type contentItem struct {
 	Type     string `json:"type"` // input_text, input_image, output_text, etc.
 	Text     string `json:"text,omitempty"`
@@ -51,7 +52,8 @@ type reasoningConfig struct {
 	Summary string `json:"summary,omitempty"` // "auto", "concise", "detailed"
 }
 
-// textConfig controls output formatting (GPT-5)
+// textConfig provides simple output formatting (legacy field)
+// For structured JSON Schema we now use ResponseFormat instead.
 type textConfig struct {
 	Verbosity string `json:"verbosity,omitempty"` // "low", "medium", "high"
 	Format    *struct {
@@ -59,30 +61,40 @@ type textConfig struct {
 	} `json:"format,omitempty"`
 }
 
-// responseTool definitions
-type responseTool struct {
-	// Common tools
-	Type string `json:"type"` // "web_search", "file_search", "code_interpreter", "function", "custom", "mcp", "computer_use_preview"`
+// responseFormat defines structured or hinted output for Responses API.
+// Mirrors chat completions response_format semantics.
+type responseFormat struct {
+	Type       string `json:"type"` // "json_schema", "json_object", "text", "markdown", "enum", etc.
+	JsonSchema *struct {
+		Name   string            `json:"name"`             // arbitrary schema name
+		Schema jsonschema.Schema `json:"schema"`           // actual JSON Schema
+		Strict bool              `json:"strict,omitempty"` // strict adherence if supported
+	} `json:"json_schema,omitempty"`
+}
 
-	// For file_search
+// responseTool describes a tool/function available to the model
+type responseTool struct {
+	Type string `json:"type"` // "web_search", "file_search", "code_interpreter", "function", ...
+
+	// File search / vector-store specifics
 	VectorStoreIDs []string `json:"vector_store_ids,omitempty"`
 
-	// For function calling
+	// Function calling
 	Name        string            `json:"name,omitempty"`
 	Description string            `json:"description,omitempty"`
 	Parameters  jsonschema.Schema `json:"parameters,omitempty"`
 	Strict      bool              `json:"strict,omitempty"`
 
-	// For custom tools (GPT-5)
+	// Custom grammar-based tools
 	Format *customFormat `json:"format,omitempty"`
 
-	// For MCP (Model Context Protocol)
+	// MCP (Model Context Protocol) fields
 	ServerLabel     string            `json:"server_label,omitempty"`
 	ServerURL       string            `json:"server_url,omitempty"`
 	RequireApproval string            `json:"require_approval,omitempty"` // "always", "never"
 	Headers         map[string]string `json:"headers,omitempty"`
 
-	// For computer_use_preview
+	// Computer use preview fields
 	DisplayWidth  int    `json:"display_width,omitempty"`
 	DisplayHeight int    `json:"display_height,omitempty"`
 	Environment   string `json:"environment,omitempty"` // "browser", "mac", "windows", "ubuntu"
@@ -91,7 +103,7 @@ type responseTool struct {
 type customFormat struct {
 	Type       string `json:"type"`       // "grammar"
 	Syntax     string `json:"syntax"`     // "lark"
-	Definition string `json:"definition"` // Grammar definition
+	Definition string `json:"definition"` // grammar definition
 }
 
 /*
@@ -116,23 +128,24 @@ type responseCreateResponse struct {
 	Error              *errorDetails          `json:"error,omitempty"`
 }
 
-// outputItem represents an element in the `output` array
+// outputItem: one element in response.Output
 type outputItem struct {
 	ID               string          `json:"id"`
-	Type             string          `json:"type"`           // "message", "reasoning", "function_call", "web_search_call", etc.
+	Type             string          `json:"type"`           // "message", "reasoning", "function_call", ...
 	Role             string          `json:"role,omitempty"` // "assistant"
 	Content          []contentOutput `json:"content,omitempty"`
 	Status           string          `json:"status,omitempty"`
 	Summary          []summaryItem   `json:"summary,omitempty"`
 	EncryptedContent *string         `json:"encrypted_content,omitempty"`
 
-	// For function calls
+	// Function/tool call specifics
 	Name      string `json:"name,omitempty"`
 	CallID    string `json:"call_id,omitempty"`
-	Arguments string `json:"arguments,omitempty"` // JSON string, parsed later with ParseStringAs
-	Input     string `json:"input,omitempty"`     // For custom tools
+	Arguments string `json:"arguments,omitempty"` // JSON string
+	Input     string `json:"input,omitempty"`     // custom tools
 }
 
+// contentOutput for message output items
 type contentOutput struct {
 	Type        string       `json:"type"` // "output_text", "output_image"
 	Text        string       `json:"text,omitempty"`
@@ -189,7 +202,7 @@ type errorDetails struct {
 	CONVERSION FUNCTIONS
 */
 
-// requestToResponses converts ai.ChatRequest into OpenAI Responses API request format
+// requestToResponses converts ai.ChatRequest into the OpenAI Responses API format.
 func requestToResponses(request ai.ChatRequest) responseCreateRequest {
 	// Build input from messages
 	var input []inputItem
@@ -210,7 +223,7 @@ func requestToResponses(request ai.ChatRequest) responseCreateRequest {
 		})
 	}
 
-	// If there is a single user message without system prompt, use simple input
+	// Optimize single user prompt without system prompt
 	var finalInput interface{}
 	if len(input) == 1 && input[0].Role == "user" {
 		finalInput = input[0].Content.(string)
@@ -232,20 +245,18 @@ func requestToResponses(request ai.ChatRequest) responseCreateRequest {
 			temp := float64(cfg.Temperature)
 			req.Temperature = &temp
 		}
-
 		if cfg.TopP > 0 {
 			topP := float64(cfg.TopP)
 			req.TopP = &topP
 		}
 
-		// Responses API prefers `max_output_tokens`
+		// Responses API prefers max_output_tokens (fallback from MaxTokens)
 		if cfg.MaxOutputTokens > 0 {
 			req.MaxOutputTokens = &cfg.MaxOutputTokens
 		} else if cfg.MaxTokens > 0 {
 			req.MaxOutputTokens = &cfg.MaxTokens
 		}
-
-		// Note: FrequencyPenalty and PresencePenalty are not supported by the Responses API
+		// FrequencyPenalty / PresencePenalty not supported here.
 	}
 
 	// Convert tools
@@ -256,29 +267,26 @@ func requestToResponses(request ai.ChatRequest) responseCreateRequest {
 				Name:        tl.Name,
 				Description: tl.Description,
 				Parameters:  *tl.Parameters,
+				// Strict (per tool) not mapped yet; could propagate if needed.
 			})
 		}
 
-		// Set tool_choice with priority handling
-		var toolChoice any = "auto" // Default to "auto" if not specified
+		// Tool choice logic mirroring chat behavior
+		var toolChoice any = "auto"
 
 		if request.ToolChoice != nil {
-			// Priority 1: Explicit forced choice (e.g., "none", "auto", "required", or specific tool name)
 			if request.ToolChoice.ToolChoiceForced != "" {
 				toolChoice = request.ToolChoice.ToolChoiceForced
 			} else if request.ToolChoice.AtLeastOneRequired {
-				// Priority 2: Force at least one tool call
 				toolChoice = "required"
 			} else if len(request.ToolChoice.RequiredTools) > 0 {
-				// Priority 3: Force specific tool(s)
 				if len(request.ToolChoice.RequiredTools) == 1 {
-					// Single required tool - force it specifically
 					toolChoice = map[string]any{
 						"type": "function",
 						"name": request.ToolChoice.RequiredTools[0].Name,
 					}
 				} else {
-					// Multiple required tools - Responses API supports arrays for forcing specific tools
+					// Array of forced tools
 					var toolChoiceArray []map[string]any
 					for _, tl := range request.ToolChoice.RequiredTools {
 						toolChoiceArray = append(toolChoiceArray, map[string]any{
@@ -294,35 +302,45 @@ func requestToResponses(request ai.ChatRequest) responseCreateRequest {
 		req.ToolChoice = toolChoice
 	}
 
-	// Handle ResponseFormat
+	// Handle ResponseFormat (STRUCTURED OUTPUT FIX)
 	if request.ResponseFormat != nil {
-		// If a schema is provided, use structured output
-		if request.ResponseFormat.OutputSchema != nil {
-			req.Text = &textConfig{}
-			req.Text.Format = &struct {
-				Type string `json:"type"`
-			}{
-				Type: "json_object",
+		switch {
+		case request.ResponseFormat.OutputSchema != nil:
+			// Proper JSON Schema structured output
+			req.ResponseFormat = &responseFormat{
+				Type: "json_schema",
+				JsonSchema: &struct {
+					Name   string            `json:"name"`
+					Schema jsonschema.Schema `json:"schema"`
+					Strict bool              `json:"strict,omitempty"`
+				}{
+					Name:   "response_schema",
+					Schema: *request.ResponseFormat.OutputSchema,
+					Strict: request.ResponseFormat.Strict,
+				},
 			}
-		} else if request.ResponseFormat.Type != "" {
-			// Use provided type hint
-			formatType := request.ResponseFormat.Type
-			if formatType == "json_schema" {
-				formatType = "json_object"
+
+		case request.ResponseFormat.Type != "":
+			// Simple type hint (no schema)
+			t := request.ResponseFormat.Type
+			// If user asked for json_schema but no schema provided, degrade gracefully
+			if t == "json_schema" {
+				t = "json_object"
 			}
-			req.Text = &textConfig{}
-			req.Text.Format = &struct {
-				Type string `json:"type"`
-			}{
-				Type: formatType,
-			}
+			req.ResponseFormat = &responseFormat{Type: t}
+
+		default:
+			// No type, leave nil
 		}
 	}
+
+	// NOTE: We keep Text.Format untouched for legacy/simple formatting.
+	// If ResponseFormat is set to json_schema, models will honor schema over simple format.
 
 	return req
 }
 
-// responsesToGeneric converts OpenAI response into the generic ai.ChatResponse
+// responsesToGeneric converts OpenAI Responses API response into the generic ai.ChatResponse.
 func responsesToGeneric(resp responseCreateResponse) *ai.ChatResponse {
 	chatResp := &ai.ChatResponse{
 		Id:      resp.ID,
@@ -331,24 +349,19 @@ func responsesToGeneric(resp responseCreateResponse) *ai.ChatResponse {
 		Created: int64(resp.CreatedAt),
 	}
 
-	// Extract content and tool calls from output
+	// Extract content and tool calls
 	var contentParts []string
 	var toolCalls []ai.ToolCall
 
 	for _, output := range resp.Output {
 		switch output.Type {
 		case "message":
-			// Extract text from message
 			for _, content := range output.Content {
 				if content.Type == "output_text" {
 					contentParts = append(contentParts, content.Text)
 				}
 			}
-
 		case "function_call":
-			// Tool call from responses API
-			// Convert Arguments from json.RawMessage to string
-			// API already returns valid JSON, no need for ParseStringAs
 			toolCalls = append(toolCalls, ai.ToolCall{
 				Type: "function",
 				Function: ai.ToolCallFunction{
@@ -356,33 +369,28 @@ func responsesToGeneric(resp responseCreateResponse) *ai.ChatResponse {
 					Arguments: output.Arguments,
 				},
 			})
-
 		case "reasoning":
-			// Ignore or log reasoning items (no direct equivalent in ai.ChatResponse)
+			// Currently ignored; could aggregate reasoning channel separately.
 			continue
-
 		case "web_search_call", "file_search_call", "code_interpreter_call":
-			// Native tool calls - ignored for now
+			// Native calls ignored for now.
 			continue
 		}
 	}
 
-	// Combine all content parts
+	// Combine content
 	if len(contentParts) > 0 {
 		chatResp.Content = contentParts[0]
-		if len(contentParts) > 1 {
-			for i := 1; i < len(contentParts); i++ {
-				chatResp.Content += "\n" + contentParts[i]
-			}
+		for i := 1; i < len(contentParts); i++ {
+			chatResp.Content += "\n" + contentParts[i]
 		}
 	}
 
-	// Set tool calls
 	if len(toolCalls) > 0 {
 		chatResp.ToolCalls = toolCalls
 	}
 
-	// Map usage if present
+	// Usage mapping
 	if resp.Usage != nil {
 		chatResp.Usage = &ai.Usage{
 			PromptTokens:     resp.Usage.InputTokens,
@@ -391,7 +399,7 @@ func responsesToGeneric(resp responseCreateResponse) *ai.ChatResponse {
 		}
 	}
 
-	// Derive finish reason from status
+	// Finish reason derivation
 	switch resp.Status {
 	case "completed":
 		if len(toolCalls) > 0 {
@@ -410,12 +418,10 @@ func responsesToGeneric(resp responseCreateResponse) *ai.ChatResponse {
 	return chatResp
 }
 
-// parseResponsesToolCallsFromContent attempts to parse tool calls from message content using ParseStringAs.
-// This is a fallback for edge cases and handles broken JSON gracefully.
+// parseResponsesToolCallsFromContent tries to parse tool calls from raw content (fallback path).
 func parseResponsesToolCallsFromContent(content string) []ai.ToolCall {
 	var toolCalls []ai.ToolCall
 
-	// Use ParseStringAs for robust JSON parsing with auto-repair
 	functionCall, err := utils.ParseStringAs[ai.ToolCallFunction](content)
 	if err == nil && functionCall.Name != "" {
 		toolCalls = append(toolCalls, ai.ToolCall{
