@@ -396,6 +396,7 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 	overview.AddRequest(&request)
 	overview.AddResponse(response)
 	overview.IncludeUsage(response.Usage)
+	overview.AddToolCalls(response.ToolCalls)
 
 	c.observeSuccess(&ctx, &span, response, timer, "sending message")
 
@@ -487,6 +488,7 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 
 	overview.AddRequest(&request)
 	overview.AddResponse(response)
+	overview.AddToolCalls(response.ToolCalls)
 	if response.Usage != nil {
 		overview.IncludeUsage(response.Usage)
 	}

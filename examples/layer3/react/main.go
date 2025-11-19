@@ -46,7 +46,7 @@ func main() {
 	// The ReAct pattern will use memory and tools from the base client
 	reactPattern, err := react.NewReactPattern(
 		baseClient,
-		react.WithMaxIterations(5),
+		react.WithMaxIterations(10),
 		react.WithStopOnError(true),
 	)
 	if err != nil {
@@ -70,6 +70,7 @@ func main() {
 		respOverview.TotalUsage.PromptTokens,
 		respOverview.TotalUsage.CompletionTokens,
 	)
+	fmt.Printf("Tools used: %s\n", utils.ToString(respOverview.ToolCallStats))
 
 	// Show conversation history
 	fmt.Println("\n\n--- Conversation History ---")
