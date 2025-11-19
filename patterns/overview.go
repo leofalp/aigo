@@ -7,10 +7,11 @@ import (
 )
 
 type Overview struct {
-	LastResponse *ai.ChatResponse   `json:"last_response,omitempty"`
-	Requests     []*ai.ChatRequest  `json:"requests"`
-	Responses    []*ai.ChatResponse `json:"responses"`
-	TotalUsage   ai.Usage           `json:"total_usage"`
+	LastResponse  *ai.ChatResponse   `json:"last_response,omitempty"`
+	Requests      []*ai.ChatRequest  `json:"requests"`
+	Responses     []*ai.ChatResponse `json:"responses"`
+	TotalUsage    ai.Usage           `json:"total_usage"`
+	ToolCallStats map[string]int     `json:"tool_calls,omitempty"`
 }
 
 // StructuredOverview extends Overview with parsed structured data from the final response.
@@ -49,6 +50,16 @@ func (o *Overview) IncludeUsage(usage *ai.Usage) {
 	o.TotalUsage.TotalTokens += usage.TotalTokens
 	o.TotalUsage.ReasoningTokens += usage.ReasoningTokens
 	o.TotalUsage.CachedTokens += usage.CachedTokens
+}
+
+func (o *Overview) AddToolCalls(tools []ai.ToolCall) {
+	if o.ToolCallStats == nil {
+		o.ToolCallStats = make(map[string]int)
+	}
+
+	for _, tool := range tools {
+		o.ToolCallStats[tool.Function.Name]++
+	}
 }
 
 func (o *Overview) AddRequest(request *ai.ChatRequest) {
