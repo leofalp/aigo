@@ -996,8 +996,8 @@ type Output struct {
 	// This helps LLMs quickly identify important pages on the website.
 	// Categories are detected using multilingual patterns (Italian, English, Spanish, French, German).
 	// Multiple URLs can appear in the same category, and URLs can match multiple categories.
-	// Example: {"home": ["https://example.com/"], "contact": ["https://example.com/contact", "https://example.com/en/contact"]}
-	StandardPages map[string][]string `json:"standard_pages,omitempty" jsonschema:"description=URLs categorized by standard page types: home contact about products blog faq privacy login cart. Useful for LLMs to quickly identify key pages."`
+	// Example: map[PageCategory][]string{CategoryHome: {"https://example.com/"}, CategoryContact: {"https://example.com/contact", "https://example.com/en/contact"}}
+	StandardPages map[PageCategory][]string `json:"standard_pages,omitempty" jsonschema:"description=URLs categorized by standard page types: home contact about products blog faq privacy login cart. Useful for LLMs to quickly identify key pages."`
 }
 
 // Sitemap represents a sitemap.xml structure

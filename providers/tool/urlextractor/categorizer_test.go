@@ -18,8 +18,8 @@ func TestCategorizeURLs_Home(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	if len(categories["home"]) != 7 {
-		t.Errorf("Expected 7 home URLs, got %d", len(categories["home"]))
+	if len(categories[CategoryHome]) != 7 {
+		t.Errorf("Expected 7 home URLs, got %d", len(categories[CategoryHome]))
 	}
 }
 
@@ -37,7 +37,7 @@ func TestCategorizeURLs_Contact(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	contactURLs := categories["contact"]
+	contactURLs := categories[CategoryContact]
 	if len(contactURLs) != 7 {
 		t.Errorf("Expected 7 contact URLs, got %d", len(contactURLs))
 	}
@@ -59,7 +59,7 @@ func TestCategorizeURLs_About(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	aboutURLs := categories["about"]
+	aboutURLs := categories[CategoryAbout]
 	if len(aboutURLs) != 9 {
 		t.Errorf("Expected 9 about URLs, got %d", len(aboutURLs))
 	}
@@ -76,7 +76,7 @@ func TestCategorizeURLs_CaseInsensitive(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	contactURLs := categories["contact"]
+	contactURLs := categories[CategoryContact]
 	if len(contactURLs) != 4 {
 		t.Errorf("Expected 4 contact URLs (case-insensitive), got %d", len(contactURLs))
 	}
@@ -96,18 +96,18 @@ func TestCategorizeURLs_PathSegments(t *testing.T) {
 	categories := CategorizeURLs(urls)
 
 	// Should match contact pattern in /en/contact and /it/contatti
-	if len(categories["contact"]) != 2 {
-		t.Errorf("Expected 2 contact URLs in path segments, got %d", len(categories["contact"]))
+	if len(categories[CategoryContact]) != 2 {
+		t.Errorf("Expected 2 contact URLs in path segments, got %d", len(categories[CategoryContact]))
 	}
 
 	// Should match about pattern
-	if len(categories["about"]) != 2 {
-		t.Errorf("Expected 2 about URLs in path segments, got %d", len(categories["about"]))
+	if len(categories[CategoryAbout]) != 2 {
+		t.Errorf("Expected 2 about URLs in path segments, got %d", len(categories[CategoryAbout]))
 	}
 
 	// Should match products pattern
-	if len(categories["products"]) != 2 {
-		t.Errorf("Expected 2 products URLs in path segments, got %d", len(categories["products"]))
+	if len(categories[CategoryProducts]) != 2 {
+		t.Errorf("Expected 2 products URLs in path segments, got %d", len(categories[CategoryProducts]))
 	}
 }
 
@@ -123,13 +123,13 @@ func TestCategorizeURLs_MultipleCategories(t *testing.T) {
 	categories := CategorizeURLs(urls)
 
 	// blog and news should both be in "blog" category
-	blogURLs := categories["blog"]
+	blogURLs := categories[CategoryBlog]
 	if len(blogURLs) != 2 {
 		t.Errorf("Expected 2 blog URLs, got %d", len(blogURLs))
 	}
 
 	// faq and help should both be in "faq" category
-	faqURLs := categories["faq"]
+	faqURLs := categories[CategoryFAQ]
 	if len(faqURLs) != 2 {
 		t.Errorf("Expected 2 faq URLs, got %d", len(faqURLs))
 	}
@@ -151,8 +151,8 @@ func TestCategorizeURLs_AllCategories(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	expectedCategories := []string{
-		"home", "contact", "about", "products", "blog", "faq", "privacy", "login", "cart",
+	expectedCategories := []PageCategory{
+		CategoryHome, CategoryContact, CategoryAbout, CategoryProducts, CategoryBlog, CategoryFAQ, CategoryPrivacy, CategoryLogin, CategoryCart,
 	}
 
 	for _, cat := range expectedCategories {
@@ -203,11 +203,11 @@ func TestCategorizeURLs_InvalidURLs(t *testing.T) {
 	categories := CategorizeURLs(urls)
 
 	// Should have contact and about, but skip invalid URLs
-	if len(categories["contact"]) != 1 {
-		t.Errorf("Expected 1 contact URL, got %d", len(categories["contact"]))
+	if len(categories[CategoryContact]) != 1 {
+		t.Errorf("Expected 1 contact URL, got %d", len(categories[CategoryContact]))
 	}
-	if len(categories["about"]) != 1 {
-		t.Errorf("Expected 1 about URL, got %d", len(categories["about"]))
+	if len(categories[CategoryAbout]) != 1 {
+		t.Errorf("Expected 1 about URL, got %d", len(categories[CategoryAbout]))
 	}
 }
 
@@ -225,7 +225,7 @@ func TestCategorizeURLs_Privacy(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	privacyURLs := categories["privacy"]
+	privacyURLs := categories[CategoryPrivacy]
 	if len(privacyURLs) != 7 {
 		t.Errorf("Expected 7 privacy URLs, got %d", len(privacyURLs))
 	}
@@ -245,7 +245,7 @@ func TestCategorizeURLs_Login(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	loginURLs := categories["login"]
+	loginURLs := categories[CategoryLogin]
 	if len(loginURLs) != 7 {
 		t.Errorf("Expected 7 login URLs, got %d", len(loginURLs))
 	}
@@ -265,7 +265,7 @@ func TestCategorizeURLs_Cart(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	cartURLs := categories["cart"]
+	cartURLs := categories[CategoryCart]
 	if len(cartURLs) != 7 {
 		t.Errorf("Expected 7 cart URLs, got %d", len(cartURLs))
 	}
@@ -286,7 +286,7 @@ func TestCategorizeURLs_Products(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	productURLs := categories["products"]
+	productURLs := categories[CategoryProducts]
 	if len(productURLs) != 8 {
 		t.Errorf("Expected 8 product URLs, got %d", len(productURLs))
 	}
@@ -306,7 +306,7 @@ func TestCategorizeURLs_Blog(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	blogURLs := categories["blog"]
+	blogURLs := categories[CategoryBlog]
 	if len(blogURLs) != 7 {
 		t.Errorf("Expected 7 blog URLs, got %d", len(blogURLs))
 	}
@@ -326,7 +326,7 @@ func TestCategorizeURLs_FAQ(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	faqURLs := categories["faq"]
+	faqURLs := categories[CategoryFAQ]
 	if len(faqURLs) != 7 {
 		t.Errorf("Expected 7 FAQ URLs, got %d", len(faqURLs))
 	}
@@ -334,10 +334,10 @@ func TestCategorizeURLs_FAQ(t *testing.T) {
 
 // TestGetStandardPagesSummary tests the summary generation
 func TestGetStandardPagesSummary(t *testing.T) {
-	categories := map[string][]string{
-		"home":    {"https://example.com/"},
-		"contact": {"https://example.com/contact", "https://example.com/contatti"},
-		"about":   {"https://example.com/about"},
+	categories := map[PageCategory][]string{
+		CategoryHome:    {"https://example.com/"},
+		CategoryContact: {"https://example.com/contact", "https://example.com/contatti"},
+		CategoryAbout:   {"https://example.com/about"},
 	}
 
 	summary := GetStandardPagesSummary(categories)
@@ -356,7 +356,7 @@ func TestGetStandardPagesSummary(t *testing.T) {
 
 // TestGetStandardPagesSummary_Empty tests empty summary
 func TestGetStandardPagesSummary_Empty(t *testing.T) {
-	categories := map[string][]string{}
+	categories := map[PageCategory][]string{}
 	summary := GetStandardPagesSummary(categories)
 
 	expected := "No standard pages found"
@@ -435,8 +435,8 @@ func TestCategorizeURLs_LanguagePrefixes(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	if len(categories["home"]) != 16 {
-		t.Errorf("Expected 16 home URLs with language prefixes, got %d. URLs: %v", len(categories["home"]), categories["home"])
+	if len(categories[CategoryHome]) != 16 {
+		t.Errorf("Expected 16 home URLs with language prefixes, got %d. URLs: %v", len(categories[CategoryHome]), categories[CategoryHome])
 	}
 }
 
@@ -454,24 +454,24 @@ func TestCategorizeURLs_FileExtensions(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	if len(categories["contact"]) != 3 {
-		t.Errorf("Expected 3 contact URLs (with extensions), got %d. URLs: %v", len(categories["contact"]), categories["contact"])
+	if len(categories[CategoryContact]) != 3 {
+		t.Errorf("Expected 3 contact URLs (with extensions), got %d. URLs: %v", len(categories[CategoryContact]), categories[CategoryContact])
 	}
 
-	if len(categories["about"]) != 1 {
-		t.Errorf("Expected 1 about URL (with .aspx), got %d", len(categories["about"]))
+	if len(categories[CategoryAbout]) != 1 {
+		t.Errorf("Expected 1 about URL (with .aspx), got %d", len(categories[CategoryAbout]))
 	}
 
-	if len(categories["products"]) != 1 {
-		t.Errorf("Expected 1 products URL (with .jsp), got %d", len(categories["products"]))
+	if len(categories[CategoryProducts]) != 1 {
+		t.Errorf("Expected 1 products URL (with .jsp), got %d", len(categories[CategoryProducts]))
 	}
 
-	if len(categories["blog"]) != 1 {
-		t.Errorf("Expected 1 blog URL (with .cfm), got %d", len(categories["blog"]))
+	if len(categories[CategoryBlog]) != 1 {
+		t.Errorf("Expected 1 blog URL (with .cfm), got %d", len(categories[CategoryBlog]))
 	}
 
-	if len(categories["faq"]) != 1 {
-		t.Errorf("Expected 1 faq URL (with .shtml), got %d", len(categories["faq"]))
+	if len(categories[CategoryFAQ]) != 1 {
+		t.Errorf("Expected 1 faq URL (with .shtml), got %d", len(categories[CategoryFAQ]))
 	}
 }
 
@@ -487,24 +487,24 @@ func TestCategorizeURLs_TrailingSlashes(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	if len(categories["contact"]) != 1 {
-		t.Errorf("Expected 1 contact URL (with trailing slash), got %d", len(categories["contact"]))
+	if len(categories[CategoryContact]) != 1 {
+		t.Errorf("Expected 1 contact URL (with trailing slash), got %d", len(categories[CategoryContact]))
 	}
 
-	if len(categories["about"]) != 1 {
-		t.Errorf("Expected 1 about URL (with trailing slash), got %d", len(categories["about"]))
+	if len(categories[CategoryAbout]) != 1 {
+		t.Errorf("Expected 1 about URL (with trailing slash), got %d", len(categories[CategoryAbout]))
 	}
 
-	if len(categories["products"]) != 1 {
-		t.Errorf("Expected 1 products URL (with trailing slash), got %d", len(categories["products"]))
+	if len(categories[CategoryProducts]) != 1 {
+		t.Errorf("Expected 1 products URL (with trailing slash), got %d", len(categories[CategoryProducts]))
 	}
 
-	if len(categories["blog"]) != 1 {
-		t.Errorf("Expected 1 blog URL (with trailing slash), got %d", len(categories["blog"]))
+	if len(categories[CategoryBlog]) != 1 {
+		t.Errorf("Expected 1 blog URL (with trailing slash), got %d", len(categories[CategoryBlog]))
 	}
 
-	if len(categories["home"]) != 1 {
-		t.Errorf("Expected 1 home URL (root with trailing slash), got %d", len(categories["home"]))
+	if len(categories[CategoryHome]) != 1 {
+		t.Errorf("Expected 1 home URL (root with trailing slash), got %d", len(categories[CategoryHome]))
 	}
 }
 
@@ -519,16 +519,16 @@ func TestCategorizeURLs_EmptySegments(t *testing.T) {
 	categories := CategorizeURLs(urls)
 
 	// Should still match despite double slashes
-	if len(categories["contact"]) != 1 {
-		t.Errorf("Expected 1 contact URL (with double slash), got %d", len(categories["contact"]))
+	if len(categories[CategoryContact]) != 1 {
+		t.Errorf("Expected 1 contact URL (with double slash), got %d", len(categories[CategoryContact]))
 	}
 
-	if len(categories["about"]) != 1 {
-		t.Errorf("Expected 1 about URL (with double slashes), got %d", len(categories["about"]))
+	if len(categories[CategoryAbout]) != 1 {
+		t.Errorf("Expected 1 about URL (with double slashes), got %d", len(categories[CategoryAbout]))
 	}
 
-	if len(categories["products"]) != 1 {
-		t.Errorf("Expected 1 products URL (with triple slashes), got %d", len(categories["products"]))
+	if len(categories[CategoryProducts]) != 1 {
+		t.Errorf("Expected 1 products URL (with triple slashes), got %d", len(categories[CategoryProducts]))
 	}
 }
 
@@ -544,13 +544,13 @@ func TestCategorizeURLs_URLDecoding(t *testing.T) {
 	categories := CategorizeURLs(urls)
 
 	// uber-uns should match about pattern
-	if len(categories["about"]) != 1 {
-		t.Errorf("Expected 1 about URL (uber-uns), got %d. URLs: %v", len(categories["about"]), categories["about"])
+	if len(categories[CategoryAbout]) != 1 {
+		t.Errorf("Expected 1 about URL (uber-uns), got %d. URLs: %v", len(categories[CategoryAbout]), categories[CategoryAbout])
 	}
 
 	// contact with encoded space should match
-	if len(categories["contact"]) < 1 {
-		t.Errorf("Expected at least 1 contact URL (with encoded space), got %d. URLs: %v", len(categories["contact"]), categories["contact"])
+	if len(categories[CategoryContact]) < 1 {
+		t.Errorf("Expected at least 1 contact URL (with encoded space), got %d. URLs: %v", len(categories[CategoryContact]), categories[CategoryContact])
 	}
 }
 
@@ -571,16 +571,16 @@ func TestCategorizeURLs_Portuguese(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	expectedCats := map[string]int{
-		"home":     2, // pt-br, pt-pt
-		"contact":  1, // contato
-		"about":    1, // sobre-nos
-		"products": 1, // produtos
-		"blog":     1, // artigos
-		"faq":      1, // ajuda
-		"privacy":  1, // privacidade
-		"login":    1, // entrar
-		"cart":     1, // carrinho
+	expectedCats := map[PageCategory]int{
+		CategoryHome:     2, // pt-br, pt-pt
+		CategoryContact:  1, // contato
+		CategoryAbout:    1, // sobre-nos
+		CategoryProducts: 1, // produtos
+		CategoryBlog:     1, // artigos
+		CategoryFAQ:      1, // ajuda
+		CategoryPrivacy:  1, // privacidade
+		CategoryLogin:    1, // entrar
+		CategoryCart:     1, // carrinho
 	}
 
 	for cat, expectedCount := range expectedCats {
@@ -608,16 +608,16 @@ func TestCategorizeURLs_Russian(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	expectedCats := map[string]int{
-		"home":     1, // ru
-		"contact":  1, // kontakty
-		"about":    1, // o-nas
-		"products": 1, // produkty
-		"blog":     1, // novosti
-		"faq":      1, // pomoshch
-		"privacy":  1, // konfidentsialnost
-		"login":    1, // vkhod
-		"cart":     1, // korzina
+	expectedCats := map[PageCategory]int{
+		CategoryHome:     1, // ru
+		CategoryContact:  1, // kontakty
+		CategoryAbout:    1, // o-nas
+		CategoryProducts: 1, // produkty
+		CategoryBlog:     1, // novosti
+		CategoryFAQ:      1, // pomoshch
+		CategoryPrivacy:  1, // konfidentsialnost
+		CategoryLogin:    1, // vkhod
+		CategoryCart:     1, // korzina
 	}
 
 	for cat, expectedCount := range expectedCats {
@@ -647,16 +647,16 @@ func TestCategorizeURLs_Chinese(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	expectedCats := map[string]int{
-		"home":     3, // zh, zh-cn, zh-tw
-		"contact":  1, // lianxi
-		"about":    1, // guanyu
-		"products": 1, // chanpin
-		"blog":     1, // xinwen
-		"faq":      1, // bangzhu
-		"privacy":  1, // yinsi
-		"login":    1, // denglu
-		"cart":     1, // gouwuche
+	expectedCats := map[PageCategory]int{
+		CategoryHome:     3, // zh, zh-cn, zh-tw
+		CategoryContact:  1, // lianxi
+		CategoryAbout:    1, // guanyu
+		CategoryProducts: 1, // chanpin
+		CategoryBlog:     1, // xinwen
+		CategoryFAQ:      1, // bangzhu
+		CategoryPrivacy:  1, // yinsi
+		CategoryLogin:    1, // denglu
+		CategoryCart:     1, // gouwuche
 	}
 
 	for cat, expectedCount := range expectedCats {
@@ -684,16 +684,16 @@ func TestCategorizeURLs_Japanese(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	expectedCats := map[string]int{
-		"home":     1, // ja
-		"contact":  1, // otoiawase
-		"about":    1, // kaishagaiyou
-		"products": 1, // seihin
-		"blog":     1, // nyusu
-		"faq":      1, // tasukeru
-		"privacy":  1, // puraibashi
-		"login":    1, // roguin
-		"cart":     1, // kaato
+	expectedCats := map[PageCategory]int{
+		CategoryHome:     1, // ja
+		CategoryContact:  1, // otoiawase
+		CategoryAbout:    1, // kaishagaiyou
+		CategoryProducts: 1, // seihin
+		CategoryBlog:     1, // nyusu
+		CategoryFAQ:      1, // tasukeru
+		CategoryPrivacy:  1, // puraibashi
+		CategoryLogin:    1, // roguin
+		CategoryCart:     1, // kaato
 	}
 
 	for cat, expectedCount := range expectedCats {
@@ -721,16 +721,16 @@ func TestCategorizeURLs_Arabic(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	expectedCats := map[string]int{
-		"home":     1, // ar
-		"contact":  1, // ittisal
-		"about":    1, // anna
-		"products": 1, // muntajat
-		"blog":     1, // akhbar
-		"faq":      1, // musaada
-		"privacy":  1, // khususiya
-		"login":    1, // dukhuul
-		"cart":     1, // sabt
+	expectedCats := map[PageCategory]int{
+		CategoryHome:     1, // ar
+		CategoryContact:  1, // ittisal
+		CategoryAbout:    1, // anna
+		CategoryProducts: 1, // muntajat
+		CategoryBlog:     1, // akhbar
+		CategoryFAQ:      1, // musaada
+		CategoryPrivacy:  1, // khususiya
+		CategoryLogin:    1, // dukhuul
+		CategoryCart:     1, // sabt
 	}
 
 	for cat, expectedCount := range expectedCats {
@@ -758,16 +758,16 @@ func TestCategorizeURLs_Dutch(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	expectedCats := map[string]int{
-		"home":     1, // nl
-		"contact":  1, // contactpagina
-		"about":    1, // over-ons
-		"products": 1, // producten
-		"blog":     1, // nieuws
-		"faq":      1, // hulp
-		"privacy":  1, // privacy-nl
-		"login":    1, // inloggen
-		"cart":     1, // winkelwagen
+	expectedCats := map[PageCategory]int{
+		CategoryHome:     1, // nl
+		CategoryContact:  1, // contactpagina
+		CategoryAbout:    1, // over-ons
+		CategoryProducts: 1, // producten
+		CategoryBlog:     1, // nieuws
+		CategoryFAQ:      1, // hulp
+		CategoryPrivacy:  1, // privacy-nl
+		CategoryLogin:    1, // inloggen
+		CategoryCart:     1, // winkelwagen
 	}
 
 	for cat, expectedCount := range expectedCats {
@@ -797,8 +797,8 @@ func TestCategorizeURLs_RegionalVariants(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	if len(categories["home"]) != 11 {
-		t.Errorf("Expected 11 home URLs with regional variants, got %d. URLs: %v", len(categories["home"]), categories["home"])
+	if len(categories[CategoryHome]) != 11 {
+		t.Errorf("Expected 11 home URLs with regional variants, got %d. URLs: %v", len(categories[CategoryHome]), categories[CategoryHome])
 	}
 }
 
@@ -824,14 +824,14 @@ func TestCategorizeURLs_MixedLanguagesRealWorld(t *testing.T) {
 
 	categories := CategorizeURLs(urls)
 
-	expectedCats := map[string]int{
-		"home":     3, // /, /it/, /en/
-		"contact":  5, // IT, EN, DE, FR, PT
-		"about":    2, // IT (.html), EN (.php)
-		"products": 2, // IT (trailing slash), EN (trailing slash)
-		"blog":     1, // /blog
-		"privacy":  1, // IT
-		"login":    1, // .aspx
+	expectedCats := map[PageCategory]int{
+		CategoryHome:     3, // /, /it/, /en/
+		CategoryContact:  5, // IT, EN, DE, FR, PT
+		CategoryAbout:    2, // IT (.html), EN (.php)
+		CategoryProducts: 2, // IT (trailing slash), EN (trailing slash)
+		CategoryBlog:     1, // /blog
+		CategoryPrivacy:  1, // IT
+		CategoryLogin:    1, // .aspx
 	}
 
 	for cat, expectedCount := range expectedCats {

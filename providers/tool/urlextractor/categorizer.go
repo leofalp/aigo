@@ -3,6 +3,7 @@ package urlextractor
 import (
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -173,7 +174,7 @@ var categoryPatterns = map[PageCategory][]string{
 }
 
 // CategorizeURLs analyzes a list of URLs and categorizes them into standard page types.
-// It returns a map where keys are page categories and values are lists of matching URLs.
+// It returns a map keyed by PageCategory where each entry contains the URLs that matched that category.
 //
 // The categorization is:
 // - Case-insensitive: "/Contact" matches "contact" pattern
@@ -188,13 +189,13 @@ var categoryPatterns = map[PageCategory][]string{
 //	    "https://example.com/en/about-us",
 //	}
 //	categories := CategorizeURLs(urls)
-//	// Returns: {
-//	//   "home": ["https://example.com/"],
-//	//   "contact": ["https://example.com/contatti"],
-//	//   "about": ["https://example.com/en/about-us"]
+//	// Returns: map[PageCategory][]string{
+//	//   CategoryHome:    {"https://example.com/"},
+//	//   CategoryContact: {"https://example.com/contatti"},
+//	//   CategoryAbout:   {"https://example.com/en/about-us"},
 //	// }
-func CategorizeURLs(urls []string) map[string][]string {
-	categories := make(map[string][]string)
+func CategorizeURLs(urls []string) map[PageCategory][]string {
+	categories := make(map[PageCategory][]string)
 
 	for _, urlStr := range urls {
 		// Parse URL to extract path
@@ -222,8 +223,7 @@ func CategorizeURLs(urls []string) map[string][]string {
 		// Check against all category patterns
 		for category, patterns := range categoryPatterns {
 			if matchesAnyPattern(path, patterns, category) {
-				categoryKey := string(category)
-				categories[categoryKey] = append(categories[categoryKey], urlStr)
+				categories[category] = append(categories[category], urlStr)
 			}
 		}
 	}
@@ -365,7 +365,7 @@ func filterEmptySegments(segments []string) []string {
 // Example output:
 //
 //	"Found standard pages: home (1 URL), contact (2 URLs), about (1 URL), products (3 URLs)"
-func GetStandardPagesSummary(categories map[string][]string) string {
+func GetStandardPagesSummary(categories map[PageCategory][]string) string {
 	if len(categories) == 0 {
 		return "No standard pages found"
 	}
@@ -378,13 +378,13 @@ func GetStandardPagesSummary(categories map[string][]string) string {
 	}
 
 	for _, cat := range categoryOrder {
-		key := string(cat)
-		if urls, exists := categories[key]; exists && len(urls) > 0 {
+		if urls, exists := categories[cat]; exists && len(urls) > 0 {
 			count := len(urls)
+			name := string(cat)
 			if count == 1 {
-				parts = append(parts, key+" (1 URL)")
+				parts = append(parts, name+" (1 URL)")
 			} else {
-				parts = append(parts, key+" ("+string(rune(count+48))+" URLs)")
+				parts = append(parts, name+" ("+strconv.Itoa(count)+" URLs)")
 			}
 		}
 	}

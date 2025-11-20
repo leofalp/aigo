@@ -80,10 +80,20 @@ func basicExtraction(ctx context.Context) {
 	// Show standard pages categorization (automatic)
 	if len(output.StandardPages) > 0 {
 		fmt.Println("\n📋 Standard Pages Detected:")
-		categories := []string{"home", "contact", "about", "products", "blog", "faq", "privacy", "login", "cart"}
+		categories := []urlextractor.PageCategory{
+			urlextractor.CategoryHome,
+			urlextractor.CategoryContact,
+			urlextractor.CategoryAbout,
+			urlextractor.CategoryProducts,
+			urlextractor.CategoryBlog,
+			urlextractor.CategoryFAQ,
+			urlextractor.CategoryPrivacy,
+			urlextractor.CategoryLogin,
+			urlextractor.CategoryCart,
+		}
 		for _, cat := range categories {
 			if urls, ok := output.StandardPages[cat]; ok && len(urls) > 0 {
-				fmt.Printf("  ✓ %s: %d URL(s)\n", cat, len(urls))
+				fmt.Printf("  ✓ %s: %d URL(s)\n", string(cat), len(urls))
 				for _, url := range urls {
 					fmt.Printf("    - %s\n", url)
 				}
