@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unsafe"
 
 	"github.com/leofalp/aigo/core/client"
 	"github.com/leofalp/aigo/core/cost"
@@ -64,14 +63,6 @@ func WithStopOnError(stop bool) Option {
 	}
 }
 
-// WithSysPromptAnnotation configures whether to append ReAct guidance to the system prompt.
-// Default: true
-func WithSysPromptAnnotation(withSysPrompt bool) Option {
-	return func(rc *ReAct[any]) {
-		rc.withSystemPromptAnnotation = withSysPrompt
-	}
-}
-
 // New creates a new type-safe ReAct pattern that wraps a base client.
 // The base client should be configured with memory, tools, and observer.
 //
@@ -122,7 +113,7 @@ func New[T any](baseClient *client.Client, opts ...Option) (*ReAct[T], error) {
 
 	// Apply options (using type erasure for the option functions)
 	for _, opt := range opts {
-		opt((*ReAct[any])(unsafe.Pointer(rc)))
+		opt((*ReAct[any])(rc))
 	}
 
 	if rc.withSystemPromptAnnotation {
