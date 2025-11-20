@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 
+	"github.com/leofalp/aigo/core/cost"
 	"github.com/leofalp/aigo/internal/jsonschema"
 	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/patterns"
@@ -33,6 +35,7 @@ type Client struct {
 	toolDescriptions    []ai.ToolDescription
 	requiredTools       []ai.ToolDescription
 	state               map[string]any
+	modelCost           *cost.ModelCost // Optional: cost per million tokens for the model
 }
 
 // ClientOptions contains all configuration for a Client.
@@ -41,14 +44,16 @@ type ClientOptions struct {
 	LlmProvider ai.Provider
 
 	// Optional with sensible defaults
-	DefaultModel                    string                 // Model to use for requests (can be overridden per-request in future)
-	DefaultOutputSchema             *jsonschema.Schema     // Optional: JSON schema for structured output (applied to all requests unless overridden)
-	MemoryProvider                  memory.Provider        // Optional: if nil, client operates in stateless mode
-	Observer                        observability.Provider // Defaults to nil (zero overhead)
-	SystemPrompt                    string                 // System prompt for all requests
-	Tools                           []tool.GenericTool     // Tools available to the LLM
-	RequiredTools                   []tool.GenericTool
-	EnrichSystemPromptWithToolDescr bool // If true, automatically append tool descriptions to system prompt (default: false)
+	DefaultModel                string                 // Model to use for requests (can be overridden per-request in future)
+	DefaultOutputSchema         *jsonschema.Schema     // Optional: JSON schema for structured output (applied to all requests unless overridden)
+	MemoryProvider              memory.Provider        // Optional: if nil, client operates in stateless mode
+	Observer                    observability.Provider // Defaults to nil (zero overhead)
+	SystemPrompt                string                 // System prompt for all requests
+	Tools                       []tool.GenericTool     // Tools available to the LLM
+	RequiredTools               []tool.GenericTool
+	EnrichSystemPromptWithTools bool                      // If true, automatically append tool information to system prompt (default: false)
+	ToolOptimizationStrategy    cost.OptimizationStrategy // Strategy for tool selection optimization (empty = no optimization guidance)
+	ModelCost                   *cost.ModelCost           // Optional: cost per million tokens for cost tracking
 }
 
 // Functional option pattern for ergonomic API
@@ -106,7 +111,7 @@ func WithTools(tools ...tool.GenericTool) func(*ClientOptions) {
 //	)
 func WithEnrichSystemPromptWithToolsDescriptions() func(*ClientOptions) {
 	return func(o *ClientOptions) {
-		o.EnrichSystemPromptWithToolDescr = true
+		o.EnrichSystemPromptWithTools = true
 	}
 }
 
@@ -134,6 +139,61 @@ func WithEnrichSystemPromptWithToolsDescriptions() func(*ClientOptions) {
 func WithDefaultOutputSchema(schema *jsonschema.Schema) func(*ClientOptions) {
 	return func(o *ClientOptions) {
 		o.DefaultOutputSchema = schema
+	}
+}
+
+// WithEnrichSystemPromptWithToolsCosts enables automatic enrichment of the system prompt
+// with tool information including cost/quality metrics and optimization guidance.
+// This also enables tool descriptions automatically.
+//
+// The strategy parameter determines what the LLM should optimize for:
+//   - cost.OptimizeForCost: Minimize costs
+//   - cost.OptimizeForAccuracy: Maximize accuracy
+//   - cost.OptimizeForSpeed: Minimize execution time
+//   - cost.OptimizeForQuality: Maximize overall quality
+//   - cost.OptimizeBalanced: Balance all metrics
+//   - cost.OptimizeCostEffective: Best quality-to-cost ratio
+//
+// Example usage:
+//
+//	client := NewClient(provider,
+//	    WithSystemPrompt("You are a helpful assistant."),
+//	    WithTools(calcTool, searchTool),
+//	    WithEnrichSystemPromptWithToolsCosts(cost.OptimizeForAccuracy),
+//	)
+func WithEnrichSystemPromptWithToolsCosts(strategy cost.OptimizationStrategy) func(*ClientOptions) {
+	return func(o *ClientOptions) {
+		o.EnrichSystemPromptWithTools = true
+		o.ToolOptimizationStrategy = strategy
+	}
+}
+
+// WithModelCost sets the pricing configuration for the model to enable cost tracking.
+// Costs are specified per million tokens in USD.
+//
+// Example usage:
+//
+//	client := NewClient(provider,
+//	    WithDefaultModel("gpt-4o"),
+//	    WithModelCost(cost.ModelCost{
+//	        InputCostPerMillion:  2.50,
+//	        OutputCostPerMillion: 10.00,
+//	    }),
+//	)
+//
+// For models with cached or reasoning tokens:
+//
+//	client := NewClient(provider,
+//	    WithModelCost(cost.ModelCost{
+//	        InputCostPerMillion:       2.50,
+//	        OutputCostPerMillion:      10.00,
+//	        CachedInputCostPerMillion: 1.25,
+//	        ReasoningCostPerMillion:   5.00,
+//	    }),
+//	)
+func WithModelCost(modelCost cost.ModelCost) func(*ClientOptions) {
+	return func(o *ClientOptions) {
+		o.ModelCost = &modelCost
 	}
 }
 
@@ -185,10 +245,10 @@ func NewClient(llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client, 
 		requiredTools = append(requiredTools, t.ToolInfo())
 	}
 
-	// Enrich system prompt if enabled
+	// Enrich system prompt with tools if enabled
 	systemPrompt := options.SystemPrompt
-	if options.EnrichSystemPromptWithToolDescr && len(toolDescriptions) > 0 {
-		systemPrompt = enrichSystemPromptWithTools(options.SystemPrompt, toolDescriptions)
+	if options.EnrichSystemPromptWithTools && len(options.Tools) > 0 {
+		systemPrompt = enrichSystemPromptWithTools(systemPrompt, options.Tools, toolDescriptions, options.ToolOptimizationStrategy)
 	}
 
 	return &Client{
@@ -202,6 +262,7 @@ func NewClient(llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client, 
 		toolDescriptions:    toolDescriptions,
 		requiredTools:       requiredTools,
 		state:               map[string]any{},
+		modelCost:           options.ModelCost,
 	}, nil
 }
 
@@ -238,35 +299,88 @@ func (c *Client) SetDefaultOutputSchema(schema *jsonschema.Schema) {
 	c.defaultOutputSchema = schema
 }
 
-// enrichSystemPromptWithTools appends tool usage guidance to the system prompt.
-// This helps LLMs understand when and how to use available tools.
-func enrichSystemPromptWithTools(basePrompt string, tools []ai.ToolDescription) string {
+// enrichSystemPromptWithTools appends comprehensive tool information to the system prompt.
+// This unified function includes tool descriptions, parameters, and optionally cost/quality metrics
+// with optimization guidance based on the specified strategy.
+func enrichSystemPromptWithTools(basePrompt string, tools []tool.GenericTool, toolDescriptions []ai.ToolDescription, strategy cost.OptimizationStrategy) string {
 	if len(tools) == 0 {
 		return basePrompt
 	}
 
-	enrichment := "\n\n## Available Tools\n\n"
-	enrichment += "You have access to the following tools. Use them when appropriate to provide accurate and helpful responses:\n\n"
+	// Build header and guidance based on strategy
+	var header, guidance string
+	includeMetrics := strategy != ""
 
-	for i, singleTool := range tools {
-		enrichment += strconv.Itoa(i+1) + ". **" + singleTool.Name + "**"
-		if singleTool.Description != "" {
-			enrichment += "\n   - Description: " + singleTool.Description
+	if includeMetrics {
+		switch strategy {
+		case cost.OptimizeForCost:
+			header = "## Available Tools\n\nYou have access to the following tools. Each tool has an associated cost. Minimize costs when selecting tools:\n\n"
+			guidance = "\n**Optimization Goal:** When multiple tools can accomplish the same task, prefer lower-cost options. Only use expensive tools when their unique capabilities are necessary."
+		case cost.OptimizeForAccuracy:
+			header = "## Available Tools\n\nYou have access to the following tools with accuracy and quality metrics. Prioritize accuracy when selecting tools:\n\n"
+			guidance = "\n**Optimization Goal:** When multiple tools can accomplish the same task, prefer tools with higher accuracy scores. Cost is secondary to result quality."
+		case cost.OptimizeForSpeed:
+			header = "## Available Tools\n\nYou have access to the following tools with different execution speeds. Minimize response time when selecting tools:\n\n"
+			guidance = "\n**Optimization Goal:** When multiple tools can accomplish the same task, prefer faster tools. Speed is the primary consideration."
+		case cost.OptimizeForQuality:
+			header = "## Available Tools\n\nYou have access to the following tools with overall quality metrics. Prioritize quality when selecting tools:\n\n"
+			guidance = "\n**Optimization Goal:** When multiple tools can accomplish the same task, prefer tools with higher quality scores. Focus on the best possible results."
+		case cost.OptimizeBalanced:
+			header = "## Available Tools\n\nYou have access to the following tools with various metrics (cost, accuracy, speed, quality). Balance all factors when selecting tools:\n\n"
+			guidance = "\n**Optimization Goal:** When multiple tools can accomplish the same task, consider all available metrics and choose tools that provide the best overall balance."
+		case cost.OptimizeCostEffective:
+			header = "## Available Tools\n\nYou have access to the following tools with cost and quality metrics. Maximize value (quality per cost) when selecting tools:\n\n"
+			guidance = "\n**Optimization Goal:** When multiple tools can accomplish the same task, prefer tools with the best quality-to-cost ratio. Seek good results at reasonable prices."
+		default:
+			header = "## Available Tools\n\nYou have access to the following tools with associated metrics:\n\n"
+			guidance = "\n**Note:** Consider the available metrics when selecting tools."
+		}
+	} else {
+		header = "## Available Tools\n\nYou have access to the following tools. Use them when appropriate to provide accurate and helpful responses:\n\n"
+		guidance = "\n**Important:** When you need to use a tool, call it using the function calling format. The system will execute the tool and provide you with the results, which you should then use to formulate your final response."
+	}
+
+	enrichment := "\n\n" + header
+
+	// Build tool list with descriptions and optionally metrics
+	for i, t := range tools {
+		info := t.ToolInfo()
+		enrichment += strconv.Itoa(i+1) + ". **" + info.Name + "**"
+
+		// Add description
+		if info.Description != "" {
+			enrichment += "\n   - Description: " + info.Description
 		}
 
-		// Add parameter information if available
-		if singleTool.Parameters != nil {
-			if paramsJSON, err := json.Marshal(singleTool.Parameters); err == nil {
+		// Add parameters
+		if info.Parameters != nil {
+			if paramsJSON, err := json.Marshal(info.Parameters); err == nil {
 				enrichment += "\n   - Parameters: " + string(paramsJSON)
 			}
 		}
-		// TODO describe also the output
+
+		// Add cost/quality metrics if strategy is specified
+		if includeMetrics && info.Cost != nil {
+			enrichment += "\n   - Cost: " + info.Cost.String()
+
+			metrics := info.Cost.MetricsString()
+			if metrics != "" {
+				enrichment += "\n   - Metrics: " + metrics
+			}
+
+			// Show cost-effectiveness for cost_effective strategy
+			if strategy == cost.OptimizeCostEffective {
+				score := info.Cost.CostEffectivenessScore()
+				if score > 0 {
+					enrichment += fmt.Sprintf("\n   - Cost-Effectiveness Score: %.2f", score)
+				}
+			}
+		}
 
 		enrichment += "\n"
 	}
 
-	enrichment += "\n**Important:** When you need to use a tool, call it using the function calling format. "
-	enrichment += "The system will execute the tool and provide you with the results, which you should then use to formulate your final response."
+	enrichment += guidance
 
 	return basePrompt + enrichment
 }
@@ -398,6 +512,11 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 	overview.IncludeUsage(response.Usage)
 	overview.AddToolCalls(response.ToolCalls)
 
+	// Set model cost in overview if configured
+	if c.modelCost != nil {
+		overview.SetModelCost(c.modelCost)
+	}
+
 	c.observeSuccess(&ctx, &span, response, timer, "sending message")
 
 	return response, nil
@@ -491,6 +610,11 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 	overview.AddToolCalls(response.ToolCalls)
 	if response.Usage != nil {
 		overview.IncludeUsage(response.Usage)
+	}
+
+	// Set model cost in overview if configured
+	if c.modelCost != nil {
+		overview.SetModelCost(c.modelCost)
 	}
 
 	c.observeSuccess(&ctx, &span, response, timer, "continue conversation")

@@ -11,6 +11,7 @@ import (
 	"github.com/leofalp/aigo/providers/ai"
 	"github.com/leofalp/aigo/providers/memory/inmemory"
 	"github.com/leofalp/aigo/providers/observability"
+	"github.com/leofalp/aigo/providers/tool"
 )
 
 // ========== Mock Types ==========
@@ -655,23 +656,22 @@ func TestSendMessage_NilObserver_NoPanic(t *testing.T) {
 // ========== Prompt Enrichment Tests ==========
 
 // TestEnrichSystemPromptWithTools tests basic enrichment
+// TestEnrichSystemPromptWithTools tests the system prompt enrichment without optimization strategy
 func TestEnrichSystemPromptWithTools(t *testing.T) {
 	basePrompt := "You are a helpful assistant."
 
-	tools := []ai.ToolDescription{
-		{
-			Name:        "Calculator",
-			Description: "Performs basic arithmetic operations",
-			Parameters:  nil,
-		},
-		{
-			Name:        "WebSearch",
-			Description: "Searches the web for information",
-			Parameters:  nil,
-		},
+	// Create mock tools
+	mockTools := []tool.GenericTool{
+		&mockTool{name: "calculator", description: "Performs arithmetic operations"},
+		&mockTool{name: "search", description: "Searches the web"},
 	}
 
-	enriched := enrichSystemPromptWithTools(basePrompt, tools)
+	toolDescriptions := []ai.ToolDescription{
+		{Name: "calculator", Description: "Performs arithmetic operations"},
+		{Name: "search", Description: "Searches the web"},
+	}
+
+	enriched := enrichSystemPromptWithTools(basePrompt, mockTools, toolDescriptions, "")
 
 	if !strings.Contains(enriched, basePrompt) {
 		t.Error("Enriched prompt should contain the base prompt")
@@ -681,12 +681,12 @@ func TestEnrichSystemPromptWithTools(t *testing.T) {
 		t.Error("Enriched prompt should contain 'Available Tools' section")
 	}
 
-	for _, tool := range tools {
-		if !strings.Contains(enriched, tool.Name) {
-			t.Errorf("Enriched prompt should contain tool name '%s'", tool.Name)
+	for _, desc := range toolDescriptions {
+		if !strings.Contains(enriched, desc.Name) {
+			t.Errorf("Enriched prompt should contain tool name '%s'", desc.Name)
 		}
-		if !strings.Contains(enriched, tool.Description) {
-			t.Errorf("Enriched prompt should contain tool description for '%s'", tool.Name)
+		if !strings.Contains(enriched, desc.Description) {
+			t.Errorf("Enriched prompt should contain tool description for '%s'", desc.Name)
 		}
 	}
 
@@ -698,9 +698,10 @@ func TestEnrichSystemPromptWithTools(t *testing.T) {
 // TestEnrichSystemPromptWithTools_EmptyTools tests with no tools
 func TestEnrichSystemPromptWithTools_EmptyTools(t *testing.T) {
 	basePrompt := "You are a helpful assistant."
-	tools := []ai.ToolDescription{}
+	var mockTools []tool.GenericTool
+	var toolDescriptions []ai.ToolDescription
 
-	enriched := enrichSystemPromptWithTools(basePrompt, tools)
+	enriched := enrichSystemPromptWithTools(basePrompt, mockTools, toolDescriptions, "")
 
 	if enriched != basePrompt {
 		t.Error("Expected enriched prompt to equal base prompt when no tools provided")
@@ -710,9 +711,10 @@ func TestEnrichSystemPromptWithTools_EmptyTools(t *testing.T) {
 // TestEnrichSystemPromptWithTools_NilTools tests with nil tools
 func TestEnrichSystemPromptWithTools_NilTools(t *testing.T) {
 	basePrompt := "You are a helpful assistant."
-	var tools []ai.ToolDescription
+	var mockTools []tool.GenericTool
+	var toolDescriptions []ai.ToolDescription
 
-	enriched := enrichSystemPromptWithTools(basePrompt, tools)
+	enriched := enrichSystemPromptWithTools(basePrompt, mockTools, toolDescriptions, "")
 
 	if enriched != basePrompt {
 		t.Error("Expected enriched prompt to equal base prompt when tools is nil")

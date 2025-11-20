@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/leofalp/aigo/core/cost"
 	"github.com/leofalp/aigo/internal/jsonschema"
 	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/providers/ai"
@@ -17,6 +18,8 @@ type Tool[I, O any] struct {
 	Parameters  *jsonschema.Schema
 	Output      *jsonschema.Schema
 	Function    func(ctx context.Context, input I) (O, error)
+	// Cost is optional cost information for this tool execution
+	Cost *cost.ToolCost
 }
 
 type GenericTool interface {
@@ -26,11 +29,19 @@ type GenericTool interface {
 
 type funcToolOptions struct {
 	Description string
+	Cost        *cost.ToolCost
 }
 
 func WithDescription(description string) func(tool *funcToolOptions) {
 	return func(s *funcToolOptions) {
 		s.Description = description
+	}
+}
+
+// WithCost sets the cost for executing this tool.
+func WithCost(toolCost cost.ToolCost) func(tool *funcToolOptions) {
+	return func(s *funcToolOptions) {
+		s.Cost = &toolCost
 	}
 }
 
@@ -46,16 +57,24 @@ func NewTool[I, O any](name string, function func(ctx context.Context, input I) 
 		Parameters:  jsonschema.GenerateJSONSchema[I](),
 		Output:      jsonschema.GenerateJSONSchema[O](),
 		Function:    function,
+		Cost:        toolOptions.Cost,
 	}
 	return tool
 }
 
 func (t *Tool[I, O]) ToolInfo() ai.ToolDescription {
-	return ai.ToolDescription{
+	toolDesc := ai.ToolDescription{
 		Name:        t.Name,
 		Description: t.Description,
 		Parameters:  t.Parameters,
 	}
+
+	// Attach cost metadata if available
+	if t.Cost != nil {
+		toolDesc.Cost = t.Cost
+	}
+
+	return toolDesc
 }
 
 func (t *Tool[I, O]) Call(ctx context.Context, inputJson string) (string, error) {
@@ -71,6 +90,9 @@ func (t *Tool[I, O]) Call(ctx context.Context, inputJson string) (string, error)
 	}
 
 	start := time.Now()
+
+	// Track cost if available (extracted from context later)
+	// The cost tracking will be handled by the caller (client/pattern)
 
 	// Flexible parse of input JSON (from llm) into the expected input type
 	parsedInput, err := utils.ParseStringAs[I](inputJson)
@@ -107,11 +129,26 @@ func (t *Tool[I, O]) Call(ctx context.Context, inputJson string) (string, error)
 	}
 
 	if span != nil {
-		span.SetAttributes(
+		attrs := []observability.Attribute{
 			observability.String(observability.AttrToolOutput, string(outputBytes)),
 			observability.Duration(observability.AttrToolDuration, duration),
-		)
+		}
+
+		// Add cost information to observability if available
+		if t.Cost != nil {
+			attrs = append(attrs,
+				observability.Float64("tool.cost.amount", t.Cost.Amount),
+				observability.String("tool.cost.currency", t.Cost.Currency),
+			)
+		}
+
+		span.SetAttributes(attrs...)
 	}
 
 	return string(outputBytes), nil
+}
+
+// GetCost returns the cost information for this tool, if any.
+func (t *Tool[I, O]) GetCost() *cost.ToolCost {
+	return t.Cost
 }
