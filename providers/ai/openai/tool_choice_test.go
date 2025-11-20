@@ -96,7 +96,7 @@ func TestToolChoice_ToolChoiceForced(t *testing.T) {
 			defer server.Close()
 
 			schema := &jsonschema.Schema{Type: "object"}
-			p := NewOpenAIProvider().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
+			p := New().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
 
 			var toolCallMode ToolCallMode
 			if tt.useLegacy {
@@ -184,7 +184,7 @@ func TestToolChoice_AtLeastOneRequired(t *testing.T) {
 			defer server.Close()
 
 			schema := &jsonschema.Schema{Type: "object"}
-			p := NewOpenAIProvider().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
+			p := New().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
 
 			var toolCallMode ToolCallMode
 			if tt.useLegacy {
@@ -288,7 +288,7 @@ func TestToolChoice_SingleRequiredTool(t *testing.T) {
 			defer server.Close()
 
 			schema := &jsonschema.Schema{Type: "object"}
-			p := NewOpenAIProvider().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
+			p := New().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
 
 			var toolCallMode ToolCallMode
 			if tt.useLegacy {
@@ -443,7 +443,7 @@ func TestToolChoice_MultipleRequiredTools(t *testing.T) {
 			defer server.Close()
 
 			schema := &jsonschema.Schema{Type: "object"}
-			p := NewOpenAIProvider().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
+			p := New().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
 
 			var toolCallMode ToolCallMode
 			if tt.useLegacy {
@@ -500,7 +500,7 @@ func TestToolChoice_PriorityOrder(t *testing.T) {
 	defer server.Close()
 
 	schema := &jsonschema.Schema{Type: "object"}
-	p := NewOpenAIProvider().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
+	p := New().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
 	p = p.WithCapabilities(Capabilities{SupportsResponses: false, ToolCallMode: ToolCallModeTools})
 
 	_, err := p.SendMessage(context.Background(), ai.ChatRequest{
@@ -544,7 +544,7 @@ func TestToolChoice_DefaultAuto(t *testing.T) {
 	defer server.Close()
 
 	schema := &jsonschema.Schema{Type: "object"}
-	p := NewOpenAIProvider().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
+	p := New().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
 	p = p.WithCapabilities(Capabilities{SupportsResponses: false, ToolCallMode: ToolCallModeTools})
 
 	_, err := p.SendMessage(context.Background(), ai.ChatRequest{

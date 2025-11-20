@@ -7,8 +7,8 @@ AIGO provides a comprehensive, lightweight observability system supporting traci
 ### No Observability (Default)
 
 ```go
-client, err := client.NewClient[string](
-    openai.NewOpenAIProvider(),
+client, err := client.New(
+    openai.New(),
 )
 // Zero overhead - no observability
 ```
@@ -26,8 +26,8 @@ observer := slogobs.New(
     slogobs.WithLevel(slog.LevelInfo),
 )
 
-client, err := client.NewClient[string](
-    openai.NewOpenAIProvider(),
+client, err := client.New(
+    openai.New(),
     client.WithObserver(observer),
 )
 ```

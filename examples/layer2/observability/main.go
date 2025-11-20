@@ -38,8 +38,8 @@ func exampleCompactFormat() {
 		slogobs.WithLevel(slog.LevelDebug-4), // Enable TRACE
 	)
 
-	c, err := client.NewClient(
-		openai.NewOpenAIProvider(),
+	c, err := client.New(
+		openai.New(),
 		client.WithObserver(observer),
 		client.WithMemory(inmemory.New()),
 		client.WithSystemPrompt("You are a helpful assistant."),
@@ -70,8 +70,8 @@ func examplePrettyFormat() {
 		slogobs.WithLevel(slog.LevelDebug),
 	)
 
-	c, err := client.NewClient(
-		openai.NewOpenAIProvider(),
+	c, err := client.New(
+		openai.New(),
 		client.WithObserver(observer),
 		client.WithMemory(inmemory.New()),
 		client.WithSystemPrompt("You are a helpful assistant."),
@@ -99,8 +99,8 @@ func exampleJSONFormat() {
 		slogobs.WithLevel(slog.LevelInfo),
 	)
 
-	c, err := client.NewClient(
-		openai.NewOpenAIProvider(),
+	c, err := client.New(
+		openai.New(),
 		client.WithObserver(observer),
 		client.WithMemory(inmemory.New()),
 		client.WithSystemPrompt("You are a helpful assistant."),

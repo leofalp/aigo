@@ -129,8 +129,8 @@ func main() {
 	searchTool := bravesearch.NewBraveSearchTool()
 
 	// Create AI client with tool
-	aiClient, err := client.NewClient(
-		openai.NewOpenAIProvider(),
+	aiClient, err := client.New(
+		openai.New(),
 		client.WithMemory(inmemory.New()),
 		client.WithTools(searchTool),
 		client.WithEnrichSystemPromptWithToolsDescriptions(),
@@ -175,8 +175,8 @@ func main() {
 	calcTool := calculator.NewCalculatorTool()
 
 	// Create base client
-	baseClient, err := client.NewClient(
-		openai.NewOpenAIProvider(),
+	baseClient, err := client.New(
+		openai.New(),
 		client.WithMemory(inmemory.New()),
 		client.WithTools(searchTool, calcTool),
 		client.WithEnrichSystemPromptWithToolsDescriptions(),

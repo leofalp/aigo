@@ -15,7 +15,7 @@ import (
 
 func main() {
 	// Example Using builder pattern to configure the provider
-	testProvider := openai.NewOpenAIProvider()
+	testProvider := openai.New()
 
 	// Simple message without tools
 	ctx := context.Background()

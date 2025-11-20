@@ -62,8 +62,8 @@ func exampleAutomatic(ctx context.Context) {
 	fmt.Println()
 
 	// Step 1: Create base client
-	baseClient, err := client.NewClient(
-		openai.NewOpenAIProvider(),
+	baseClient, err := client.New(
+		openai.New(),
 		client.WithMemory(inmemory.New()),
 		client.WithSystemPrompt("You are a product review analyzer."),
 	)
@@ -72,7 +72,7 @@ func exampleAutomatic(ctx context.Context) {
 	}
 
 	// Step 2: Wrap in StructuredClient - TYPE SPECIFIED ONCE!
-	reviewClient := client.NewStructuredClientFromBaseClient[ProductReview](baseClient)
+	reviewClient := client.FromBaseClient[ProductReview](baseClient)
 
 	reviewText := `I recently bought the XPhone 15 Pro and I'm impressed!
 	The camera quality is outstanding and the battery lasts all day.
@@ -118,7 +118,7 @@ func exampleAutomatic(ctx context.Context) {
 		Confidence int    `json:"confidence" jsonschema:"required,description=Confidence 1-10"`
 	}
 
-	conversationClient := client.NewStructuredClientFromBaseClient[ConversationResponse](baseClient)
+	conversationClient := client.FromBaseClient[ConversationResponse](baseClient)
 
 	resp1, _ := conversationClient.SendMessage(ctx, "What is the capital of France?")
 	fmt.Printf("Q: What is the capital of France?\n")
@@ -137,8 +137,8 @@ func exampleManual(ctx context.Context) {
 	fmt.Println()
 
 	// Step 1: Create client
-	baseClient, err := client.NewClient(
-		openai.NewOpenAIProvider(),
+	baseClient, err := client.New(
+		openai.New(),
 		client.WithSystemPrompt("You are a sentiment analysis expert."),
 	)
 	if err != nil {

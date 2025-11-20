@@ -10,6 +10,9 @@ import (
 )
 
 // StructuredClient wraps a base Client and provides type-safe structured output methods.
+// This is positioned as a "Single-Shot Extractor" - ideal for simple, stateless structured
+// output scenarios without tool execution loops.
+//
 // The generic parameter T defines the expected response structure for all operations.
 //
 // StructuredClient automatically:
@@ -17,6 +20,8 @@ import (
 //   - Applies the schema to all requests via WithOutputSchema
 //   - Parses responses into type T
 //   - Returns both parsed data and raw response metadata
+//
+// For structured output WITH ReAct patterns and tool execution, use patterns/react.ReactPattern[T] instead.
 //
 // Example usage:
 //
@@ -26,8 +31,8 @@ import (
 //	    Summary     string `json:"summary" jsonschema:"required"`
 //	}
 //
-//	baseClient, _ := client.NewClient(provider, client.WithMemory(memory))
-//	reviewClient := client.NewStructuredClient[ProductReview](baseClient)
+//	baseClient, _ := client.New(provider, client.WithMemory(memory))
+//	reviewClient := client.NewStructured[ProductReview](provider, client.WithMemory(memory))
 //
 //	resp, err := reviewClient.SendMessage(ctx, "Analyze this review: ...")
 //	if err != nil {
@@ -42,7 +47,7 @@ type StructuredClient[T any] struct {
 	schema *jsonschema.Schema
 }
 
-// NewStructuredClientFromBaseClient creates a new structured client wrapper that automatically handles
+// FromBaseClient creates a new structured client wrapper that automatically handles
 // structured output for type T. The JSON schema is generated once at creation time
 // and reused for all requests.
 //
@@ -51,13 +56,13 @@ type StructuredClient[T any] struct {
 //
 // Example:
 //
-//	baseClient, _ := client.NewClient(
+//	baseClient, _ := client.New(
 //	    provider,
 //	    client.WithMemory(memory),
 //	    client.WithTools(tool1, tool2),
 //	)
-//	structuredClient := client.NewStructuredClientFromBaseClient[MyResponse](baseClient)
-func NewStructuredClientFromBaseClient[T any](base *Client) *StructuredClient[T] {
+//	structuredClient := client.FromBaseClient[MyResponse](baseClient)
+func FromBaseClient[T any](base *Client) *StructuredClient[T] {
 	if base == nil {
 		return nil
 	}
@@ -69,7 +74,7 @@ func NewStructuredClientFromBaseClient[T any](base *Client) *StructuredClient[T]
 	}
 }
 
-// NewStructuredClient creates a new StructuredClient[T] by first creating a base Client
+// NewStructured creates a new StructuredClient[T] by first creating a base Client
 // with the provided LLM provider and options, then wrapping it to handle structured output.
 //
 // This is a convenience method for quickly creating a structured client without
@@ -77,13 +82,13 @@ func NewStructuredClientFromBaseClient[T any](base *Client) *StructuredClient[T]
 //
 // Example:
 //
-//	structuredClient, err := client.NewStructuredClient[MyResponse](provider, client.WithMemory(memory))
-func NewStructuredClient[T any](llmProvider ai.Provider, opts ...func(*ClientOptions)) (*StructuredClient[T], error) {
-	base, err := NewClient(llmProvider, opts...)
+//	structuredClient, err := client.NewStructured[MyResponse](provider, client.WithMemory(memory))
+func NewStructured[T any](llmProvider ai.Provider, opts ...func(*ClientOptions)) (*StructuredClient[T], error) {
+	base, err := New(llmProvider, opts...)
 	if err != nil {
 		return nil, err
 	}
-	return NewStructuredClientFromBaseClient[T](base), nil
+	return FromBaseClient[T](base), nil
 }
 
 // SendMessage sends a user message to the LLM and returns the parsed structured response.

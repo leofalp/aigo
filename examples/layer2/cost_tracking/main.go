@@ -100,8 +100,8 @@ func main() {
 
 	// Create client with cost tracking enabled
 	// GPT-4o pricing: $2.50 per million input tokens, $10.00 per million output tokens
-	aiClient, err := client.NewClient(
-		openai.NewOpenAIProvider(),
+	aiClient, err := client.New(
+		openai.New(),
 		client.WithDefaultModel("gpt-4o"),
 		client.WithSystemPrompt("You are a helpful assistant with access to tools. Consider the cost of tools when deciding which ones to use."),
 		client.WithMemory(inmemory.New()),
@@ -117,8 +117,8 @@ func main() {
 		log.Fatalf("Failed to create client: %v", err)
 	}
 
-	// Create ReAct pattern
-	reactPattern, err := react.NewReactPattern(
+	// Create ReAct pattern (returns ReAct[string] for untyped text output)
+	reactPattern, err := react.New[string](
 		aiClient,
 		react.WithMaxIterations(5),
 	)
@@ -145,7 +145,7 @@ func main() {
 	}
 
 	fmt.Printf("Final Answer: %s\n", overview1.LastResponse.Content)
-	printCostSummary(overview1)
+	printCostSummary(&overview1.Overview)
 
 	// Example 2: Mixed tools (calculator is cheaper than search)
 	fmt.Println("\n--- Example 2: Task Requiring Multiple Tools ---")
@@ -156,7 +156,7 @@ func main() {
 	}
 
 	fmt.Printf("Final Answer: %s\n", overview2.LastResponse.Content)
-	printCostSummary(overview2)
+	printCostSummary(&overview2.Overview)
 
 	// Example 3: Show detailed cost breakdown
 	fmt.Println("\n--- Example 3: Detailed Cost Analysis ---")
@@ -167,15 +167,15 @@ func main() {
 	}
 
 	fmt.Printf("Final Answer: %s\n", overview3.LastResponse.Content)
-	printDetailedCostBreakdown(overview3)
+	printDetailedCostBreakdown(&overview3.Overview)
 
 	// Example 4: Show different optimization strategy
 	fmt.Println("\n--- Example 4: Different Optimization Strategy (Accuracy) ---")
 	fmt.Println("Creating a new client optimized for ACCURACY instead of cost...")
 
 	// Create a new client with accuracy optimization
-	aiClientAccuracy, err := client.NewClient(
-		openai.NewOpenAIProvider(),
+	aiClientAccuracy, err := client.New(
+		openai.New(),
 		client.WithDefaultModel("gpt-4o"),
 		client.WithSystemPrompt("You are a helpful assistant. Prioritize accuracy over cost."),
 		client.WithMemory(inmemory.New()),
@@ -190,7 +190,7 @@ func main() {
 		log.Fatalf("Failed to create accuracy client: %v", err)
 	}
 
-	reactPatternAccuracy, err := react.NewReactPattern(aiClientAccuracy)
+	reactPatternAccuracy, err := react.New[string](aiClientAccuracy) // Returns ReAct[string]
 	if err != nil {
 		log.Fatalf("Failed to create accuracy ReAct pattern: %v", err)
 	}
@@ -204,7 +204,7 @@ func main() {
 	fmt.Printf("Final Answer: %s\n", overview4.LastResponse.Content)
 	fmt.Println("\nWith OptimizeForAccuracy, the LLM is guided to prefer tools with higher accuracy scores.")
 	fmt.Println("The search tool (85% accuracy) vs calculator (99% accuracy) - but search is needed for this task.")
-	printCostSummary(overview4)
+	printCostSummary(&overview4.Overview)
 }
 
 // printCostSummary prints a summary of the costs for an execution

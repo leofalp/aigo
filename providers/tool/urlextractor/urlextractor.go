@@ -49,7 +49,7 @@ const (
 // Example:
 //
 //	tool := urlextractor.NewURLExtractorTool()
-//	client := client.NewClient(provider).AddTools([]tool.GenericTool{tool})
+//	client, _ := client.New(provider, client.WithTools(tool))
 func NewURLExtractorTool() *tool.Tool[Input, Output] {
 	return tool.NewTool[Input, Output](
 		"URLExtractor",

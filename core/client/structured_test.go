@@ -50,8 +50,8 @@ func TestStructuredClient_SendMessage(t *testing.T) {
 		},
 	}
 
-	// Create structured client using NewStructuredClient (creates base client internally)
-	structuredClient, err := NewStructuredClient[TestResponse](mockProvider)
+	// Create structured client using NewStructured (creates base client internally)
+	structuredClient, err := NewStructured[TestResponse](mockProvider)
 	if err != nil {
 		t.Fatalf("Failed to create structured client: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestStructuredClient_ContinueConversation(t *testing.T) {
 	}
 
 	// Create structured client with memory using NewStructuredClient
-	structuredClient, err := NewStructuredClient[ConversationResponse](
+	structuredClient, err := NewStructured[ConversationResponse](
 		mockProvider,
 		WithMemory(inmemory.New()),
 	)
@@ -161,7 +161,7 @@ func TestStructuredClient_SchemaOverride(t *testing.T) {
 		},
 	}
 
-	structuredClient, err := NewStructuredClient[DefaultResponse](mockProvider)
+	structuredClient, err := NewStructured[DefaultResponse](mockProvider)
 	if err != nil {
 		t.Fatalf("Failed to create structured client: %v", err)
 	}
@@ -210,19 +210,18 @@ func TestStructuredClientFromBaseClient(t *testing.T) {
 	}
 
 	memory := inmemory.New()
-	baseClient, err := NewClient(
+	baseClient, err := New(
 		mockProvider,
 		WithMemory(memory),
-		WithSystemPrompt("Test prompt"),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create base client: %v", err)
 	}
 
-	// Create structured client from base client
-	structuredClient := NewStructuredClientFromBaseClient[TestResponse](baseClient)
+	// Create structured client wrapper
+	structuredClient := FromBaseClient[TestResponse](baseClient)
 	if structuredClient == nil {
-		t.Fatal("Expected NewStructuredClientFromBaseClient to return non-nil client")
+		t.Fatal("Expected FromBaseClient to return non-nil client")
 	}
 
 	// Verify embedded client has expected configuration (via embedded Client)
@@ -247,9 +246,9 @@ func TestStructuredClientFromBaseClient_NilBase(t *testing.T) {
 	}
 
 	// Should handle nil base client gracefully
-	structuredClient := NewStructuredClientFromBaseClient[TestResponse](nil)
+	structuredClient := FromBaseClient[TestResponse](nil)
 	if structuredClient != nil {
-		t.Error("Expected NewStructuredClientFromBaseClient to return nil for nil base")
+		t.Error("Expected FromBaseClient to return nil for nil base")
 	}
 }
 
@@ -269,7 +268,7 @@ func TestStructuredClient_Schema(t *testing.T) {
 		},
 	}
 
-	structuredClient, err := NewStructuredClient[TestResponse](mockProvider)
+	structuredClient, err := NewStructured[TestResponse](mockProvider)
 	if err != nil {
 		t.Fatalf("Failed to create structured client: %v", err)
 	}
@@ -309,7 +308,7 @@ func TestStructuredClient_ParseError(t *testing.T) {
 		},
 	}
 
-	structuredClient, err := NewStructuredClient[TestResponse](mockProvider)
+	structuredClient, err := NewStructured[TestResponse](mockProvider)
 	if err != nil {
 		t.Fatalf("Failed to create structured client: %v", err)
 	}
@@ -359,7 +358,7 @@ func TestStructuredClient_ComplexType(t *testing.T) {
 		},
 	}
 
-	structuredClient, err := NewStructuredClient[Person](mockProvider)
+	structuredClient, err := NewStructured[Person](mockProvider)
 	if err != nil {
 		t.Fatalf("Failed to create structured client: %v", err)
 	}
@@ -400,7 +399,7 @@ func TestStructuredClient_EmbeddedClientMethods(t *testing.T) {
 	memory := inmemory.New()
 	observer := &testObserver{}
 
-	structuredClient, err := NewStructuredClient[TestResponse](
+	structuredClient, err := NewStructured[TestResponse](
 		mockProvider,
 		WithMemory(memory),
 		WithObserver(observer),
@@ -456,7 +455,7 @@ func TestStructuredClient_WithOptions(t *testing.T) {
 	memory := inmemory.New()
 
 	// Create with multiple options
-	structuredClient, err := NewStructuredClient[TestResponse](
+	structuredClient, err := NewStructured[TestResponse](
 		mockProvider,
 		WithMemory(memory),
 		WithSystemPrompt("Custom prompt"),

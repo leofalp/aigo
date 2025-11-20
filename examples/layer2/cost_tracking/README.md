@@ -18,7 +18,7 @@ The cost tracking system allows you to:
 Enable cost tracking by specifying the price per million tokens when creating the client:
 
 ```go
-client, err := client.NewClient(
+client, err := client.New(
     llmProvider,
     client.WithModelCost(cost.ModelCost{
         InputCostPerMillion:  2.50,
@@ -52,7 +52,7 @@ To inform the LLM about tool costs, use `WithEnrichSystemPromptWithToolsCosts()`
 For models with cached or reasoning tokens:
 
 ```go
-client, err := client.NewClient(
+client, err := client.New(
     llmProvider,
     client.WithModelCost(cost.ModelCost{
         InputCostPerMillion:       2.50,
@@ -68,7 +68,7 @@ client, err := client.NewClient(
 To inform the LLM about tool capabilities and guide its selection based on an optimization strategy:
 
 ```go
-client, err := client.NewClient(
+client, err := client.New(
     llmProvider,
     client.WithTools(calcTool, searchTool),
     client.WithEnrichSystemPromptWithToolsCosts(cost.OptimizeForCost),
@@ -86,7 +86,7 @@ This will:
 
 ```go
 // Create client with cost tracking
-aiClient, err := client.NewClient(
+aiClient, err := client.New(
     llmProvider,
     client.WithModelCost(cost.ModelCost{
         InputCostPerMillion:  2.50,
@@ -96,7 +96,7 @@ aiClient, err := client.NewClient(
 )
 
 // Execute with ReAct pattern
-reactPattern := react.NewReactPattern(aiClient)
+reactPattern, err := react.New[string](aiClient)
 overview, err := reactPattern.Execute(ctx, "What is 42 * 17?")
 
 // Get total cost
