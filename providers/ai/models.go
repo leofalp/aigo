@@ -3,6 +3,7 @@ package ai
 import (
 	"encoding/json"
 
+	"github.com/leofalp/aigo/core/cost"
 	"github.com/leofalp/aigo/internal/jsonschema"
 )
 
@@ -31,6 +32,9 @@ type ToolDescription struct {
 	Name        string             `json:"name"`
 	Description string             `json:"description,omitempty"`
 	Parameters  *jsonschema.Schema `json:"parameters,omitempty"`
+	// Cost is optional metadata about tool execution cost.
+	// This is not sent to the LLM provider unless IncludeCostInDescription is used.
+	Cost *cost.ToolCost `json:"cost,omitempty"`
 }
 
 // Message represents a single message in a conversation

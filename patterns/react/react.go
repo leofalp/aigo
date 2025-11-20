@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/leofalp/aigo/core/client"
+	"github.com/leofalp/aigo/core/cost"
 	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/patterns"
-
-	"github.com/leofalp/aigo/core/client"
 	"github.com/leofalp/aigo/providers/ai"
 	"github.com/leofalp/aigo/providers/memory"
 	"github.com/leofalp/aigo/providers/observability"
@@ -223,6 +223,8 @@ func (r *ReactPattern) executeToolCall(
 	toolCatalog *tool.Catalog,
 	toolCall ai.ToolCall,
 ) error {
+	// Get overview for cost tracking
+	overview := patterns.OverviewFromContext(&ctx)
 	var span observability.Span
 
 	if observer != nil {
@@ -316,6 +318,13 @@ func (r *ReactPattern) executeToolCall(
 		ToolCallID: toolCall.ID,
 		Name:       toolCall.Function.Name,
 	})
+
+	// Track tool execution cost if available
+	if typedTool, ok := toolInstance.(interface{ GetCost() *cost.ToolCost }); ok {
+		if toolCost := typedTool.GetCost(); toolCost != nil {
+			overview.AddToolExecutionCost(toolCall.Function.Name, toolCost)
+		}
+	}
 
 	// Parse and add result as structured attributes if it's JSON
 	var resultMap map[string]interface{}

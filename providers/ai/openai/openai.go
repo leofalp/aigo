@@ -190,9 +190,7 @@ func (p *OpenAIProvider) SendMessageViaChatCompletions(ctx context.Context, requ
 	httpResponse, resp, err := utils.DoPostSync[chatCompletionResponse](ctx, p.client, p.baseURL+chatCompletionsEndpoint, p.apiKey, req)
 	if err != nil {
 		if observer != nil {
-			observer.Trace(ctx, "HTTP request failed",
-				observability.Error(err),
-			)
+			observer.Trace(ctx, "HTTP request failed", observability.Error(err))
 		}
 		return nil, err
 	}
