@@ -10,6 +10,7 @@ import (
 
 	"github.com/leofalp/aigo/core/client"
 	"github.com/leofalp/aigo/core/cost"
+	"github.com/leofalp/aigo/core/parse"
 	"github.com/leofalp/aigo/internal/jsonschema"
 	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/patterns"
@@ -211,7 +212,7 @@ func (r *ReAct[T]) Execute(ctx context.Context, prompt string) (*patterns.Struct
 		if len(response.ToolCalls) == 0 {
 			// No more tool calls - this is the final answer
 			// Try to parse the response into type T
-			data, parseErr := utils.ParseStringAs[T](response.Content)
+			data, parseErr := parse.ParseStringAs[T](response.Content)
 
 			if parseErr != nil {
 				// Parse failed - request explicit JSON format and retry once
@@ -233,7 +234,7 @@ func (r *ReAct[T]) Execute(ctx context.Context, prompt string) (*patterns.Struct
 				}
 
 				// Try parsing again
-				data, parseErr = utils.ParseStringAs[T](retryResponse.Content)
+				data, parseErr = parse.ParseStringAs[T](retryResponse.Content)
 				if parseErr != nil {
 					r.observeParseError(&ctx, parseErr, retryResponse.Content)
 					return nil, fmt.Errorf("failed to parse final answer after retry into type %T: %w", data, parseErr)

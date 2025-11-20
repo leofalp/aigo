@@ -6,8 +6,8 @@ import (
 	"log"
 
 	"github.com/leofalp/aigo/core/client"
+	"github.com/leofalp/aigo/core/parse"
 	"github.com/leofalp/aigo/internal/jsonschema"
-	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/providers/ai/openai"
 	"github.com/leofalp/aigo/providers/memory/inmemory"
 
@@ -161,7 +161,7 @@ func exampleManual(ctx context.Context) {
 	}
 
 	// Step 4: Parse manually - TYPE SPECIFIED SECOND TIME
-	sentiment, err := utils.ParseStringAs[SentimentAnalysis](resp.Content)
+	sentiment, err := parse.ParseStringAs[SentimentAnalysis](resp.Content)
 	if err != nil {
 		log.Fatalf("Failed to parse response: %v", err)
 	}
