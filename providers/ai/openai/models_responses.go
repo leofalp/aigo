@@ -1,8 +1,8 @@
 package openai
 
 import (
+	"github.com/leofalp/aigo/core/parse"
 	"github.com/leofalp/aigo/internal/jsonschema"
-	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/providers/ai"
 )
 
@@ -422,7 +422,7 @@ func responsesToGeneric(resp responseCreateResponse) *ai.ChatResponse {
 func parseResponsesToolCallsFromContent(content string) []ai.ToolCall {
 	var toolCalls []ai.ToolCall
 
-	functionCall, err := utils.ParseStringAs[ai.ToolCallFunction](content)
+	functionCall, err := parse.ParseStringAs[ai.ToolCallFunction](content)
 	if err == nil && functionCall.Name != "" {
 		toolCalls = append(toolCalls, ai.ToolCall{
 			Type:     "function",
