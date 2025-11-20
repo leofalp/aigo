@@ -3,11 +3,11 @@ package tool
 import (
 	"context"
 	"encoding/json"
+	"github.com/leofalp/aigo/core/parse"
 	"time"
 
 	"github.com/leofalp/aigo/core/cost"
 	"github.com/leofalp/aigo/internal/jsonschema"
-	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/providers/ai"
 	"github.com/leofalp/aigo/providers/observability"
 )
@@ -95,7 +95,7 @@ func (t *Tool[I, O]) Call(ctx context.Context, inputJson string) (string, error)
 	// The cost tracking will be handled by the caller (client/pattern)
 
 	// Flexible parse of input JSON (from llm) into the expected input type
-	parsedInput, err := utils.ParseStringAs[I](inputJson)
+	parsedInput, err := parse.ParseStringAs[I](inputJson)
 	if err != nil {
 		if span != nil {
 			span.RecordError(err)

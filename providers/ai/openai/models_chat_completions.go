@@ -2,10 +2,10 @@ package openai
 
 import (
 	"encoding/json"
+	"github.com/leofalp/aigo/core/parse"
 	"strings"
 
 	"github.com/leofalp/aigo/internal/jsonschema"
-	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/providers/ai"
 )
 
@@ -539,7 +539,7 @@ func parseToolCallsJSON(jsonStr string) []ai.ToolCall {
 	}
 
 	// Use ParseStringAs - it handles JSON repair, trailing commas, escape sequences, etc.
-	calls, err := utils.ParseStringAs[[]toolCallParsed](jsonStr)
+	calls, err := parse.ParseStringAs[[]toolCallParsed](jsonStr)
 	if err != nil {
 		// ParseStringAs already tries to repair, so if it fails, we can't do much more
 		return toolCalls
