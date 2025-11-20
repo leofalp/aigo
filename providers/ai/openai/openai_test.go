@@ -18,7 +18,7 @@ func TestNewOpenAIProviderWithoutEnvVariable(t *testing.T) {
 		t.Fatal("failed to set env variable: " + err.Error())
 	}
 
-	p := NewOpenAIProvider()
+	p := New()
 
 	if p == nil {
 		t.Error("expected provider to be created even without env variable")
@@ -26,7 +26,7 @@ func TestNewOpenAIProviderWithoutEnvVariable(t *testing.T) {
 }
 
 func TestBuilderPatternWithAPIKey(t *testing.T) {
-	p := NewOpenAIProvider().WithAPIKey("custom-key")
+	p := New().WithAPIKey("custom-key")
 
 	if p == nil {
 		t.Error("expected provider after setting API key")
@@ -34,7 +34,7 @@ func TestBuilderPatternWithAPIKey(t *testing.T) {
 }
 
 func TestBuilderPatternWithBaseURL(t *testing.T) {
-	p := NewOpenAIProvider().WithBaseURL("https://custom.api.com/v1")
+	p := New().WithBaseURL("https://custom.api.com/v1")
 
 	if p == nil {
 		t.Error("expected provider after setting base URL")
@@ -84,7 +84,7 @@ func TestSendMessageWithValidResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOpenAIProvider().
+	p := New().
 		WithAPIKey("test-key").
 		WithBaseURL(server.URL).(*OpenAIProvider)
 	p = p.WithCapabilities(Capabilities{SupportsResponses: true, ToolCallMode: ToolCallModeTools})
@@ -155,7 +155,7 @@ func TestSendMessageWithTools(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOpenAIProvider().
+	p := New().
 		WithAPIKey("test-key").
 		WithBaseURL(server.URL).(*OpenAIProvider)
 	p = p.WithCapabilities(Capabilities{SupportsResponses: true, ToolCallMode: ToolCallModeTools})
@@ -202,7 +202,7 @@ func TestSendMessageWithNon2xxStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOpenAIProvider().
+	p := New().
 		WithAPIKey("invalid-key").
 		WithBaseURL(server.URL)
 
@@ -239,7 +239,7 @@ func TestSendMessageWithEmptyChoices(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOpenAIProvider().
+	p := New().
 		WithAPIKey("test-key").
 		WithBaseURL(server.URL)
 
@@ -260,7 +260,7 @@ func TestWithHTTPClientSetsCustomClient(t *testing.T) {
 		Timeout: 0,
 	}
 
-	p := NewOpenAIProvider().WithHttpClient(customClient)
+	p := New().WithHttpClient(customClient)
 
 	if p == nil {
 		t.Error("expected provider after setting custom client")
@@ -268,9 +268,9 @@ func TestWithHTTPClientSetsCustomClient(t *testing.T) {
 }
 
 func TestBuilderPatternReturnsProviderInterface(t *testing.T) {
-	var _ ai.Provider = NewOpenAIProvider()
-	NewOpenAIProvider().WithAPIKey("key")
-	NewOpenAIProvider().WithBaseURL("url")
+	var _ ai.Provider = New()
+	New().WithAPIKey("key")
+	New().WithBaseURL("url")
 }
 
 func TestUnmarshalResponsesAPIShape(t *testing.T) {

@@ -129,9 +129,9 @@ func (h *testHistogram) Record(ctx context.Context, value float64, attrs ...obse
 // TestNewClient_DefaultConfiguration tests client creation with default options
 func TestNewClient_DefaultConfiguration(t *testing.T) {
 	provider := &mockProvider{}
-	client, err := NewClient(provider)
+	client, err := New(provider)
 	if err != nil {
-		t.Fatalf("NewClient failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 
 	if client.llmProvider == nil {
@@ -153,7 +153,7 @@ func TestNewClient_WithOptions(t *testing.T) {
 	observer := &testObserver{}
 	tool := &mockTool{name: "test", description: "test tool"}
 
-	client, err := NewClient(
+	client, err := New(
 		provider,
 		WithMemory(memory),
 		WithObserver(observer),
@@ -187,9 +187,9 @@ func TestNewClient_WithOptions(t *testing.T) {
 // TestSendMessage_StatelessMode tests basic stateless message sending
 func TestSendMessage_StatelessMode(t *testing.T) {
 	provider := &mockProvider{}
-	client, err := NewClient(provider)
+	client, err := New(provider)
 	if err != nil {
-		t.Fatalf("NewClient failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 
 	ctx := context.Background()
@@ -219,9 +219,9 @@ func TestSendMessage_StatefulMode(t *testing.T) {
 	}
 
 	memory := inmemory.New()
-	client, err := NewClient(provider, WithMemory(memory))
+	client, err := New(provider, WithMemory(memory))
 	if err != nil {
-		t.Fatalf("NewClient failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 
 	ctx := context.Background()
@@ -261,9 +261,9 @@ func TestSendMessage_StatefulMode(t *testing.T) {
 // TestSendMessage_EmptyPrompt tests that empty prompts are rejected
 func TestSendMessage_EmptyPrompt(t *testing.T) {
 	provider := &mockProvider{}
-	client, err := NewClient(provider, WithMemory(inmemory.New()))
+	client, err := New(provider, WithMemory(inmemory.New()))
 	if err != nil {
-		t.Fatalf("NewClient failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 
 	ctx := context.Background()
@@ -304,9 +304,9 @@ func TestSendMessage_WithOutputSchema(t *testing.T) {
 		},
 	}
 
-	client, err := NewClient(provider)
+	client, err := New(provider)
 	if err != nil {
-		t.Fatalf("NewClient failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 
 	ctx := context.Background()
@@ -329,9 +329,9 @@ func TestSendMessage_ProviderError(t *testing.T) {
 		},
 	}
 
-	client, err := NewClient(provider)
+	client, err := New(provider)
 	if err != nil {
-		t.Fatalf("NewClient failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 
 	ctx := context.Background()
@@ -364,9 +364,9 @@ func TestContinueConversation_Success(t *testing.T) {
 	}
 
 	memory := inmemory.New()
-	client, err := NewClient(provider, WithMemory(memory))
+	client, err := New(provider, WithMemory(memory))
 	if err != nil {
-		t.Fatalf("NewClient failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 
 	ctx := context.Background()
@@ -418,9 +418,9 @@ func TestContinueConversation_Success(t *testing.T) {
 // TestContinueConversation_WithoutMemory tests that memory is required
 func TestContinueConversation_WithoutMemory(t *testing.T) {
 	provider := &mockProvider{}
-	client, err := NewClient(provider)
+	client, err := New(provider)
 	if err != nil {
-		t.Fatalf("NewClient failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 
 	ctx := context.Background()
@@ -455,9 +455,9 @@ func TestContinueConversation_EmptyMemory(t *testing.T) {
 	}
 
 	memory := inmemory.New()
-	client, err := NewClient(provider, WithMemory(memory))
+	client, err := New(provider, WithMemory(memory))
 	if err != nil {
-		t.Fatalf("NewClient failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 
 	ctx := context.Background()
@@ -505,9 +505,9 @@ func TestToolExecutionWorkflow(t *testing.T) {
 	}
 
 	memory := inmemory.New()
-	client, err := NewClient(provider, WithMemory(memory))
+	client, err := New(provider, WithMemory(memory))
 	if err != nil {
-		t.Fatalf("NewClient failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 
 	ctx := context.Background()
@@ -550,9 +550,9 @@ func TestToolExecutionWorkflow(t *testing.T) {
 // TestClient_DefaultNilObserver tests default observer is nil
 func TestClient_DefaultNilObserver(t *testing.T) {
 	provider := &mockProvider{}
-	client, err := NewClient(provider)
+	client, err := New(provider)
 	if err != nil {
-		t.Fatalf("NewClient failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 
 	// Observer is nil by default (no default noop observer)
@@ -566,9 +566,9 @@ func TestClient_WithObserver(t *testing.T) {
 	provider := &mockProvider{}
 	observer := &testObserver{}
 
-	client, err := NewClient(provider, WithObserver(observer))
+	client, err := New(provider, WithObserver(observer))
 	if err != nil {
-		t.Fatalf("NewClient failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 
 	if client.observer != observer {
@@ -581,9 +581,9 @@ func TestSendMessage_ObservabilityTracing(t *testing.T) {
 	provider := &mockProvider{}
 	observer := &testObserver{}
 
-	client, err := NewClient(provider, WithObserver(observer))
+	client, err := New(provider, WithObserver(observer))
 	if err != nil {
-		t.Fatalf("NewClient failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 
 	ctx := context.Background()
@@ -613,7 +613,7 @@ func TestSendMessage_ErrorObservability(t *testing.T) {
 	}
 	observer := &testObserver{}
 
-	client, err := NewClient(provider, WithObserver(observer))
+	client, err := New(provider, WithObserver(observer))
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
@@ -640,9 +640,9 @@ func TestSendMessage_ErrorObservability(t *testing.T) {
 // TestSendMessage_NilObserver_NoPanic tests nil observer safety
 func TestSendMessage_NilObserver_NoPanic(t *testing.T) {
 	provider := &mockProvider{}
-	client, err := NewClient(provider)
+	client, err := New(provider)
 	if err != nil {
-		t.Fatalf("NewClient failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 
 	ctx := context.Background()
@@ -729,7 +729,7 @@ func TestNewClient_WithEnrichSystemPrompt_Enabled(t *testing.T) {
 		description: "A tool for testing",
 	}
 
-	client, err := NewClient(
+	client, err := New(
 		provider,
 		WithSystemPrompt("You are a helpful assistant."),
 		WithTools(mockTool),
@@ -763,7 +763,7 @@ func TestNewClient_WithEnrichSystemPrompt_Disabled(t *testing.T) {
 
 	basePrompt := "You are a helpful assistant."
 
-	client, err := NewClient(
+	client, err := New(
 		provider,
 		WithSystemPrompt(basePrompt),
 		WithTools(mockTool),
@@ -800,7 +800,7 @@ func TestNewClient_WithEnrichSystemPrompt_Integration(t *testing.T) {
 
 	basePrompt := "You are a math assistant."
 
-	client, err := NewClient(
+	client, err := New(
 		provider,
 		WithSystemPrompt(basePrompt),
 		WithTools(mockTool),

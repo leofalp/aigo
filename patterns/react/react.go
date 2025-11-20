@@ -7,9 +7,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/leofalp/aigo/core/client"
 	"github.com/leofalp/aigo/core/cost"
+	"github.com/leofalp/aigo/internal/jsonschema"
 	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/patterns"
 	"github.com/leofalp/aigo/providers/ai"
@@ -18,23 +20,38 @@ import (
 	"github.com/leofalp/aigo/providers/tool"
 )
 
-// ReactPattern wraps a base client and adds ReAct pattern behavior:
-// automatic tool execution loop with reasoning.
-type ReactPattern struct {
+// ReAct is a type-safe ReAct (Reasoning + Acting) pattern implementation.
+// The generic parameter T defines the expected structure of the final answer.
+//
+// This pattern automatically handles the tool execution loop with reasoning,
+// and parses the final result into type T.
+//
+// Example:
+//
+//	type MathResult struct {
+//	    Answer int    `json:"answer"`
+//	    Steps  string `json:"steps"`
+//	}
+//
+//	agent := react.New[MathResult](baseClient)
+//	result, err := agent.Execute(ctx, "What is 42 * 17?")
+//	fmt.Printf("Answer: %d\n", result.Data.Answer)
+type ReAct[T any] struct {
 	client                     *client.Client
 	maxIterations              int
 	stopOnError                bool
 	withSystemPromptAnnotation bool
+	schema                     *jsonschema.Schema
 	state                      map[string]interface{}
 }
 
-// Option is a functional option for configuring ReactPattern.
-type Option func(*ReactPattern)
+// Option is a functional option for configuring ReAct.
+type Option func(*ReAct[any])
 
 // WithMaxIterations sets the maximum number of tool execution iterations.
 // Default: 10
 func WithMaxIterations(max int) Option {
-	return func(rc *ReactPattern) {
+	return func(rc *ReAct[any]) {
 		rc.maxIterations = max
 	}
 }
@@ -42,68 +59,92 @@ func WithMaxIterations(max int) Option {
 // WithStopOnError configures whether to stop execution on tool errors.
 // Default: false
 func WithStopOnError(stop bool) Option {
-	return func(rc *ReactPattern) {
+	return func(rc *ReAct[any]) {
 		rc.stopOnError = stop
 	}
 }
 
+// WithSysPromptAnnotation configures whether to append ReAct guidance to the system prompt.
 // Default: true
 func WithSysPromptAnnotation(withSysPrompt bool) Option {
-	return func(rc *ReactPattern) {
+	return func(rc *ReAct[any]) {
 		rc.withSystemPromptAnnotation = withSysPrompt
 	}
 }
 
-// NewReactPattern creates a new ReAct pattern that wraps a base client.
+// New creates a new type-safe ReAct pattern that wraps a base client.
 // The base client should be configured with memory, tools, and observer.
 //
 // Memory is required for the ReAct pattern to work (the LLM needs to see tool results).
 // If the client is in stateless mode, this function will return an error.
 //
+// The generic parameter T defines the expected structure of the final answer.
+// A JSON schema is automatically generated from T and injected into the system prompt
+// to guide the LLM's final response format.
+//
 // Example:
 //
-//	baseClient, _ := client.NewClient(
+//	type MathResult struct {
+//	    Answer      int    `json:"answer" jsonschema:"required"`
+//	    Explanation string `json:"explanation" jsonschema:"required"`
+//	}
+//
+//	baseClient, _ := client.New(
 //	    provider,
 //	    client.WithMemory(memory),
 //	    client.WithTools(tool1, tool2),
 //	    client.WithObserver(observer),
 //	)
 //
-//	reactClient, _ := react.NewReactPattern(
+//	agent, _ := react.New[MathResult](
 //	    baseClient,
 //	    react.WithMaxIterations(5),
 //	    react.WithStopOnError(true),
 //	)
-func NewReactPattern(baseClient *client.Client, opts ...Option) (*ReactPattern, error) {
+func New[T any](baseClient *client.Client, opts ...Option) (*ReAct[T], error) {
 	// Validate that memory is configured (required for ReAct)
 	if baseClient.Memory() == nil {
 		return nil, fmt.Errorf("ReAct pattern requires memory: client must be configured with WithMemory()")
 	}
 
-	// Create ReactPattern with defaults
-	rc := &ReactPattern{
+	// Generate JSON schema for type T
+	schema := jsonschema.GenerateJSONSchema[T]()
+
+	// Create ReAct with defaults
+	rc := &ReAct[T]{
 		client:                     baseClient,
 		maxIterations:              10,
 		stopOnError:                false,
 		withSystemPromptAnnotation: true,
+		schema:                     schema,
 		state:                      map[string]interface{}{},
 	}
 
-	// Apply options
+	// Apply options (using type erasure for the option functions)
 	for _, opt := range opts {
-		opt(rc)
+		opt((*ReAct[any])(unsafe.Pointer(rc)))
 	}
 
 	if rc.withSystemPromptAnnotation {
 		baseClient.AppendToSystemPrompt("Use the ReAct (Reasoning + Acting) pattern to answer user queries with " + strconv.Itoa(rc.maxIterations) + " iterations maximum. ")
 	}
 
+	// Inject schema constraint into system prompt from the start
+	schemaJSON, _ := json.MarshalIndent(schema, "", "  ")
+	schemaPrompt := fmt.Sprintf(
+		"\n\nWhen providing your final answer (no tool calls), format it as valid JSON matching this schema:\n%s",
+		string(schemaJSON),
+	)
+	baseClient.AppendToSystemPrompt(schemaPrompt)
+
 	return rc, nil
 }
 
-// Execute runs the ReAct (Reasoning + Acting) pattern loop:
+// Execute runs the type-safe ReAct (Reasoning + Acting) pattern loop:
 //
 // 1. First iteration: Send user prompt to LLM using SendMessage()
+//   - Schema is already injected in system prompt from construction
+//
 // 2. LLM analyzes and decides if it needs tools to answer
 // 3. If LLM requests tool calls:
 //   - Execute each tool and append results to memory
@@ -111,15 +152,18 @@ func NewReactPattern(baseClient *client.Client, opts ...Option) (*ReactPattern, 
 //   - LLM may request more tools or provide final answer
 //
 // 4. Repeat steps 3 until LLM provides final answer (no tool calls) or max iterations reached
+// 5. Parse the final answer into type T
+//   - If parsing fails, request JSON format explicitly (one retry)
+//   - If still fails, return error
 //
-// Key implementation detail:
+// Key implementation details:
+//   - Schema is injected once at construction time (not per-request)
 //   - First iteration uses SendMessage(ctx, prompt) to add user message
 //   - Subsequent iterations use ContinueConversation(ctx) to process tool results
-//     without adding new user messages
-//   - This maintains proper conversation flow: user → assistant+tools → tool results → assistant
+//   - Automatic retry with explicit JSON request on parse failure
 //
-// Returns the final response from the LLM after the reasoning loop completes.
-func (r *ReactPattern) Execute(ctx context.Context, prompt string) (*patterns.Overview, error) {
+// Returns a StructuredOverview[T] containing both the parsed data and execution statistics.
+func (r *ReAct[T]) Execute(ctx context.Context, prompt string) (*patterns.StructuredOverview[T], error) {
 	var response *ai.ChatResponse
 	var err error
 
@@ -130,6 +174,7 @@ func (r *ReactPattern) Execute(ctx context.Context, prompt string) (*patterns.Ov
 	reactMemory := r.client.Memory()
 	toolCatalog := r.client.ToolCatalog()
 	overview := patterns.OverviewFromContext(&ctx)
+
 	// Start top-level ReAct span
 	observer := r.client.Observer()
 	if observer == nil {
@@ -173,9 +218,50 @@ func (r *ReactPattern) Execute(ctx context.Context, prompt string) (*patterns.Ov
 
 		// Step 2: Check if we're done (no tool calls = final answer)
 		if len(response.ToolCalls) == 0 {
-			r.observeSuccess(&ctx, response, iteration)
+			// No more tool calls - this is the final answer
+			// Try to parse the response into type T
+			data, parseErr := utils.ParseStringAs[T](response.Content)
 
-			return overview, nil
+			if parseErr != nil {
+				// Parse failed - request explicit JSON format and retry once
+				r.observeParseError(&ctx, parseErr, response.Content)
+				r.observeRequestingStructuredFinalAnswer(&ctx, iteration)
+
+				// Add assistant's response to memory first
+				reactMemory.AppendMessage(ctx, &ai.Message{
+					Role:    ai.RoleAssistant,
+					Content: response.Content,
+				})
+
+				// Request JSON format explicitly
+				retryPrompt := "Please provide your answer in valid JSON format only, with no additional text."
+				retryResponse, err := r.client.SendMessage(ctx, retryPrompt)
+				if err != nil {
+					r.observeIterationError(&ctx, err, iteration)
+					return nil, fmt.Errorf("failed to request JSON format: %w", err)
+				}
+
+				// Try parsing again
+				data, parseErr = utils.ParseStringAs[T](retryResponse.Content)
+				if parseErr != nil {
+					r.observeParseError(&ctx, parseErr, retryResponse.Content)
+					return nil, fmt.Errorf("failed to parse final answer after retry into type %T: %w", data, parseErr)
+				}
+
+				// Success after retry
+				r.observeSuccess(&ctx, retryResponse, iteration)
+				return &patterns.StructuredOverview[T]{
+					Overview: *overview,
+					Data:     &data,
+				}, nil
+			}
+
+			// Parse succeeded on first try
+			r.observeSuccess(&ctx, response, iteration)
+			return &patterns.StructuredOverview[T]{
+				Overview: *overview,
+				Data:     &data,
+			}, nil
 		}
 
 		// Step 3: Execute tool calls
@@ -210,13 +296,13 @@ func (r *ReactPattern) Execute(ctx context.Context, prompt string) (*patterns.Ov
 
 	execTimer.Stop()
 
-	r.observeMaxInteration(&ctx)
+	r.observeMaxIteration(&ctx)
 
-	return overview, fmt.Errorf("reached maximum iterations (%d) without final answer", r.maxIterations)
+	return nil, fmt.Errorf("reached maximum iterations (%d) without final answer", r.maxIterations)
 }
 
 // executeToolCall executes a single tool call and adds the result to memory.
-func (r *ReactPattern) executeToolCall(
+func (r *ReAct[T]) executeToolCall(
 	ctx context.Context,
 	observer observability.Provider,
 	mem memory.Provider,
@@ -345,7 +431,7 @@ func (r *ReactPattern) executeToolCall(
 	return nil
 }
 
-func (r *ReactPattern) observeMaxInteration(ctx *context.Context) {
+func (r *ReAct[T]) observeMaxIteration(ctx *context.Context) {
 	if r.state["observer"] == nil {
 		return
 	}
@@ -366,7 +452,7 @@ func (r *ReactPattern) observeMaxInteration(ctx *context.Context) {
 	span.End()
 }
 
-func (r *ReactPattern) observeNextIteration(ctx *context.Context, iteration int, toolsExecuted int, response *ai.ChatResponse) {
+func (r *ReAct[T]) observeNextIteration(ctx *context.Context, iteration int, toolsExecuted int, response *ai.ChatResponse) {
 	if r.state["observer"] == nil {
 		return
 	}
@@ -385,7 +471,7 @@ func (r *ReactPattern) observeNextIteration(ctx *context.Context, iteration int,
 	observer.Counter("react.tools_executed.total").Add(*ctx, int64(toolsExecuted))
 }
 
-func (r *ReactPattern) observeIterationError(ctx *context.Context, err error, iteration int) {
+func (r *ReAct[T]) observeIterationError(ctx *context.Context, err error, iteration int) {
 	if r.state["observer"] == nil {
 		return
 	}
@@ -405,7 +491,7 @@ func (r *ReactPattern) observeIterationError(ctx *context.Context, err error, it
 	span.End()
 }
 
-func (r *ReactPattern) observeToolError(ctx *context.Context, err error, iteration int, functionName string) {
+func (r *ReAct[T]) observeToolError(ctx *context.Context, err error, iteration int, functionName string) {
 	if r.state["observer"] == nil {
 		return
 	}
@@ -429,7 +515,7 @@ func (r *ReactPattern) observeToolError(ctx *context.Context, err error, iterati
 	)
 }
 
-func (r *ReactPattern) observeStopOnError(ctx *context.Context, iteration int, err error) {
+func (r *ReAct[T]) observeStopOnError(ctx *context.Context, iteration int, err error) {
 	if r.state["observer"] == nil {
 		return
 	}
@@ -451,7 +537,7 @@ func (r *ReactPattern) observeStopOnError(ctx *context.Context, iteration int, e
 	span.End()
 }
 
-func (r *ReactPattern) observeStartIteration(ctx *context.Context, iteration int) {
+func (r *ReAct[T]) observeStartIteration(ctx *context.Context, iteration int) {
 	if r.state["observer"] == nil {
 		return
 	}
@@ -462,7 +548,34 @@ func (r *ReactPattern) observeStartIteration(ctx *context.Context, iteration int
 	)
 }
 
-func (r *ReactPattern) observeSuccess(ctx *context.Context, response *ai.ChatResponse, iteration int) {
+func (r *ReAct[T]) observeRequestingStructuredFinalAnswer(ctx *context.Context, iteration int) {
+	if r.state["observer"] == nil {
+		return
+	}
+	observer := r.state["observer"].(observability.Provider)
+
+	observer.Debug(*ctx, "Requesting structured final answer",
+		observability.Int("iteration", iteration),
+		observability.String("schema_type", fmt.Sprintf("%T", *new(T))),
+	)
+}
+
+func (r *ReAct[T]) observeParseError(ctx *context.Context, err error, content string) {
+	if r.state["observer"] == nil {
+		return
+	}
+	observer := r.state["observer"].(observability.Provider)
+	span := r.state["span"].(observability.Span)
+
+	span.RecordError(err)
+	observer.Error(*ctx, "Failed to parse final answer into structured type",
+		observability.Error(err),
+		observability.String("response_content", utils.TruncateString(content, 200)),
+		observability.String("target_type", fmt.Sprintf("%T", *new(T))),
+	)
+}
+
+func (r *ReAct[T]) observeSuccess(ctx *context.Context, response *ai.ChatResponse, iteration int) {
 	if r.state["observer"] == nil {
 		return
 	}
@@ -475,12 +588,12 @@ func (r *ReactPattern) observeSuccess(ctx *context.Context, response *ai.ChatRes
 	totalDuration := execTimer.GetDuration()
 
 	span.SetStatus(observability.StatusOK, "ReAct completed successfully")
-	observer.Info(*ctx, "ReAct pattern completed - no tool calls, final answer received",
+	observer.Info(*ctx, "ReAct pattern completed - final answer parsed successfully",
 		observability.Int("total_iterations", iteration),
 		observability.Duration("total_duration", totalDuration),
 		observability.Duration("last_iteration_duration", timer.GetDuration()),
 		observability.String("finish_reason", response.FinishReason),
-		observability.Bool("has_content", response.Content != ""),
+		observability.String("result_type", fmt.Sprintf("%T", *new(T))),
 	)
 
 	// Record metrics
@@ -493,7 +606,7 @@ func (r *ReactPattern) observeSuccess(ctx *context.Context, response *ai.ChatRes
 	span.End()
 }
 
-func (r *ReactPattern) observeTools(ctx *context.Context, response *ai.ChatResponse, iteration int) {
+func (r *ReAct[T]) observeTools(ctx *context.Context, response *ai.ChatResponse, iteration int) {
 	if r.state["observer"] == nil {
 		return
 	}
@@ -510,7 +623,7 @@ func (r *ReactPattern) observeTools(ctx *context.Context, response *ai.ChatRespo
 	)
 }
 
-func (r *ReactPattern) observeInit(ctx *context.Context, prompt string, toolCatalog *tool.Catalog) {
+func (r *ReAct[T]) observeInit(ctx *context.Context, prompt string, toolCatalog *tool.Catalog) {
 	if r.state["observer"] == nil {
 		return
 	}
@@ -521,14 +634,16 @@ func (r *ReactPattern) observeInit(ctx *context.Context, prompt string, toolCata
 		observability.String("pattern", "react"),
 		observability.String("prompt", utils.TruncateStringDefault(prompt)),
 		observability.Int("max_iterations", r.maxIterations),
+		observability.String("result_type", fmt.Sprintf("%T", *new(T))),
 	)
 
 	*ctx = observability.ContextWithSpan(*ctx, span)
 	*ctx = observability.ContextWithObserver(*ctx, observer)
 
-	observer.Debug(*ctx, "Starting ReAct pattern",
+	observer.Debug(*ctx, "Starting type-safe ReAct pattern",
 		observability.Int("max_iterations", r.maxIterations),
 		observability.Int("tools_available", toolCatalog.Size()),
+		observability.String("result_type", fmt.Sprintf("%T", *new(T))),
 	)
 
 	r.state["span"] = span

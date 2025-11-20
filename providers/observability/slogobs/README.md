@@ -29,8 +29,8 @@ import (
 observer := slogobs.New()
 
 // Use with client
-client, err := client.NewClient[string](
-    openai.NewOpenAIProvider(),
+client, err := client.New(
+    openai.New(),
     client.WithObserver(observer),
 )
 ```

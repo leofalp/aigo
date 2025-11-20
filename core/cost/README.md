@@ -19,7 +19,7 @@ All costs are tracked in USD for consistency.
 ```go
 import "github.com/leofalp/aigo/core/cost"
 
-client, _ := client.NewClient(
+client, _ := client.New(
     provider,
     client.WithModelCost(cost.ModelCost{
         InputCostPerMillion:  2.50,  // $2.50 per 1M input tokens
@@ -47,7 +47,7 @@ calculatorTool := tool.NewTool(
 ### 3. Enable LLM Optimization (Optional)
 
 ```go
-client, _ := client.NewClient(
+client, _ := client.New(
     provider,
     client.WithTools(calculatorTool, searchTool),
     client.WithEnrichSystemPromptWithToolsCosts(cost.OptimizeForCost),
@@ -211,7 +211,7 @@ func main() {
         }))
     
     // 2. Create client with cost tracking
-    aiClient, _ := client.NewClient(
+    aiClient, _ := client.New(
         provider,
         client.WithTools(calcTool, searchTool),
         client.WithModelCost(cost.ModelCost{
@@ -222,7 +222,7 @@ func main() {
     )
     
     // 3. Execute
-    pattern, _ := react.NewReactPattern(aiClient)
+    pattern, _ := react.New[string](aiClient)
     overview, _ := pattern.Execute(context.Background(), "Calculate 42 * 17")
     
     // 4. View costs

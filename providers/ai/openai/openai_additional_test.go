@@ -24,7 +24,7 @@ func TestCapabilitiesDetectionFromBaseURL(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		p := NewOpenAIProvider().WithBaseURL(tc.baseURL).(*OpenAIProvider)
+		p := New().WithBaseURL(tc.baseURL).(*OpenAIProvider)
 		cap := p.GetCapabilities()
 		if cap.SupportsResponses != tc.expectRes {
 			t.Errorf("%s: expected SupportsResponses=%v, got %v", tc.baseURL, tc.expectRes, cap.SupportsResponses)
@@ -57,7 +57,7 @@ func TestSendMessageUsesResponsesEndpointWhenSupported(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOpenAIProvider().WithAPIKey("key").WithBaseURL(server.URL).(*OpenAIProvider)
+	p := New().WithAPIKey("key").WithBaseURL(server.URL).(*OpenAIProvider)
 	p = p.WithCapabilities(Capabilities{SupportsResponses: true, ToolCallMode: ToolCallModeTools})
 
 	resp, err := p.SendMessage(context.Background(), ai.ChatRequest{Messages: []ai.Message{{Role: ai.RoleUser, Content: "hello"}}})
@@ -91,7 +91,7 @@ func TestSendMessageUsesChatCompletionsWhenResponsesNotSupported(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOpenAIProvider().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
+	p := New().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
 	p = p.WithCapabilities(Capabilities{SupportsResponses: false, ToolCallMode: ToolCallModeTools})
 
 	resp, err := p.SendMessage(context.Background(), ai.ChatRequest{Messages: []ai.Message{{Role: ai.RoleUser, Content: "ping"}}})
@@ -130,7 +130,7 @@ func TestChatCompletionsMapsToolCallsNewFormat(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOpenAIProvider().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
+	p := New().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
 	p = p.WithCapabilities(Capabilities{SupportsResponses: false, ToolCallMode: ToolCallModeTools})
 
 	resp, err := p.SendMessage(context.Background(), ai.ChatRequest{Messages: []ai.Message{{Role: ai.RoleUser, Content: "use tool"}}})
@@ -158,7 +158,7 @@ func TestChatCompletionsErrorsOnEmptyChoices(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOpenAIProvider().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
+	p := New().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
 	p = p.WithCapabilities(Capabilities{SupportsResponses: false, ToolCallMode: ToolCallModeTools})
 	_, err := p.SendMessage(context.Background(), ai.ChatRequest{Messages: []ai.Message{{Role: ai.RoleUser, Content: "x"}}})
 	if err == nil {
@@ -187,7 +187,7 @@ func TestResponsesRequestIncludesSystemPromptAsDeveloper(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOpenAIProvider().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
+	p := New().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
 	p = p.WithCapabilities(Capabilities{SupportsResponses: true, ToolCallMode: ToolCallModeTools})
 
 	_, err := p.SendMessage(context.Background(), ai.ChatRequest{SystemPrompt: "sys", Messages: []ai.Message{{Role: ai.RoleUser, Content: "hi"}}})
@@ -223,7 +223,7 @@ func TestChatCompletionsRequestMapsGenerationConfig(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOpenAIProvider().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
+	p := New().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
 	p = p.WithCapabilities(Capabilities{SupportsResponses: false, ToolCallMode: ToolCallModeTools})
 
 	_, err := p.SendMessage(context.Background(), ai.ChatRequest{
@@ -248,7 +248,7 @@ func TestResponsesRequestHonorsForcedToolChoiceNone(t *testing.T) {
 	defer server.Close()
 
 	schema := &jsonschema.Schema{Type: "object"}
-	p := NewOpenAIProvider().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
+	p := New().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
 	p = p.WithCapabilities(Capabilities{SupportsResponses: true, ToolCallMode: ToolCallModeTools})
 
 	_, err := p.SendMessage(context.Background(), ai.ChatRequest{
@@ -291,7 +291,7 @@ func TestChatCompletionsUsesLegacyFunctionsWhenConfigured(t *testing.T) {
 	defer server.Close()
 
 	schema := &jsonschema.Schema{Type: "object"}
-	p := NewOpenAIProvider().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
+	p := New().WithAPIKey("k").WithBaseURL(server.URL).(*OpenAIProvider)
 	p = p.WithCapabilities(Capabilities{SupportsResponses: false, ToolCallMode: ToolCallModeFunctions})
 
 	_, err := p.SendMessage(context.Background(), ai.ChatRequest{
@@ -304,7 +304,7 @@ func TestChatCompletionsUsesLegacyFunctionsWhenConfigured(t *testing.T) {
 }
 
 func TestIsStopMessageBehavior(t *testing.T) {
-	p := NewOpenAIProvider()
+	p := New()
 	if !p.IsStopMessage(nil) {
 		t.Fatal("nil response should be stop")
 	}

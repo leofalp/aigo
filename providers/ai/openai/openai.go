@@ -25,8 +25,8 @@ type OpenAIProvider struct {
 	capabilities Capabilities
 }
 
-// NewOpenAIProvider creates a new OpenAI provider instance with default values
-func NewOpenAIProvider() *OpenAIProvider {
+// New creates a new OpenAI provider instance with default values
+func New() *OpenAIProvider {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	baseURL := os.Getenv("OPENAI_API_BASE_URL")
 	if baseURL == "" {

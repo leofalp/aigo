@@ -62,7 +62,7 @@ type Store interface {
 ```go
 import "github.com/leofalp/aigo/providers/ai/openai"
 
-provider := openai.New(apiKey)
+provider := openai.New()
 resp, err := provider.Complete(ctx, ai.CompletionRequest{
     Messages: []ai.Message{{Role: "user", Content: "Hello!"}},
     Model:    "gpt-4",
@@ -109,8 +109,8 @@ import (
     "github.com/leofalp/aigo/providers/memory/redis"
 )
 
-client := core.NewClient(
-    openai.New(apiKey),
+client := core.New(
+    openai.New(),
     core.WithSessionManager(redis.New(redisURL)),
     core.WithRetry(3),
     core.WithCache(cacheProvider),
@@ -153,7 +153,7 @@ import (
 
 // Uses core.Client internally for session management
 chat := chat.New(
-    openai.New(apiKey),
+    openai.New(),
     chat.WithMemory(redisStore),
 )
 
@@ -169,10 +169,9 @@ import (
 )
 
 // Uses provider directly - you manage everything
-agent := react.NewAgent(
-    openai.New(apiKey),
-    tools,
-    react.WithCustomMemory(myMemoryImpl),
+agent := react.New[T](
+    baseClient,
+    react.WithMaxIterations(10),
 )
 
 result, err := agent.Run(ctx, "Complex task")
@@ -190,24 +189,22 @@ result, err := agent.Run(ctx, "Complex task")
 ### ✅ Layer 1 → Standalone
 ```go
 // Use ONLY providers
-provider := openai.New(apiKey)
+provider := openai.New()
 resp, _ := provider.Complete(ctx, req)
 ```
 
 ### ✅ Layer 2 → Uses Layer 1
 ```go
 // Core uses providers, but you don't need patterns
-client := core.NewClient(openai.New(apiKey))
+client := core.New(openai.New())
 resp, _ := client.Generate(ctx, sessionID, "Hello")
 ```
 
 ### ✅ Layer 3 → Can use Layer 1 OR Layer 2
 ```go
-// Option A: Pattern uses core.Client
-chat := chat.New(openai.New(apiKey))
-
-// Option B: Pattern uses provider directly
-agent := react.NewAgent(openai.New(apiKey), tools)
+// Pattern uses core.Client
+chat := chat.New(openai.New())
+agent := react.New[T](baseClient)
 ```
 
 ---
@@ -241,7 +238,7 @@ agent := react.NewAgent(openai.New(apiKey), tools)
 
 ### Using Layer 1 (Full Control):
 ```go
-provider := openai.New(apiKey)
+provider := openai.New()
 memStore := redis.New(redisURL)
 
 // You manage everything manually
@@ -266,8 +263,8 @@ memStore.Save(ctx, sessionID, serialize(messages))
 
 ### Using Layer 2 (Managed):
 ```go
-client := core.NewClient(
-    openai.New(apiKey),
+client := core.New(
+    openai.New(),
     core.WithSessionManager(redis.New(redisURL)),
     core.WithTools(tools),
 )
@@ -279,13 +276,140 @@ resp, _ := client.Generate(ctx, sessionID, "Hello")
 ### Using Layer 3 (Quickest):
 ```go
 chat := chat.New(
-    openai.New(apiKey),
+    openai.New(),
     chat.WithMemory(redis.New(redisURL)),
     chat.WithTools(tools),
 )
 
 resp, _ := chat.Send(ctx, "Hello")
 ```
+
+---
+
+## Type-Safe ReAct Pattern
+
+### Overview
+
+The `ReAct[T]` pattern in `patterns/react` provides type-safe structured output combined with automatic tool execution loops.
+
+### Key Concepts
+
+**Generic Type Parameter**: `ReAct[T any]` where `T` defines the expected output structure.
+
+```go
+// Structured output with custom type
+type MathResult struct {
+    Answer      int    `json:"answer" jsonschema:"required"`
+    Explanation string `json:"explanation" jsonschema:"required"`
+}
+
+agent := react.New[MathResult](baseClient)
+result, _ := agent.Execute(ctx, "What is 2+2?")
+answer := result.Data.Answer // Type-safe access!
+```
+
+**Default Untyped**: Use `string` for unstructured text output (not `any` or `interface{}`).
+
+```go
+// Untyped text output (default)
+agent := react.New[string](baseClient)
+
+result, _ := agent.Execute(ctx, prompt)
+text := *result.Data // Direct string access
+```
+
+### How It Works
+
+1. **Schema Injection**: JSON schema injected into system prompt at construction time
+2. **ReAct Loop**: Agent uses tools to gather information through multiple iterations
+3. **Final Answer**: LLM provides answer (ideally in JSON format as instructed)
+4. **Automatic Parsing**: Response parsed into type `T` using `utils.ParseStringAs[T]`
+5. **Retry on Failure**: If parsing fails, explicitly request JSON format and retry once
+6. **Returns**: `StructuredOverview[T]` with both typed data and execution statistics
+
+**Critical Design**: Schema is injected once at start (not per-iteration). This guides the LLM without extra token costs. If parsing fails, one retry with explicit JSON request is attempted.
+
+### Execution Flow
+
+```
+Schema injected at construction ⭐
+    ↓
+User Prompt
+    ↓
+ReAct Loop (tools + reasoning)
+    ↓
+No more tool calls detected
+    ↓
+Parse final answer into type T
+    ↓
+Success? → Return StructuredOverview[T]
+    ↓
+Parse failed? → Request JSON explicitly
+    ↓
+Retry parse
+    ↓
+Success? → Return StructuredOverview[T]
+    ↓
+Failed? → Return error
+```
+
+### ParseStringAs Behavior
+
+- **`string` type**: Returns input directly without JSON parsing
+- **Primitive types**: Direct conversion (int, bool, float)
+- **Structs/Complex**: JSON unmarshaling with automatic repair if needed
+
+### Configuration Options
+
+```go
+agent, _ := react.New[T](
+    baseClient,
+    react.WithMaxIterations(10),       // Max tool execution loops
+    react.WithStopOnError(true),       // Stop on first tool error
+    react.WithSysPromptAnnotation(false), // Disable ReAct hints
+)
+```
+
+### When to Use
+
+- ✅ **Structured + Tools**: Need type-safe output with tool execution
+- ✅ **Type Safety**: Want compile-time guarantees for output structure
+- ✅ **Schema Enforcement**: Need LLM to follow specific output format
+- ✅ **Untyped Text**: Use `ReAct[string]` for flexible text responses
+
+---
+
+## Recent Simplifications
+
+### Key Changes
+
+1. **Schema Injection at Start**: Schema injected once at construction, not per-request
+   - Eliminates extra LLM call for structured output
+   - Saves tokens by including schema in initial system prompt
+   - Retry mechanism (max 1) only if parsing fails
+
+2. **Default Untyped → `string`**: Unstructured ReAct output uses `string` instead of `any`/`interface{}`
+   - `New[string]()` returns `ReAct[string]`
+   - Simple text responses without JSON overhead
+   - `ParseStringAs[string]` returns input directly (no parsing)
+
+3. **Removed Pattern Interface**: Eliminated generic `patterns.Pattern` interface
+   - No more adapter pattern (`AsPattern()` removed)
+   - Cleaner API without unnecessary abstractions
+   - Each pattern stands independently
+
+4. **Consolidated Documentation**: Moved from separate `docs/` folder to this file
+   - Single source of truth for architecture
+   - Key concepts documented inline with code examples
+
+### Impact
+
+- **Better Performance**: No extra LLM call for structured output (schema at start)
+- **Simpler API**: `ReAct[string]` for text, `ReAct[CustomType]` for structured
+- **Less Abstraction**: No interface adapters or wrappers
+- **Clearer Defaults**: String is the natural default for unstructured output
+- **Smart Retry**: Automatic JSON request on parse failure (max 1 retry)
+- **Token Efficiency**: Schema injected once, not per final answer request
 
 ---
 

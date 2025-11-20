@@ -104,10 +104,10 @@ func WithTools(tools ...tool.GenericTool) func(*ClientOptions) {
 //
 // Example usage:
 //
-//	client := NewClient(provider,
-//	    WithSystemPrompt("You are a helpful assistant."),
-//	    WithTools(calcTool, searchTool),
-//	    WithEnrichSystemPromptWithToolsDescriptions(), // Adds tool guidance automatically
+//	client, _ := client.New(provider,
+//	    client.WithSystemPrompt("You are a helpful assistant."),
+//	    client.WithTools(calcTool, searchTool),
+//	    client.WithEnrichSystemPromptWithToolsDescriptions(),
 //	)
 func WithEnrichSystemPromptWithToolsDescriptions() func(*ClientOptions) {
 	return func(o *ClientOptions) {
@@ -129,9 +129,9 @@ func WithEnrichSystemPromptWithToolsDescriptions() func(*ClientOptions) {
 //	    Confidence float64 `json:"confidence" jsonschema:"required"`
 //	}
 //
-//	client := NewClient(provider,
-//	    WithMemory(memory),
-//	    WithDefaultOutputSchema(jsonschema.GenerateJSONSchema[MyResponse]()),
+//	client, _ := client.New(provider,
+//	    client.WithMemory(memory),
+//	    client.WithDefaultOutputSchema(jsonschema.GenerateJSONSchema[MyResponse]()),
 //	)
 //
 // Note: For most use cases, consider using StructuredClient[T] instead,
@@ -156,10 +156,9 @@ func WithDefaultOutputSchema(schema *jsonschema.Schema) func(*ClientOptions) {
 //
 // Example usage:
 //
-//	client := NewClient(provider,
-//	    WithSystemPrompt("You are a helpful assistant."),
-//	    WithTools(calcTool, searchTool),
-//	    WithEnrichSystemPromptWithToolsCosts(cost.OptimizeForAccuracy),
+//	client, _ := client.New(provider,
+//	    client.WithSystemPrompt("You are a helpful assistant."),
+//	    client.WithTools(calcTool, searchTool),
 //	)
 func WithEnrichSystemPromptWithToolsCosts(strategy cost.OptimizationStrategy) func(*ClientOptions) {
 	return func(o *ClientOptions) {
@@ -173,9 +172,9 @@ func WithEnrichSystemPromptWithToolsCosts(strategy cost.OptimizationStrategy) fu
 //
 // Example usage:
 //
-//	client := NewClient(provider,
-//	    WithDefaultModel("gpt-4o"),
-//	    WithModelCost(cost.ModelCost{
+//	client, _ := client.New(provider,
+//	    client.WithDefaultModel("gpt-4o"),
+//	    client.WithModelCost(cost.ModelCost{
 //	        InputCostPerMillion:  2.50,
 //	        OutputCostPerMillion: 10.00,
 //	    }),
@@ -183,8 +182,8 @@ func WithEnrichSystemPromptWithToolsCosts(strategy cost.OptimizationStrategy) fu
 //
 // For models with cached or reasoning tokens:
 //
-//	client := NewClient(provider,
-//	    WithModelCost(cost.ModelCost{
+//	client, _ := client.New(provider,
+//	    client.WithModelCost(cost.ModelCost{
 //	        InputCostPerMillion:       2.50,
 //	        OutputCostPerMillion:      10.00,
 //	        CachedInputCostPerMillion: 1.25,
@@ -197,21 +196,21 @@ func WithModelCost(modelCost cost.ModelCost) func(*ClientOptions) {
 	}
 }
 
-// NewClient creates a new immutable Client instance.
+// New creates a new immutable Client instance.
 // The llmProvider is required as the first argument.
 // All other configuration is provided via functional options.
 //
 // Example:
 //
-//	client, err := NewClient(
+//	client, err := client.New(
 //	    openaiProvider,
-//	    WithDefaultModel("gpt-4"),
-//	    WithObserver(myObserver),
-//	    WithSystemPrompt("You are a helpful assistant"),
-//	    WithTools(tool1, tool2),
-//	    WithEnrichSystemPromptWithToolsDescriptions(), // Optionally add tool guidance
+//	    client.WithDefaultModel("gpt-4"),
+//	    client.WithObserver(myObserver),
+//	    client.WithSystemPrompt("You are a helpful assistant"),
+//	    client.WithTools(tool1, tool2),
+//	    client.WithEnrichSystemPromptWithToolsDescriptions(), // Optionally add tool guidance
 //	)
-func NewClient(llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client, error) {
+func New(llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client, error) {
 	options := &ClientOptions{
 		LlmProvider: llmProvider,
 		// MemoryProvider is optional (nil = stateless mode)
@@ -388,6 +387,7 @@ func enrichSystemPromptWithTools(basePrompt string, tools []tool.GenericTool, to
 // SendMessageOptions contains optional parameters for SendMessage.
 type SendMessageOptions struct {
 	OutputSchema *jsonschema.Schema // Optional: JSON schema for structured output
+	SystemPrompt string             // Optional: Ephemeral system prompt for this specific request (overrides client's global prompt)
 }
 
 // SendMessageOption is a functional option for SendMessage.
@@ -410,6 +410,21 @@ type SendMessageOption func(*SendMessageOptions)
 func WithOutputSchema(schema *jsonschema.Schema) SendMessageOption {
 	return func(o *SendMessageOptions) {
 		o.OutputSchema = schema
+	}
+}
+
+// WithEphemeralSystemPrompt sets an ephemeral system prompt for this specific request.
+// This ephemeral prompt will override the client's global system prompt for this request only.
+// The client's global system prompt remains unchanged for subsequent requests.
+//
+// Example usage:
+//
+//	resp, _ := client.SendMessage(ctx, "What is 2+2?",
+//	    client.WithEphemeralSystemPrompt("You are a math expert. Provide detailed explanations."),
+//	)
+func WithEphemeralSystemPrompt(prompt string) SendMessageOption {
+	return func(o *SendMessageOptions) {
+		o.SystemPrompt = prompt
 	}
 }
 
@@ -473,11 +488,18 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 		}
 	}
 
+	// Determine which system prompt to use
+	// Priority: per-request ephemeral prompt > client's global prompt
+	systemPrompt := c.systemPrompt
+	if options.SystemPrompt != "" {
+		systemPrompt = options.SystemPrompt
+	}
+
 	// Build complete request with all configuration
 	request := ai.ChatRequest{
 		Model:        c.defaultModel,
 		Messages:     messages,
-		SystemPrompt: c.systemPrompt,
+		SystemPrompt: systemPrompt,
 		Tools:        c.toolDescriptions,
 	}
 
@@ -571,11 +593,18 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 		)
 	}
 
+	// Determine which system prompt to use
+	// Priority: per-request ephemeral prompt > client's global prompt
+	systemPrompt := c.systemPrompt
+	if options.SystemPrompt != "" {
+		systemPrompt = options.SystemPrompt
+	}
+
 	// Build complete request with all configuration
 	request := ai.ChatRequest{
 		Model:        c.defaultModel,
 		Messages:     messages,
-		SystemPrompt: c.systemPrompt,
+		SystemPrompt: systemPrompt,
 		Tools:        c.toolDescriptions,
 	}
 

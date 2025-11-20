@@ -20,7 +20,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== ReAct Pattern with Brave Search Example ===")
+	fmt.Println("=== ReAct with Brave Search Example ===")
 	fmt.Println("This example demonstrates how an AI agent uses Brave Search")
 	fmt.Println("to find real-time information from the web.")
 
@@ -40,8 +40,8 @@ func main() {
 	calcTool := calculator.NewCalculatorTool()
 
 	// Create base client with tools
-	baseClient, err := client.NewClient(
-		openai.NewOpenAIProvider(),
+	baseClient, err := client.New(
+		openai.New(),
 		client.WithMemory(memory),
 		client.WithObserver(slogobs.New()),
 		client.WithTools(searchTool, calcTool),
@@ -52,14 +52,14 @@ func main() {
 		log.Fatalf("Failed to create client: %v", err)
 	}
 
-	// Create ReAct pattern
-	reactPattern, err := react.NewReactPattern(
+	// Create ReAct agent (using string for untyped text output)
+	agent, err := react.New[string](
 		baseClient,
 		react.WithMaxIterations(5),
 		react.WithStopOnError(false),
 	)
 	if err != nil {
-		log.Fatalf("Failed to create ReAct pattern: %v", err)
+		log.Fatalf("Failed to create ReAct agent: %v", err)
 	}
 
 	ctx := context.Background()
@@ -76,20 +76,20 @@ func main() {
 		fmt.Printf("Query %d: %s\n", i+1, prompt)
 		fmt.Printf("%s\n\n", strings.Repeat("━", 80))
 
-		respOverview, err := reactPattern.Execute(ctx, prompt)
+		result, err := agent.Execute(ctx, prompt)
 		if err != nil {
 			log.Printf("ReAct execution failed: %v\n", err)
 			continue
 		}
 
-		fmt.Printf("\n✓ Assistant Response:\n%s\n", respOverview.LastResponse.Content)
-		fmt.Printf("\nFinish Reason: %s\n", respOverview.LastResponse.FinishReason)
-		fmt.Printf("Total Requests: %d\n", len(respOverview.Requests))
-		fmt.Printf("Total Responses: %d\n", len(respOverview.Responses))
+		fmt.Printf("\n✓ Assistant Response:\n%s\n", result.LastResponse.Content)
+		fmt.Printf("\nFinish Reason: %s\n", result.LastResponse.FinishReason)
+		fmt.Printf("Total Requests: %d\n", len(result.Requests))
+		fmt.Printf("Total Responses: %d\n", len(result.Responses))
 		fmt.Printf("Tokens Used: %d (prompt: %d, completion: %d)\n",
-			respOverview.TotalUsage.TotalTokens,
-			respOverview.TotalUsage.PromptTokens,
-			respOverview.TotalUsage.CompletionTokens,
+			result.TotalUsage.TotalTokens,
+			result.TotalUsage.PromptTokens,
+			result.TotalUsage.CompletionTokens,
 		)
 	}
 

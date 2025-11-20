@@ -37,7 +37,7 @@ const (
 // Example:
 //
 //	tool := webfetch.NewWebFetchTool()
-//	client := client.NewClient(provider).AddTools([]tool.GenericTool{tool})
+//	client, _ := client.New(provider, client.WithTools(tool))
 func NewWebFetchTool() *tool.Tool[Input, Output] {
 	return tool.NewTool[Input, Output](
 		"WebFetch",

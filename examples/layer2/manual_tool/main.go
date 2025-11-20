@@ -34,8 +34,8 @@ func main() {
 	memory := inmemory.New()
 
 	// Create client with memory and tools
-	c, err := client.NewClient(
-		openai.NewOpenAIProvider(),
+	c, err := client.New(
+		openai.New(),
 		client.WithMemory(memory),
 		client.WithTools(calculator.NewCalculatorTool()),
 		client.WithSystemPrompt("You are a helpful math assistant. Use the calculator tool when needed."),
