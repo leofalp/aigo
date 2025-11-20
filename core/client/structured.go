@@ -3,9 +3,9 @@ package client
 import (
 	"context"
 	"fmt"
+	"github.com/leofalp/aigo/core/parse"
 
 	"github.com/leofalp/aigo/internal/jsonschema"
-	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/providers/ai"
 )
 
@@ -150,7 +150,7 @@ func (sc *StructuredClient[T]) parseResponse(resp *ai.ChatResponse) (*ai.Structu
 	if resp == nil {
 		return nil, fmt.Errorf("response is nil")
 	}
-	data, err := utils.ParseStringAs[T](resp.Content)
+	data, err := parse.ParseStringAs[T](resp.Content)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse structured output: %w", err)
 	}
