@@ -39,37 +39,37 @@ func (s OptimizationStrategy) String() string {
 	return string(s)
 }
 
-// ToolCost represents the cost information for a single tool execution.
-// The cost can be expressed as a fixed amount per call or as a custom unit.
-// It also includes optional quality metrics for optimization strategies.
+// ToolMetrics represents the metrics and cost information for a single tool execution.
+// It includes cost information, quality metrics, and performance data that can be used
+// for optimization strategies.
 //
 // Example usage:
 //
-//	toolCost := cost.ToolCost{
-//	    Amount:      0.001,
-//	    Currency:    "USD",
-//	    Description: "per API call",
-//	    Accuracy:    0.95,  // 95% accuracy
-//	    Speed:       1.2,   // 1.2 seconds average
+//	toolMetrics := cost.ToolMetrics{
+//	    Amount:                   0.001,
+//	    Currency:                 "USD",
+//	    CostDescription:          "per API call",
+//	    Accuracy:                 0.95,   // 95% accuracy
+//	    AverageDurationInMillis:  1200,   // 1200ms = 1.2 seconds average
 //	}
-type ToolCost struct {
+type ToolMetrics struct {
 	// Amount is the cost value for executing this tool once
 	Amount float64 `json:"amount"`
 
 	// Currency is the currency or unit for the cost (e.g., "USD", "EUR", "credits")
 	Currency string `json:"currency,omitempty"`
 
-	// Description provides additional context about the cost
-	// (e.g., "per API call", "per search query")
-	Description string `json:"description,omitempty"`
+	// CostDescription provides additional context about the cost
+	// (e.g., "per API call", "per search query", "per MB processed")
+	CostDescription string `json:"cost_description,omitempty"`
 
 	// Accuracy represents the accuracy/reliability score (0.0 to 1.0)
 	// Higher values indicate more accurate/reliable results
 	Accuracy float64 `json:"accuracy,omitempty"`
 
-	// Speed represents the average execution time in seconds
+	// AverageDurationInMillis represents the average execution time in milliseconds
 	// Lower values indicate faster execution
-	Speed float64 `json:"speed,omitempty"`
+	AverageDurationInMillis int64 `json:"average_duration_in_millis,omitempty"`
 
 	// Quality represents an overall quality score (0.0 to 1.0)
 	// This can be a composite metric of various factors
@@ -77,41 +77,41 @@ type ToolCost struct {
 }
 
 // String returns a formatted string representation of the cost.
-func (tc ToolCost) String() string {
-	currency := tc.Currency
+func (tm ToolMetrics) String() string {
+	currency := tm.Currency
 	if currency == "" {
 		currency = "USD"
 	}
 
-	result := fmt.Sprintf("%.6f %s", tc.Amount, currency)
+	result := fmt.Sprintf("%.6f %s", tm.Amount, currency)
 
-	if tc.Description != "" {
-		result = fmt.Sprintf("%s (%s)", result, tc.Description)
+	if tm.CostDescription != "" {
+		result = fmt.Sprintf("%s (%s)", result, tm.CostDescription)
 	}
 
 	return result
 }
 
 // MetricsString returns a formatted string with all quality metrics.
-func (tc ToolCost) MetricsString() string {
+func (tm ToolMetrics) MetricsString() string {
 	metrics := ""
 
-	if tc.Accuracy > 0 {
-		metrics += fmt.Sprintf("Accuracy: %.1f%%", tc.Accuracy*100)
+	if tm.Accuracy > 0 {
+		metrics += fmt.Sprintf("Accuracy: %.1f%%", tm.Accuracy*100)
 	}
 
-	if tc.Speed > 0 {
+	if tm.AverageDurationInMillis > 0 {
 		if metrics != "" {
 			metrics += ", "
 		}
-		metrics += fmt.Sprintf("Speed: %.2fs", tc.Speed)
+		metrics += fmt.Sprintf("Avg Duration: %dms", tm.AverageDurationInMillis)
 	}
 
-	if tc.Quality > 0 {
+	if tm.Quality > 0 {
 		if metrics != "" {
 			metrics += ", "
 		}
-		metrics += fmt.Sprintf("Quality: %.1f%%", tc.Quality*100)
+		metrics += fmt.Sprintf("Quality: %.1f%%", tm.Quality*100)
 	}
 
 	return metrics
@@ -120,22 +120,22 @@ func (tc ToolCost) MetricsString() string {
 // CostEffectivenessScore calculates a cost-effectiveness score.
 // Higher scores indicate better value (quality per unit cost).
 // Returns 0 if cost is 0 to avoid division by zero.
-func (tc ToolCost) CostEffectivenessScore() float64 {
-	if tc.Amount == 0 {
+func (tm ToolMetrics) CostEffectivenessScore() float64 {
+	if tm.Amount == 0 {
 		return 0
 	}
 
-	qualityScore := tc.Quality
-	if qualityScore == 0 && tc.Accuracy > 0 {
+	qualityScore := tm.Quality
+	if qualityScore == 0 && tm.Accuracy > 0 {
 		// Use accuracy as a fallback if quality is not set
-		qualityScore = tc.Accuracy
+		qualityScore = tm.Accuracy
 	}
 
 	if qualityScore == 0 {
 		return 0
 	}
 
-	return qualityScore / tc.Amount
+	return qualityScore / tm.Amount
 }
 
 // ModelCost represents the pricing structure for a language model.

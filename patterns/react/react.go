@@ -398,9 +398,9 @@ func (r *ReAct[T]) executeToolCall(
 	})
 
 	// Track tool execution cost if available
-	if typedTool, ok := toolInstance.(interface{ GetCost() *cost.ToolCost }); ok {
-		if toolCost := typedTool.GetCost(); toolCost != nil {
-			overview.AddToolExecutionCost(toolCall.Function.Name, toolCost)
+	if typedTool, ok := toolInstance.(interface{ GetMetrics() *cost.ToolMetrics }); ok {
+		if toolMetrics := typedTool.GetMetrics(); toolMetrics != nil {
+			overview.AddToolExecutionCost(toolCall.Function.Name, toolMetrics)
 		}
 	}
 

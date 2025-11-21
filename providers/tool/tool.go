@@ -3,8 +3,9 @@ package tool
 import (
 	"context"
 	"encoding/json"
-	"github.com/leofalp/aigo/core/parse"
 	"time"
+
+	"github.com/leofalp/aigo/core/parse"
 
 	"github.com/leofalp/aigo/core/cost"
 	"github.com/leofalp/aigo/internal/jsonschema"
@@ -18,8 +19,8 @@ type Tool[I, O any] struct {
 	Parameters  *jsonschema.Schema
 	Output      *jsonschema.Schema
 	Function    func(ctx context.Context, input I) (O, error)
-	// Cost is optional cost information for this tool execution
-	Cost *cost.ToolCost
+	// Metrics contains optional cost and performance metrics for this tool execution
+	Metrics *cost.ToolMetrics
 }
 
 type GenericTool interface {
@@ -29,7 +30,7 @@ type GenericTool interface {
 
 type funcToolOptions struct {
 	Description string
-	Cost        *cost.ToolCost
+	Metrics     *cost.ToolMetrics
 }
 
 func WithDescription(description string) func(tool *funcToolOptions) {
@@ -38,10 +39,10 @@ func WithDescription(description string) func(tool *funcToolOptions) {
 	}
 }
 
-// WithCost sets the cost for executing this tool.
-func WithCost(toolCost cost.ToolCost) func(tool *funcToolOptions) {
+// WithMetrics sets the metrics (cost, accuracy, speed, quality) for executing this tool.
+func WithMetrics(toolMetrics cost.ToolMetrics) func(tool *funcToolOptions) {
 	return func(s *funcToolOptions) {
-		s.Cost = &toolCost
+		s.Metrics = &toolMetrics
 	}
 }
 
@@ -57,7 +58,7 @@ func NewTool[I, O any](name string, function func(ctx context.Context, input I) 
 		Parameters:  jsonschema.GenerateJSONSchema[I](),
 		Output:      jsonschema.GenerateJSONSchema[O](),
 		Function:    function,
-		Cost:        toolOptions.Cost,
+		Metrics:     toolOptions.Metrics,
 	}
 	return tool
 }
@@ -69,9 +70,9 @@ func (t *Tool[I, O]) ToolInfo() ai.ToolDescription {
 		Parameters:  t.Parameters,
 	}
 
-	// Attach cost metadata if available
-	if t.Cost != nil {
-		toolDesc.Cost = t.Cost
+	// Attach metrics metadata if available
+	if t.Metrics != nil {
+		toolDesc.Metrics = t.Metrics
 	}
 
 	return toolDesc
@@ -134,12 +135,24 @@ func (t *Tool[I, O]) Call(ctx context.Context, inputJson string) (string, error)
 			observability.Duration(observability.AttrToolDuration, duration),
 		}
 
-		// Add cost information to observability if available
-		if t.Cost != nil {
+		// Add cost and metrics information to observability if available
+		if t.Metrics != nil {
 			attrs = append(attrs,
-				observability.Float64("tool.cost.amount", t.Cost.Amount),
-				observability.String("tool.cost.currency", t.Cost.Currency),
+				observability.Float64("tool.cost.amount", t.Metrics.Amount),
+				observability.String("tool.cost.currency", t.Metrics.Currency),
 			)
+			if t.Metrics.CostDescription != "" {
+				attrs = append(attrs, observability.String("tool.cost.description", t.Metrics.CostDescription))
+			}
+			if t.Metrics.Accuracy > 0 {
+				attrs = append(attrs, observability.Float64("tool.metrics.accuracy", t.Metrics.Accuracy))
+			}
+			if t.Metrics.AverageDurationInMillis > 0 {
+				attrs = append(attrs, observability.Int64("tool.metrics.avg_duration_ms", t.Metrics.AverageDurationInMillis))
+			}
+			if t.Metrics.Quality > 0 {
+				attrs = append(attrs, observability.Float64("tool.metrics.quality", t.Metrics.Quality))
+			}
 		}
 
 		span.SetAttributes(attrs...)
@@ -148,7 +161,7 @@ func (t *Tool[I, O]) Call(ctx context.Context, inputJson string) (string, error)
 	return string(outputBytes), nil
 }
 
-// GetCost returns the cost information for this tool, if any.
-func (t *Tool[I, O]) GetCost() *cost.ToolCost {
-	return t.Cost
+// GetMetrics returns the metrics (cost and performance data) for this tool, if any.
+func (t *Tool[I, O]) GetMetrics() *cost.ToolMetrics {
+	return t.Metrics
 }

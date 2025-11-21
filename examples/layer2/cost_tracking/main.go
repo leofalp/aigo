@@ -65,12 +65,13 @@ func main() {
 			return CalculatorOutput{Result: result}, nil
 		},
 		tool.WithDescription("Performs basic arithmetic operations: add, subtract, multiply, divide"),
-		tool.WithCost(cost.ToolCost{
-			Amount:   0.001,
-			Currency: "USD",
-			Accuracy: 0.99,
-			Speed:    0.1,
-			Quality:  0.95,
+		tool.WithMetrics(cost.ToolMetrics{
+			Amount:                  0.001,
+			Currency:                "USD",
+			CostDescription:         "per calculation",
+			Accuracy:                0.99,
+			AverageDurationInMillis: 100, // 100ms = 0.1s
+			Quality:                 0.95,
 		}),
 	)
 
@@ -89,12 +90,13 @@ func main() {
 			}, nil
 		},
 		tool.WithDescription("Searches the web for information"),
-		tool.WithCost(cost.ToolCost{
-			Amount:   0.05,
-			Currency: "USD",
-			Accuracy: 0.85,
-			Speed:    2.5,
-			Quality:  0.90,
+		tool.WithMetrics(cost.ToolMetrics{
+			Amount:                  0.05,
+			Currency:                "USD",
+			CostDescription:         "per search query",
+			Accuracy:                0.85,
+			AverageDurationInMillis: 2500, // 2500ms = 2.5s
+			Quality:                 0.90,
 		}),
 	)
 

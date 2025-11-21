@@ -4,58 +4,58 @@ import (
 	"testing"
 )
 
-func TestToolCost(t *testing.T) {
-	cost := ToolCost{
+func TestToolMetrics(t *testing.T) {
+	metrics := ToolMetrics{
 		Amount:   0.001,
 		Currency: "USD",
 	}
 
-	if cost.Amount != 0.001 {
-		t.Errorf("Expected amount 0.001, got %f", cost.Amount)
+	if metrics.Amount != 0.001 {
+		t.Errorf("Expected amount 0.001, got %f", metrics.Amount)
 	}
 
-	if cost.Currency != "USD" {
-		t.Errorf("Expected currency USD, got %s", cost.Currency)
+	if metrics.Currency != "USD" {
+		t.Errorf("Expected currency USD, got %s", metrics.Currency)
 	}
 }
 
-func TestToolCostWithCustomCurrency(t *testing.T) {
-	cost := ToolCost{
+func TestToolMetricsWithCustomCurrency(t *testing.T) {
+	metrics := ToolMetrics{
 		Amount:   0.05,
 		Currency: "EUR",
 	}
 
-	if cost.Amount != 0.05 {
-		t.Errorf("Expected amount 0.05, got %f", cost.Amount)
+	if metrics.Amount != 0.05 {
+		t.Errorf("Expected amount 0.05, got %f", metrics.Amount)
 	}
 
-	if cost.Currency != "EUR" {
-		t.Errorf("Expected currency EUR, got %s", cost.Currency)
+	if metrics.Currency != "EUR" {
+		t.Errorf("Expected currency EUR, got %s", metrics.Currency)
 	}
 }
 
-func TestToolCostString(t *testing.T) {
-	cost := ToolCost{
+func TestToolMetricsString(t *testing.T) {
+	metrics := ToolMetrics{
 		Amount:   0.001,
 		Currency: "USD",
 	}
 	expected := "0.001000 USD"
 
-	if cost.String() != expected {
-		t.Errorf("Expected %s, got %s", expected, cost.String())
+	if metrics.String() != expected {
+		t.Errorf("Expected %s, got %s", expected, metrics.String())
 	}
 }
 
-func TestToolCostStringWithDescription(t *testing.T) {
-	cost := ToolCost{
-		Amount:      0.001,
-		Currency:    "USD",
-		Description: "per API call",
+func TestToolMetricsStringWithCostDescription(t *testing.T) {
+	metrics := ToolMetrics{
+		Amount:          0.001,
+		Currency:        "USD",
+		CostDescription: "per API call",
 	}
 	expected := "0.001000 USD (per API call)"
 
-	if cost.String() != expected {
-		t.Errorf("Expected %s, got %s", expected, cost.String())
+	if metrics.String() != expected {
+		t.Errorf("Expected %s, got %s", expected, metrics.String())
 	}
 }
 
@@ -227,110 +227,111 @@ func TestOptimizationStrategyString(t *testing.T) {
 	}
 }
 
-func TestToolCostMetricsString(t *testing.T) {
+func TestToolMetricsMetricsString(t *testing.T) {
 	tests := []struct {
 		name     string
-		cost     ToolCost
+		metrics  ToolMetrics
 		expected string
 	}{
 		{
 			name: "with accuracy only",
-			cost: ToolCost{
+			metrics: ToolMetrics{
 				Accuracy: 0.95,
 			},
 			expected: "Accuracy: 95.0%",
 		},
 		{
-			name: "with speed only",
-			cost: ToolCost{
-				Speed: 1.5,
+			name: "with duration only",
+			metrics: ToolMetrics{
+				AverageDurationInMillis: 1500,
 			},
-			expected: "Speed: 1.50s",
+			expected: "Avg Duration: 1500ms",
 		},
 		{
 			name: "with quality only",
-			cost: ToolCost{
+			metrics: ToolMetrics{
 				Quality: 0.88,
 			},
 			expected: "Quality: 88.0%",
 		},
 		{
 			name: "with all metrics",
-			cost: ToolCost{
-				Accuracy: 0.95,
-				Speed:    1.5,
-				Quality:  0.88,
+			metrics: ToolMetrics{
+				Accuracy:                0.95,
+				AverageDurationInMillis: 1500,
+				Quality:                 0.88,
 			},
-			expected: "Accuracy: 95.0%, Speed: 1.50s, Quality: 88.0%",
+			expected: "Accuracy: 95.0%, Avg Duration: 1500ms, Quality: 88.0%",
 		},
 		{
-			name: "with accuracy and speed",
-			cost: ToolCost{
-				Accuracy: 0.99,
-				Speed:    0.5,
+			name: "with accuracy and duration",
+			metrics: ToolMetrics{
+				Accuracy:                0.99,
+				AverageDurationInMillis: 500,
 			},
-			expected: "Accuracy: 99.0%, Speed: 0.50s",
+			expected: "Accuracy: 99.0%, Avg Duration: 500ms",
 		},
 		{
 			name:     "with no metrics",
-			cost:     ToolCost{},
+			metrics:  ToolMetrics{},
 			expected: "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tt.cost.MetricsString()
+			result := tt.metrics.MetricsString()
 			if result != tt.expected {
-				t.Errorf("Expected %s, got %s", tt.expected, result)
+				t.Errorf("Expected %q, got %q", tt.expected, result)
 			}
 		})
 	}
 }
 
-func TestToolCostCostEffectivenessScore(t *testing.T) {
+func TestToolMetricsCostEffectivenessScore(t *testing.T) {
 	tests := []struct {
 		name     string
-		cost     ToolCost
+		metrics  ToolMetrics
 		expected float64
 	}{
 		{
 			name: "with quality and cost",
-			cost: ToolCost{
+			metrics: ToolMetrics{
 				Amount:  0.01,
 				Quality: 0.9,
 			},
 			expected: 90.0, // 0.9 / 0.01
 		},
 		{
-			name: "with accuracy and cost (quality fallback)",
-			cost: ToolCost{
-				Amount:   0.05,
-				Accuracy: 0.85,
+			name: "with accuracy fallback",
+			metrics: ToolMetrics{
+				Amount:   0.02,
+				Accuracy: 0.8,
 			},
-			expected: 17.0, // 0.85 / 0.05
+			expected: 40.0, // 0.8 / 0.02
 		},
 		{
 			name: "quality takes precedence over accuracy",
-			cost: ToolCost{
-				Amount:   0.02,
-				Quality:  0.95,
-				Accuracy: 0.80,
+			metrics: ToolMetrics{
+				Amount:   0.01,
+				Quality:  0.9,
+				Accuracy: 0.5,
 			},
-			expected: 47.5, // 0.95 / 0.02
+			expected: 90.0, // 0.9 / 0.01 (not 0.5 / 0.01)
 		},
 		{
-			name: "zero cost",
-			cost: ToolCost{
+			name: "zero cost returns zero",
+			metrics: ToolMetrics{
 				Amount:  0,
 				Quality: 0.9,
 			},
 			expected: 0,
 		},
 		{
-			name: "zero quality and accuracy",
-			cost: ToolCost{
-				Amount: 0.01,
+			name: "zero quality returns zero",
+			metrics: ToolMetrics{
+				Amount:  0.01,
+				Quality: 0,
 			},
 			expected: 0,
 		},
@@ -338,26 +339,25 @@ func TestToolCostCostEffectivenessScore(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tt.cost.CostEffectivenessScore()
-			epsilon := 0.0001
-			if result < tt.expected-epsilon || result > tt.expected+epsilon {
-				t.Errorf("Expected %.4f, got %.4f", tt.expected, result)
+			result := tt.metrics.CostEffectivenessScore()
+			if result != tt.expected {
+				t.Errorf("Expected %f, got %f", tt.expected, result)
 			}
 		})
 	}
 }
 
-func TestToolCostStringWithMetrics(t *testing.T) {
-	tc := ToolCost{
-		Amount:      0.001,
-		Currency:    "USD",
-		Description: "per API call",
-		Accuracy:    0.95,
-		Speed:       1.2,
-		Quality:     0.90,
+func TestToolMetricsStringWithMetrics(t *testing.T) {
+	tm := ToolMetrics{
+		Amount:                  0.001,
+		Currency:                "USD",
+		CostDescription:         "per API call",
+		Accuracy:                0.95,
+		AverageDurationInMillis: 1200,
+		Quality:                 0.90,
 	}
 
-	result := tc.String()
+	result := tm.String()
 	expected := "0.001000 USD (per API call)"
 
 	if result != expected {
@@ -365,11 +365,52 @@ func TestToolCostStringWithMetrics(t *testing.T) {
 	}
 
 	// Metrics should be separate
-	metricsResult := tc.MetricsString()
-	expectedMetrics := "Accuracy: 95.0%, Speed: 1.20s, Quality: 90.0%"
+	metricsResult := tm.MetricsString()
+	expectedMetrics := "Accuracy: 95.0%, Avg Duration: 1200ms, Quality: 90.0%"
 
 	if metricsResult != expectedMetrics {
 		t.Errorf("Expected metrics %s, got %s", expectedMetrics, metricsResult)
+	}
+}
+
+func TestToolMetricsZeroCostHighAccuracy(t *testing.T) {
+	// Test that tools can have zero cost with high accuracy
+	// Example: local calculation tools, no external API calls
+	tm := ToolMetrics{
+		Amount:                  0.0, // Free tool
+		Currency:                "USD",
+		CostDescription:         "local execution",
+		Accuracy:                1.0, // 100% accuracy
+		AverageDurationInMillis: 10,  // Very fast
+		Quality:                 1.0, // Perfect quality
+	}
+
+	if tm.Amount != 0.0 {
+		t.Errorf("Expected zero cost, got %f", tm.Amount)
+	}
+
+	if tm.Accuracy != 1.0 {
+		t.Errorf("Expected 100%% accuracy (1.0), got %f", tm.Accuracy)
+	}
+
+	// Cost effectiveness should be 0 when cost is 0 (to avoid division by zero)
+	score := tm.CostEffectivenessScore()
+	if score != 0 {
+		t.Errorf("Expected 0 cost effectiveness score for zero cost, got %f", score)
+	}
+
+	// Metrics string should still work
+	metricsResult := tm.MetricsString()
+	expectedMetrics := "Accuracy: 100.0%, Avg Duration: 10ms, Quality: 100.0%"
+	if metricsResult != expectedMetrics {
+		t.Errorf("Expected metrics %q, got %q", expectedMetrics, metricsResult)
+	}
+
+	// Cost string should show zero cost
+	costString := tm.String()
+	expected := "0.000000 USD (local execution)"
+	if costString != expected {
+		t.Errorf("Expected cost string %q, got %q", expected, costString)
 	}
 }
 

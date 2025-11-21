@@ -32,9 +32,9 @@ type ToolDescription struct {
 	Name        string             `json:"name"`
 	Description string             `json:"description,omitempty"`
 	Parameters  *jsonschema.Schema `json:"parameters,omitempty"`
-	// Cost is optional metadata about tool execution cost.
+	// Metrics contains optional metadata about tool execution cost and performance.
 	// This is not sent to the LLM provider unless IncludeCostInDescription is used.
-	Cost *cost.ToolCost `json:"cost,omitempty"`
+	Metrics *cost.ToolMetrics `json:"metrics,omitempty"`
 }
 
 // Message represents a single message in a conversation

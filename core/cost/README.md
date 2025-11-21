@@ -6,15 +6,18 @@ Comprehensive cost tracking system for aigo, enabling monitoring and optimizatio
 
 The cost package provides:
 - **Model cost tracking** based on token usage (input/output/cached/reasoning)
-- **Tool execution cost tracking** with quality metrics
+- **Tool execution metrics** including cost and quality metrics
 - **Optimization strategies** to guide LLM tool selection
 - **Automatic cost calculation** in execution overview
+- **Environment variable fallback** for model cost configuration
 
 All costs are tracked in USD for consistency.
 
 ## Quick Start
 
 ### 1. Configure Model Costs
+
+**Option A: Explicit Configuration**
 
 ```go
 import "github.com/leofalp/aigo/core/cost"
@@ -28,21 +31,35 @@ client, _ := client.New(
 )
 ```
 
-### 2. Define Tool Costs
+**Option B: Environment Variables (Fallback)**
+
+If `WithModelCost` is not specified, the client will automatically load model costs from environment variables:
+
+```bash
+export AIGO_MODEL_INPUT_COST_PER_MILLION=2.50
+export AIGO_MODEL_OUTPUT_COST_PER_MILLION=10.00
+export AIGO_MODEL_CACHED_COST_PER_MILLION=1.25      # Optional
+export AIGO_MODEL_REASONING_COST_PER_MILLION=5.00   # Optional
+```
+
+### 2. Define Tool Metrics
 
 ```go
 calculatorTool := tool.NewTool(
     "calculator",
     calculatorFunc,
-    tool.WithCost(cost.ToolCost{
-        Amount:   0.001,  // $0.001 per execution
-        Currency: "USD",
-        Accuracy: 0.99,   // Optional: 99% accuracy
-        Speed:    0.1,    // Optional: 0.1s avg execution time
-        Quality:  0.95,   // Optional: 95% quality score
+    tool.WithMetrics(cost.ToolMetrics{
+        Amount:                  0.001,  // $0.001 per execution
+        Currency:                "USD",
+        CostDescription:         "per calculation", // Optional: context about the cost
+        Accuracy:                0.99,   // Optional: 99% accuracy
+        AverageDurationInMillis: 100,    // Optional: 100ms avg execution time
+        Quality:                 0.95,   // Optional: 95% quality score
     }),
 )
 ```
+
+**Note:** `tool.WithCost()` is deprecated but still supported. Use `tool.WithMetrics()` instead.
 
 ### 3. Enable LLM Optimization (Optional)
 
@@ -71,18 +88,18 @@ fmt.Printf("Total: $%.6f\n", summary.TotalCost)
 
 ## Core Types
 
-### ToolCost
+### ToolMetrics
 
 Represents the cost and quality metrics of a tool execution.
 
 ```go
-type ToolCost struct {
-    Amount      float64 // Cost per execution
-    Currency    string  // Currency (default: "USD")
-    Description string  // Optional description
-    Accuracy    float64 // Accuracy score (0.0 - 1.0)
-    Speed       float64 // Execution time in seconds
-    Quality     float64 // Quality score (0.0 - 1.0)
+type ToolMetrics struct {
+    Amount                  float64 // Cost per execution
+    Currency                string  // Currency (default: "USD")
+    CostDescription         string  // Optional: context about the cost (e.g., "per API call")
+    Accuracy                float64 // Accuracy score (0.0 - 1.0)
+    AverageDurationInMillis int64   // Average execution time in milliseconds
+    Quality                 float64 // Quality score (0.0 - 1.0)
 }
 ```
 
@@ -130,6 +147,24 @@ type CostSummary struct {
 }
 ```
 
+## Environment Variables
+
+The client supports the following environment variables for model cost configuration:
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `AIGO_MODEL_INPUT_COST_PER_MILLION` | Input token cost per million | Yes* |
+| `AIGO_MODEL_OUTPUT_COST_PER_MILLION` | Output token cost per million | Yes* |
+| `AIGO_MODEL_CACHED_COST_PER_MILLION` | Cached token cost per million | No |
+| `AIGO_MODEL_REASONING_COST_PER_MILLION` | Reasoning token cost per million | No |
+
+*Required only if you want automatic cost tracking without explicit `WithModelCost()` configuration.
+
+**Precedence:**
+1. Explicit `client.WithModelCost()` takes precedence
+2. Environment variables are used as fallback
+3. If neither is set, cost tracking is disabled (no errors)
+
 ## Optimization Strategies
 
 Guide the LLM's tool selection based on different optimization goals.
@@ -144,6 +179,8 @@ Guide the LLM's tool selection based on different optimization goals.
 | `OptimizeForQuality` | Maximize overall quality | Best results needed |
 | `OptimizeBalanced` | Balance all metrics | No single priority |
 | `OptimizeCostEffective` | Best quality/cost ratio | Value-conscious |
+
+**Note:** Tools can have zero cost (e.g., local tools) with 100% accuracy (1.0).
 
 ### Example
 
@@ -168,8 +205,8 @@ You have access to the following tools. Prioritize accuracy when selecting tools
 1. **calculator**
    - Description: Performs arithmetic operations
    - Parameters: {...}
-   - Cost: 0.001000 USD
-   - Metrics: Accuracy: 99.0%, Speed: 0.10s, Quality: 95.0%
+   - Cost: 0.001000 USD (per calculation)
+   - Metrics: Accuracy: 99.0%, Avg Duration: 100ms, Quality: 95.0%
 
 **Optimization Goal:** When multiple tools can accomplish the same task, 
 prefer tools with higher accuracy scores.
@@ -191,26 +228,29 @@ import (
 )
 
 func main() {
-    // 1. Create tools with costs
+    // 1. Create tools with metrics
     calcTool := tool.NewTool("calculator", calcFunc,
-        tool.WithCost(cost.ToolCost{
-            Amount:   0.001,
-            Currency: "USD",
-            Accuracy: 0.99,
-            Speed:    0.1,
-            Quality:  0.95,
+        tool.WithMetrics(cost.ToolMetrics{
+            Amount:                  0.001,
+            Currency:                "USD",
+            CostDescription:         "per calculation",
+            Accuracy:                0.99,
+            AverageDurationInMillis: 100, // 100ms
+            Quality:                 0.95,
         }))
     
     searchTool := tool.NewTool("search", searchFunc,
-        tool.WithCost(cost.ToolCost{
-            Amount:   0.05,
-            Currency: "USD",
-            Accuracy: 0.85,
-            Speed:    2.5,
-            Quality:  0.90,
+        tool.WithMetrics(cost.ToolMetrics{
+            Amount:                  0.05,
+            Currency:                "USD",
+            CostDescription:         "per search query",
+            Accuracy:                0.85,
+            AverageDurationInMillis: 2500, // 2500ms = 2.5s
+            Quality:                 0.90,
         }))
     
     // 2. Create client with cost tracking
+    // Model costs can be set explicitly or via environment variables
     aiClient, _ := client.New(
         provider,
         client.WithTools(calcTool, searchTool),
@@ -244,9 +284,39 @@ func main() {
 }
 ```
 
+## Migration from ToolCost to ToolMetrics
+
+The type `ToolCost` has been renamed to `ToolMetrics` to better reflect that it contains multiple metrics beyond just cost information.
+
+**What changed:**
+- `cost.ToolCost` → `cost.ToolMetrics`
+- `tool.WithCost()` → `tool.WithMetrics()` (WithCost still works but is deprecated)
+- `tool.GetCost()` → `tool.GetMetrics()` (GetCost still works but is deprecated)
+- `ai.ToolDescription.Cost` → `ai.ToolDescription.Metrics`
+
+**Migration example:**
+
+```go
+// Old (deprecated, removed)
+tool.WithCost(cost.ToolCost{
+    Amount:   0.001,
+    Currency: "USD",
+})
+
+// New (recommended)
+tool.WithMetrics(cost.ToolMetrics{
+    Amount:                  0.001,
+    Currency:                "USD",
+    CostDescription:         "per API call",
+    Accuracy:                0.99,
+    AverageDurationInMillis: 100,
+    Quality:                 0.95,
+})
+```
+
 ## How It Works
 
-1. **Configuration**: User specifies `ModelCost` and optional `ToolCost` with metrics
+1. **Configuration**: User specifies `ModelCost` (or uses env vars) and optional `ToolMetrics`
 2. **Execution**: Client sets model cost in Overview; patterns track tool costs
 3. **Calculation**: `CostSummary()` calculates costs on-demand from:
    - `Overview.TotalUsage` (token counts)
@@ -260,6 +330,8 @@ func main() {
 2. **Update Metrics**: Keep tool quality metrics accurate based on real usage
 3. **Choose Strategy**: Select optimization strategy based on your use case
 4. **Monitor Costs**: Use `CostSummary` to analyze and optimize spending
+5. **Use Environment Variables**: For deployment, prefer environment variables over hardcoded costs
+6. **Use ToolMetrics**: Migrate from deprecated `ToolCost` to `ToolMetrics`
 
 ## API Design
 
@@ -267,9 +339,10 @@ func main() {
 - **Optional Metrics**: All quality metrics are optional
 - **Zero Overhead**: No cost calculation if `ModelCost` not configured
 - **On-Demand**: Costs calculated when `CostSummary()` is called
+- **Fallback Support**: Environment variables provide flexible configuration
 
 ## See Also
 
 - [Complete Example](../../examples/layer2/cost_tracking)
-- [Optimization Strategies Guide](../../docs/optimization-strategies.md)
-- [Cost Tracking Documentation](../../docs/cost-tracking.md)
+- [Client Documentation](../client)
+- [Tool Documentation](../../providers/tool)

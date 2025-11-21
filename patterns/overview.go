@@ -79,12 +79,12 @@ func (o *Overview) AddResponse(response *ai.ChatResponse) {
 }
 
 // AddToolExecutionCost records the cost of a tool execution.
-func (o *Overview) AddToolExecutionCost(toolName string, toolCost *cost.ToolCost) {
+func (o *Overview) AddToolExecutionCost(toolName string, toolMetrics *cost.ToolMetrics) {
 	if o.ToolCosts == nil {
 		o.ToolCosts = make(map[string]float64)
 	}
-	if toolCost != nil {
-		o.ToolCosts[toolName] += toolCost.Amount
+	if toolMetrics != nil {
+		o.ToolCosts[toolName] += toolMetrics.Amount
 	}
 }
 

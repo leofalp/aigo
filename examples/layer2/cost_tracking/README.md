@@ -38,9 +38,13 @@ calculatorTool := tool.NewTool(
     "calculator",
     calculatorFunc,
     tool.WithDescription("Performs arithmetic operations"),
-    tool.WithCost(cost.ToolCost{
-        Amount:   0.001,
-        Currency: "USD",
+    tool.WithMetrics(cost.ToolMetrics{
+        Amount:                  0.001,
+        Currency:                "USD",
+        CostDescription:         "per calculation",
+        Accuracy:                0.99,
+        AverageDurationInMillis: 100, // 100ms
+        Quality:                 0.95,
     }),
 )
 ```
@@ -133,14 +137,14 @@ You have access to the following tools. Each tool has an associated cost. Minimi
 1. **calculator**
    - Description: Performs basic arithmetic operations
    - Parameters: {...}
-   - Cost: 0.001000 USD
-   - Metrics: Accuracy: 99.0%, Speed: 0.10s, Quality: 95.0%
+   - Cost: 0.001000 USD (per calculation)
+   - Metrics: Accuracy: 99.0%, Avg Duration: 100ms, Quality: 95.0%
 
 2. **web_search**
    - Description: Searches the web for information
    - Parameters: {...}
-   - Cost: 0.050000 USD
-   - Metrics: Accuracy: 85.0%, Speed: 2.50s, Quality: 90.0%
+   - Cost: 0.050000 USD (per search query)
+   - Metrics: Accuracy: 85.0%, Avg Duration: 2500ms, Quality: 90.0%
 
 **Optimization Goal:** When multiple tools can accomplish the same task, prefer lower-cost options.
 Only use expensive tools when their unique capabilities are necessary.
@@ -194,3 +198,5 @@ Final Answer: 42 multiplied by 17 equals 714.
 - Cost tracking adds minimal overhead to execution
 - The `Overview` object contains all cost information for post-execution analysis
 - Tool costs are tracked per execution, not per token or time
+- Tools can have zero cost (e.g., local tools) with 100% accuracy (1.0)
+- Use environment variables to configure model costs: `AIGO_MODEL_INPUT_COST_PER_MILLION` and `AIGO_MODEL_OUTPUT_COST_PER_MILLION`

@@ -19,7 +19,11 @@ import (
 )
 
 const (
-	envDefaultModel = "AIGO_DEFAULT_LLM_MODEL"
+	envDefaultModel           = "AIGO_DEFAULT_LLM_MODEL"
+	envModelInputCostPerM     = "AIGO_MODEL_INPUT_COST_PER_MILLION"
+	envModelOutputCostPerM    = "AIGO_MODEL_OUTPUT_COST_PER_MILLION"
+	envModelCachedCostPerM    = "AIGO_MODEL_CACHED_COST_PER_MILLION"
+	envModelReasoningCostPerM = "AIGO_MODEL_REASONING_COST_PER_MILLION"
 )
 
 // Client is an immutable orchestrator for LLM interactions.
@@ -228,6 +232,14 @@ func New(llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client, error)
 		options.DefaultModel = os.Getenv(envDefaultModel)
 	}
 
+	// Use model cost from environment if not specified
+	if options.ModelCost == nil {
+		modelCost := loadModelCostFromEnv()
+		if modelCost != nil {
+			options.ModelCost = modelCost
+		}
+	}
+
 	options.Tools = append(options.Tools, options.RequiredTools...)
 	// Build tool catalog and descriptions
 	toolCatalog := tool.NewCatalogWithTools(options.Tools...)
@@ -261,6 +273,49 @@ func New(llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client, error)
 		state:               map[string]any{},
 		modelCost:           options.ModelCost,
 	}, nil
+}
+
+// loadModelCostFromEnv attempts to load ModelCost from environment variables.
+// Returns nil if no environment variables are set or if parsing fails.
+func loadModelCostFromEnv() *cost.ModelCost {
+	inputCostStr := os.Getenv(envModelInputCostPerM)
+	outputCostStr := os.Getenv(envModelOutputCostPerM)
+
+	// Only create ModelCost if at least input and output costs are defined
+	if inputCostStr == "" || outputCostStr == "" {
+		return nil
+	}
+
+	inputCost, err := strconv.ParseFloat(inputCostStr, 64)
+	if err != nil {
+		return nil
+	}
+
+	outputCost, err := strconv.ParseFloat(outputCostStr, 64)
+	if err != nil {
+		return nil
+	}
+
+	modelCost := &cost.ModelCost{
+		InputCostPerMillion:  inputCost,
+		OutputCostPerMillion: outputCost,
+	}
+
+	// Optional: cached cost
+	if cachedCostStr := os.Getenv(envModelCachedCostPerM); cachedCostStr != "" {
+		if cachedCost, err := strconv.ParseFloat(cachedCostStr, 64); err == nil {
+			modelCost.CachedInputCostPerMillion = cachedCost
+		}
+	}
+
+	// Optional: reasoning cost
+	if reasoningCostStr := os.Getenv(envModelReasoningCostPerM); reasoningCostStr != "" {
+		if reasoningCost, err := strconv.ParseFloat(reasoningCostStr, 64); err == nil {
+			modelCost.ReasoningCostPerMillion = reasoningCost
+		}
+	}
+
+	return modelCost
 }
 
 // Memory returns the memory provider configured for this client.
@@ -357,17 +412,17 @@ func enrichSystemPromptWithTools(basePrompt string, tools []tool.GenericTool, to
 		}
 
 		// Add cost/quality metrics if strategy is specified
-		if includeMetrics && info.Cost != nil {
-			enrichment += "\n   - Cost: " + info.Cost.String()
+		if includeMetrics && info.Metrics != nil {
+			enrichment += "\n   - Cost: " + info.Metrics.String()
 
-			metrics := info.Cost.MetricsString()
+			metrics := info.Metrics.MetricsString()
 			if metrics != "" {
 				enrichment += "\n   - Metrics: " + metrics
 			}
 
 			// Show cost-effectiveness for cost_effective strategy
 			if strategy == cost.OptimizeCostEffective {
-				score := info.Cost.CostEffectivenessScore()
+				score := info.Metrics.CostEffectivenessScore()
 				if score > 0 {
 					enrichment += fmt.Sprintf("\n   - Cost-Effectiveness Score: %.2f", score)
 				}
