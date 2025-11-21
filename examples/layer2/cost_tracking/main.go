@@ -102,7 +102,6 @@ func main() {
 	// GPT-4o pricing: $2.50 per million input tokens, $10.00 per million output tokens
 	aiClient, err := client.New(
 		openai.New(),
-		client.WithDefaultModel("gpt-4o"),
 		client.WithSystemPrompt("You are a helpful assistant with access to tools. Consider the cost of tools when deciding which ones to use."),
 		client.WithMemory(inmemory.New()),
 		client.WithTools(calculatorTool, searchTool),
@@ -176,7 +175,6 @@ func main() {
 	// Create a new client with accuracy optimization
 	aiClientAccuracy, err := client.New(
 		openai.New(),
-		client.WithDefaultModel("gpt-4o"),
 		client.WithSystemPrompt("You are a helpful assistant. Prioritize accuracy over cost."),
 		client.WithMemory(inmemory.New()),
 		client.WithTools(calculatorTool, searchTool),

@@ -173,7 +173,6 @@ func WithEnrichSystemPromptWithToolsCosts(strategy cost.OptimizationStrategy) fu
 // Example usage:
 //
 //	client, _ := client.New(provider,
-//	    client.WithDefaultModel("gpt-4o"),
 //	    client.WithModelCost(cost.ModelCost{
 //	        InputCostPerMillion:  2.50,
 //	        OutputCostPerMillion: 10.00,
@@ -204,7 +203,6 @@ func WithModelCost(modelCost cost.ModelCost) func(*ClientOptions) {
 //
 //	client, err := client.New(
 //	    openaiProvider,
-//	    client.WithDefaultModel("gpt-4"),
 //	    client.WithObserver(myObserver),
 //	    client.WithSystemPrompt("You are a helpful assistant"),
 //	    client.WithTools(tool1, tool2),
