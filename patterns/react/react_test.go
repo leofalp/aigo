@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/leofalp/aigo/core/client"
+	"github.com/leofalp/aigo/core/cost"
 	"github.com/leofalp/aigo/providers/ai"
 	"github.com/leofalp/aigo/providers/memory/inmemory"
 	"github.com/leofalp/aigo/providers/observability"
@@ -35,6 +36,10 @@ func (m *mockTool) Call(ctx context.Context, arguments string) (string, error) {
 		return "", m.err
 	}
 	return m.result, nil
+}
+
+func (m *mockTool) GetMetrics() *cost.ToolMetrics {
+	return nil // Mock tool has no metrics
 }
 
 // mockProvider is a mock LLM provider for testing

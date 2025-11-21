@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/leofalp/aigo/core/client"
-	"github.com/leofalp/aigo/core/cost"
 	"github.com/leofalp/aigo/core/parse"
 	"github.com/leofalp/aigo/internal/jsonschema"
 	"github.com/leofalp/aigo/internal/utils"
@@ -398,10 +397,8 @@ func (r *ReAct[T]) executeToolCall(
 	})
 
 	// Track tool execution cost if available
-	if typedTool, ok := toolInstance.(interface{ GetMetrics() *cost.ToolMetrics }); ok {
-		if toolMetrics := typedTool.GetMetrics(); toolMetrics != nil {
-			overview.AddToolExecutionCost(toolCall.Function.Name, toolMetrics)
-		}
+	if toolMetrics := toolInstance.GetMetrics(); toolMetrics != nil {
+		overview.AddToolExecutionCost(toolCall.Function.Name, toolMetrics)
 	}
 
 	// Parse and add result as structured attributes if it's JSON

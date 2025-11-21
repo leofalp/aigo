@@ -5,6 +5,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/leofalp/aigo/core/cost"
 	"github.com/leofalp/aigo/providers/ai"
 )
 
@@ -24,6 +25,10 @@ func (m *mockTool) ToolInfo() ai.ToolDescription {
 
 func (m *mockTool) Call(ctx context.Context, inputJson string) (string, error) {
 	return m.result, nil
+}
+
+func (m *mockTool) GetMetrics() *cost.ToolMetrics {
+	return nil // Mock tool has no metrics
 }
 
 func TestNewCatalog(t *testing.T) {

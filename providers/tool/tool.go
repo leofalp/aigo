@@ -26,6 +26,7 @@ type Tool[I, O any] struct {
 type GenericTool interface {
 	ToolInfo() ai.ToolDescription
 	Call(ctx context.Context, inputJson string) (string, error)
+	GetMetrics() *cost.ToolMetrics
 }
 
 type funcToolOptions struct {

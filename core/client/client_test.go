@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/leofalp/aigo/core/cost"
 	"github.com/leofalp/aigo/internal/jsonschema"
 	"github.com/leofalp/aigo/providers/ai"
 	"github.com/leofalp/aigo/providers/memory/inmemory"
@@ -64,6 +65,10 @@ func (m *mockTool) ToolInfo() ai.ToolDescription {
 func (m *mockTool) Call(ctx context.Context, arguments string) (string, error) {
 	m.callCount++
 	return `{"result": "success"}`, nil
+}
+
+func (m *mockTool) GetMetrics() *cost.ToolMetrics {
+	return nil // Mock tool has no metrics
 }
 
 // testObserver is a test observer that tracks observability calls
