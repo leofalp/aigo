@@ -21,10 +21,6 @@ const (
 	// Use when response time is critical.
 	OptimizeForSpeed OptimizationStrategy = "speed"
 
-	// OptimizeForQuality prioritizes tools with higher overall quality scores.
-	// Quality can be a combination of accuracy, reliability, and result richness.
-	OptimizeForQuality OptimizationStrategy = "quality"
-
 	// OptimizeBalanced seeks a balance between cost, accuracy, and speed.
 	// Use when no single metric dominates the decision criteria.
 	OptimizeBalanced OptimizationStrategy = "balanced"
@@ -70,10 +66,6 @@ type ToolMetrics struct {
 	// AverageDurationInMillis represents the average execution time in milliseconds
 	// Lower values indicate faster execution
 	AverageDurationInMillis int64 `json:"average_duration_in_millis,omitempty"`
-
-	// Quality represents an overall quality score (0.0 to 1.0)
-	// This can be a composite metric of various factors
-	Quality float64 `json:"quality,omitempty"`
 }
 
 // String returns a formatted string representation of the cost.
@@ -107,35 +99,22 @@ func (tm ToolMetrics) MetricsString() string {
 		metrics += fmt.Sprintf("Avg Duration: %dms", tm.AverageDurationInMillis)
 	}
 
-	if tm.Quality > 0 {
-		if metrics != "" {
-			metrics += ", "
-		}
-		metrics += fmt.Sprintf("Quality: %.1f%%", tm.Quality*100)
-	}
-
 	return metrics
 }
 
 // CostEffectivenessScore calculates a cost-effectiveness score.
-// Higher scores indicate better value (quality per unit cost).
+// Higher scores indicate better value (accuracy per unit cost).
 // Returns 0 if cost is 0 to avoid division by zero.
 func (tm ToolMetrics) CostEffectivenessScore() float64 {
 	if tm.Amount == 0 {
 		return 0
 	}
 
-	qualityScore := tm.Quality
-	if qualityScore == 0 && tm.Accuracy > 0 {
-		// Use accuracy as a fallback if quality is not set
-		qualityScore = tm.Accuracy
-	}
-
-	if qualityScore == 0 {
+	if tm.Accuracy == 0 {
 		return 0
 	}
 
-	return qualityScore / tm.Amount
+	return tm.Accuracy / tm.Amount
 }
 
 // ModelCost represents the pricing structure for a language model.

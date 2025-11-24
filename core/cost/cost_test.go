@@ -213,7 +213,6 @@ func TestOptimizationStrategyString(t *testing.T) {
 		{OptimizeForCost, "cost"},
 		{OptimizeForAccuracy, "accuracy"},
 		{OptimizeForSpeed, "speed"},
-		{OptimizeForQuality, "quality"},
 		{OptimizeBalanced, "balanced"},
 		{OptimizeCostEffective, "cost_effective"},
 	}
@@ -247,21 +246,14 @@ func TestToolMetricsMetricsString(t *testing.T) {
 			},
 			expected: "Avg Duration: 1500ms",
 		},
-		{
-			name: "with quality only",
-			metrics: ToolMetrics{
-				Quality: 0.88,
-			},
-			expected: "Quality: 88.0%",
-		},
+
 		{
 			name: "with all metrics",
 			metrics: ToolMetrics{
 				Accuracy:                0.95,
 				AverageDurationInMillis: 1500,
-				Quality:                 0.88,
 			},
-			expected: "Accuracy: 95.0%, Avg Duration: 1500ms, Quality: 88.0%",
+			expected: "Accuracy: 95.0%, Avg Duration: 1500ms",
 		},
 		{
 			name: "with accuracy and duration",
@@ -295,15 +287,15 @@ func TestToolMetricsCostEffectivenessScore(t *testing.T) {
 		expected float64
 	}{
 		{
-			name: "with quality and cost",
+			name: "with accuracy and cost",
 			metrics: ToolMetrics{
-				Amount:  0.01,
-				Quality: 0.9,
+				Amount:   0.01,
+				Accuracy: 0.9,
 			},
 			expected: 90.0, // 0.9 / 0.01
 		},
 		{
-			name: "with accuracy fallback",
+			name: "with accuracy and cost",
 			metrics: ToolMetrics{
 				Amount:   0.02,
 				Accuracy: 0.8,
@@ -311,27 +303,18 @@ func TestToolMetricsCostEffectivenessScore(t *testing.T) {
 			expected: 40.0, // 0.8 / 0.02
 		},
 		{
-			name: "quality takes precedence over accuracy",
-			metrics: ToolMetrics{
-				Amount:   0.01,
-				Quality:  0.9,
-				Accuracy: 0.5,
-			},
-			expected: 90.0, // 0.9 / 0.01 (not 0.5 / 0.01)
-		},
-		{
 			name: "zero cost returns zero",
 			metrics: ToolMetrics{
-				Amount:  0,
-				Quality: 0.9,
+				Amount:   0,
+				Accuracy: 0.9,
 			},
 			expected: 0,
 		},
 		{
-			name: "zero quality returns zero",
+			name: "zero accuracy returns zero",
 			metrics: ToolMetrics{
-				Amount:  0.01,
-				Quality: 0,
+				Amount:   0.01,
+				Accuracy: 0,
 			},
 			expected: 0,
 		},
@@ -354,7 +337,6 @@ func TestToolMetricsStringWithMetrics(t *testing.T) {
 		CostDescription:         "per API call",
 		Accuracy:                0.95,
 		AverageDurationInMillis: 1200,
-		Quality:                 0.90,
 	}
 
 	result := tm.String()
@@ -366,7 +348,7 @@ func TestToolMetricsStringWithMetrics(t *testing.T) {
 
 	// Metrics should be separate
 	metricsResult := tm.MetricsString()
-	expectedMetrics := "Accuracy: 95.0%, Avg Duration: 1200ms, Quality: 90.0%"
+	expectedMetrics := "Accuracy: 95.0%, Avg Duration: 1200ms"
 
 	if metricsResult != expectedMetrics {
 		t.Errorf("Expected metrics %s, got %s", expectedMetrics, metricsResult)
@@ -382,7 +364,6 @@ func TestToolMetricsZeroCostHighAccuracy(t *testing.T) {
 		CostDescription:         "local execution",
 		Accuracy:                1.0, // 100% accuracy
 		AverageDurationInMillis: 10,  // Very fast
-		Quality:                 1.0, // Perfect quality
 	}
 
 	if tm.Amount != 0.0 {
@@ -401,7 +382,7 @@ func TestToolMetricsZeroCostHighAccuracy(t *testing.T) {
 
 	// Metrics string should still work
 	metricsResult := tm.MetricsString()
-	expectedMetrics := "Accuracy: 100.0%, Avg Duration: 10ms, Quality: 100.0%"
+	expectedMetrics := "Accuracy: 100.0%, Avg Duration: 10ms"
 	if metricsResult != expectedMetrics {
 		t.Errorf("Expected metrics %q, got %q", expectedMetrics, metricsResult)
 	}

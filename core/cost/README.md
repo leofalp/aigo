@@ -54,7 +54,6 @@ calculatorTool := tool.NewTool(
         CostDescription:         "per calculation", // Optional: context about the cost
         Accuracy:                0.99,   // Optional: 99% accuracy
         AverageDurationInMillis: 100,    // Optional: 100ms avg execution time
-        Quality:                 0.95,   // Optional: 95% quality score
     }),
 )
 ```
@@ -99,7 +98,6 @@ type ToolMetrics struct {
     CostDescription         string  // Optional: context about the cost (e.g., "per API call")
     Accuracy                float64 // Accuracy score (0.0 - 1.0)
     AverageDurationInMillis int64   // Average execution time in milliseconds
-    Quality                 float64 // Quality score (0.0 - 1.0)
 }
 ```
 
@@ -176,7 +174,6 @@ Guide the LLM's tool selection based on different optimization goals.
 | `OptimizeForCost` | Minimize costs | Budget constraints |
 | `OptimizeForAccuracy` | Maximize accuracy | Quality is critical |
 | `OptimizeForSpeed` | Minimize execution time | Speed is critical |
-| `OptimizeForQuality` | Maximize overall quality | Best results needed |
 | `OptimizeBalanced` | Balance all metrics | No single priority |
 | `OptimizeCostEffective` | Best quality/cost ratio | Value-conscious |
 
@@ -206,7 +203,7 @@ You have access to the following tools. Prioritize accuracy when selecting tools
    - Description: Performs arithmetic operations
    - Parameters: {...}
    - Cost: 0.001000 USD (per calculation)
-   - Metrics: Accuracy: 99.0%, Avg Duration: 100ms, Quality: 95.0%
+   - Metrics: Accuracy: 99.0%, Avg Duration: 100ms
 
 **Optimization Goal:** When multiple tools can accomplish the same task, 
 prefer tools with higher accuracy scores.
@@ -236,7 +233,6 @@ func main() {
             CostDescription:         "per calculation",
             Accuracy:                0.99,
             AverageDurationInMillis: 100, // 100ms
-            Quality:                 0.95,
         }))
     
     searchTool := tool.NewTool("search", searchFunc,
@@ -246,7 +242,6 @@ func main() {
             CostDescription:         "per search query",
             Accuracy:                0.85,
             AverageDurationInMillis: 2500, // 2500ms = 2.5s
-            Quality:                 0.90,
         }))
     
     // 2. Create client with cost tracking
@@ -310,7 +305,6 @@ tool.WithMetrics(cost.ToolMetrics{
     CostDescription:         "per API call",
     Accuracy:                0.99,
     AverageDurationInMillis: 100,
-    Quality:                 0.95,
 })
 ```
 

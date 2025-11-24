@@ -71,7 +71,6 @@ func main() {
 			CostDescription:         "per calculation",
 			Accuracy:                0.99,
 			AverageDurationInMillis: 100, // 100ms = 0.1s
-			Quality:                 0.95,
 		}),
 	)
 
@@ -96,7 +95,6 @@ func main() {
 			CostDescription:         "per search query",
 			Accuracy:                0.85,
 			AverageDurationInMillis: 2500, // 2500ms = 2.5s
-			Quality:                 0.90,
 		}),
 	)
 

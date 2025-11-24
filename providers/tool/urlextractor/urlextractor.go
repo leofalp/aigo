@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/leofalp/aigo/core/cost"
 	"github.com/leofalp/aigo/providers/observability"
 	"github.com/leofalp/aigo/providers/tool"
 	"golang.org/x/net/html"
@@ -55,6 +56,13 @@ func NewURLExtractorTool() *tool.Tool[Input, Output] {
 		"URLExtractor",
 		Extract,
 		tool.WithDescription("Extracts all URLs from a website by analyzing robots.txt, sitemap.xml files, and performing recursive crawling if needed. Returns a deduplicated list of URLs from the same domain, automatically categorized into standard page types (home, contact, about, products, blog, faq, privacy, login, cart) using multilingual pattern matching. This categorization helps identify key pages quickly - useful for understanding website structure and finding important pages like contact forms or privacy policies. If you don't find the pages you need into the standard categories, you can always analyze the full list of extracted URLs."),
+		tool.WithMetrics(cost.ToolMetrics{
+			Amount:                  0.0, // Free - local crawling
+			Currency:                "USD",
+			CostDescription:         "local HTTP crawling",
+			Accuracy:                0.95, // High accuracy but may miss some URLs in complex JS sites
+			AverageDurationInMillis: 2000, // Slower due to multiple HTTP requests and crawling
+		}),
 	)
 }
 

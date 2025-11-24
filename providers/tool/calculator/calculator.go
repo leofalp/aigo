@@ -3,6 +3,7 @@ package calculator
 import (
 	"context"
 
+	"github.com/leofalp/aigo/core/cost"
 	"github.com/leofalp/aigo/providers/tool"
 )
 
@@ -11,6 +12,13 @@ func NewCalculatorTool() *tool.Tool[Input, Output] {
 		"Calculator",
 		Calc,
 		tool.WithDescription("A simple calculator to perform basic arithmetic operations like addition, subtraction, multiplication, and division."),
+		tool.WithMetrics(cost.ToolMetrics{
+			Amount:                  0.0, // Free - local execution
+			Currency:                "USD",
+			CostDescription:         "local computation",
+			Accuracy:                1.0, // 100% accuracy for mathematical operations
+			AverageDurationInMillis: 2,   // Very fast - local operation
+		}),
 	)
 }
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
+	"github.com/leofalp/aigo/core/cost"
 	"github.com/leofalp/aigo/providers/tool"
 )
 
@@ -43,6 +44,13 @@ func NewWebFetchTool() *tool.Tool[Input, Output] {
 		"WebFetch",
 		Fetch,
 		tool.WithDescription("Fetches a web page and converts its HTML content to Markdown format. Supports HTTP and HTTPS protocols. Automatically handles partial URLs by adding https:// prefix. Follows redirects and returns the final URL and clean Markdown content."),
+		tool.WithMetrics(cost.ToolMetrics{
+			Amount:                  0.0, // Free - local HTTP client
+			Currency:                "USD",
+			CostDescription:         "local HTTP request",
+			Accuracy:                0.98, // Very high accuracy in fetching HTML content
+			AverageDurationInMillis: 350,  // Average HTTP request time (~350ms)
+		}),
 	)
 }
 

@@ -154,7 +154,6 @@ func WithDefaultOutputSchema(schema *jsonschema.Schema) func(*ClientOptions) {
 //   - cost.OptimizeForCost: Minimize costs
 //   - cost.OptimizeForAccuracy: Maximize accuracy
 //   - cost.OptimizeForSpeed: Minimize execution time
-//   - cost.OptimizeForQuality: Maximize overall quality
 //   - cost.OptimizeBalanced: Balance all metrics
 //   - cost.OptimizeCostEffective: Best quality-to-cost ratio
 //
@@ -369,20 +368,17 @@ func enrichSystemPromptWithTools(basePrompt string, tools []tool.GenericTool, to
 			header = "## Available Tools\n\nYou have access to the following tools. Each tool has an associated cost. Minimize costs when selecting tools:\n\n"
 			guidance = "\n**Optimization Goal:** When multiple tools can accomplish the same task, prefer lower-cost options. Only use expensive tools when their unique capabilities are necessary."
 		case cost.OptimizeForAccuracy:
-			header = "## Available Tools\n\nYou have access to the following tools with accuracy and quality metrics. Prioritize accuracy when selecting tools:\n\n"
+			header = "## Available Tools\n\nYou have access to the following tools with accuracy metrics. Prioritize accuracy when selecting tools:\n\n"
 			guidance = "\n**Optimization Goal:** When multiple tools can accomplish the same task, prefer tools with higher accuracy scores. Cost is secondary to result quality."
 		case cost.OptimizeForSpeed:
 			header = "## Available Tools\n\nYou have access to the following tools with different execution speeds. Minimize response time when selecting tools:\n\n"
 			guidance = "\n**Optimization Goal:** When multiple tools can accomplish the same task, prefer faster tools. Speed is the primary consideration."
-		case cost.OptimizeForQuality:
-			header = "## Available Tools\n\nYou have access to the following tools with overall quality metrics. Prioritize quality when selecting tools:\n\n"
-			guidance = "\n**Optimization Goal:** When multiple tools can accomplish the same task, prefer tools with higher quality scores. Focus on the best possible results."
 		case cost.OptimizeBalanced:
-			header = "## Available Tools\n\nYou have access to the following tools with various metrics (cost, accuracy, speed, quality). Balance all factors when selecting tools:\n\n"
+			header = "## Available Tools\n\nYou have access to the following tools with various metrics (cost, accuracy, speed). Balance all factors when selecting tools:\n\n"
 			guidance = "\n**Optimization Goal:** When multiple tools can accomplish the same task, consider all available metrics and choose tools that provide the best overall balance."
 		case cost.OptimizeCostEffective:
-			header = "## Available Tools\n\nYou have access to the following tools with cost and quality metrics. Maximize value (quality per cost) when selecting tools:\n\n"
-			guidance = "\n**Optimization Goal:** When multiple tools can accomplish the same task, prefer tools with the best quality-to-cost ratio. Seek good results at reasonable prices."
+			header = "## Available Tools\n\nYou have access to the following tools with cost and accuracy metrics. Maximize value (accuracy per cost) when selecting tools:\n\n"
+			guidance = "\n**Optimization Goal:** When multiple tools can accomplish the same task, prefer tools with the best accuracy-to-cost ratio. Seek good results at reasonable prices."
 		default:
 			header = "## Available Tools\n\nYou have access to the following tools with associated metrics:\n\n"
 			guidance = "\n**Note:** Consider the available metrics when selecting tools."

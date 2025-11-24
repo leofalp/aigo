@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/leofalp/aigo/core/cost"
 	"github.com/leofalp/aigo/providers/tool"
 )
 
@@ -24,6 +25,13 @@ func NewBraveSearchTool() *tool.Tool[Input, Output] {
 		"BraveSearch",
 		Search,
 		tool.WithDescription("Search the web using Brave Search API. Provides high-quality, privacy-focused web search results. Works well for: current events, factual information, research queries, product information, and general web searches. Returns a summary of top results with titles, URLs, and descriptions. Requires BRAVE_SEARCH_API_KEY environment variable."),
+		tool.WithMetrics(cost.ToolMetrics{
+			Amount:                  0.005, // $5 per 1000 queries = $0.005 per query
+			Currency:                "USD",
+			CostDescription:         "per search query",
+			Accuracy:                0.92, // High accuracy - enterprise-grade search results
+			AverageDurationInMillis: 800,  // Average API response time (~800ms)
+		}),
 	)
 }
 
@@ -34,6 +42,13 @@ func NewBraveSearchAdvancedTool() *tool.Tool[Input, AdvancedOutput] {
 		"BraveSearchAdvanced",
 		SearchAdvanced,
 		tool.WithDescription("Advanced web search using Brave Search API with complete structured results. Returns detailed information including web results, news, videos, FAQs, infoboxes, and more. Ideal when you need comprehensive search data with all metadata. Requires BRAVE_SEARCH_API_KEY environment variable."),
+		tool.WithMetrics(cost.ToolMetrics{
+			Amount:                  0.005, // $5 per 1000 queries = $0.005 per query
+			Currency:                "USD",
+			CostDescription:         "per search query",
+			Accuracy:                0.95, // Very high accuracy with complete structured data
+			AverageDurationInMillis: 900,  // Slightly slower due to more comprehensive data
+		}),
 	)
 }
 

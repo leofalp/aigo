@@ -40,7 +40,7 @@ func WithDescription(description string) func(tool *funcToolOptions) {
 	}
 }
 
-// WithMetrics sets the metrics (cost, accuracy, speed, quality) for executing this tool.
+// WithMetrics sets the metrics (cost, accuracy, speed) for executing this tool.
 func WithMetrics(toolMetrics cost.ToolMetrics) func(tool *funcToolOptions) {
 	return func(s *funcToolOptions) {
 		s.Metrics = &toolMetrics
@@ -150,9 +150,6 @@ func (t *Tool[I, O]) Call(ctx context.Context, inputJson string) (string, error)
 			}
 			if t.Metrics.AverageDurationInMillis > 0 {
 				attrs = append(attrs, observability.Int64("tool.metrics.avg_duration_ms", t.Metrics.AverageDurationInMillis))
-			}
-			if t.Metrics.Quality > 0 {
-				attrs = append(attrs, observability.Float64("tool.metrics.quality", t.Metrics.Quality))
 			}
 		}
 

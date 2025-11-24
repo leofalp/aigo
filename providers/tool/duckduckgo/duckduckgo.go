@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/leofalp/aigo/core/cost"
 	"github.com/leofalp/aigo/providers/tool"
 )
 
@@ -59,6 +60,13 @@ func NewDuckDuckGoSearchTool() *tool.Tool[Input, Output] {
 		"DuckDuckGoSearch",
 		Search,
 		tool.WithDescription("Search the web using DuckDuckGo search engine. Returns instant answers, abstracts, and related topics summary for a given query."),
+		tool.WithMetrics(cost.ToolMetrics{
+			Amount:                  0.0, // Free - DuckDuckGo Instant Answer API is free
+			Currency:                "USD",
+			CostDescription:         "free API",
+			Accuracy:                0.50, // Good for instant answers, but less comprehensive than paid search APIs
+			AverageDurationInMillis: 600,  // Average API response time (~600ms)
+		}),
 	)
 }
 
@@ -67,6 +75,13 @@ func NewDuckDuckGoSearchAdvancedTool() *tool.Tool[Input, AdvancedOutput] {
 		"DuckDuckGoSearchAdvanced",
 		SearchAdvanced,
 		tool.WithDescription("Advanced web search using DuckDuckGo. Returns complete structured results including abstracts, answers, definitions, related topics with full metadata, and image information with absolute URLs."),
+		tool.WithMetrics(cost.ToolMetrics{
+			Amount:                  0.0, // Free - DuckDuckGo Instant Answer API is free
+			Currency:                "USD",
+			CostDescription:         "free API",
+			Accuracy:                0.55, // Better accuracy with full structured data
+			AverageDurationInMillis: 650,  // Slightly slower due to more data processing
+		}),
 	)
 }
 
