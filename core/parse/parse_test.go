@@ -1050,3 +1050,306 @@ func TestParseStringAs_SchemaWrappedMap(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractJSONCandidates(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{
+			name:     "simple object",
+			input:    `{"name":"John"}`,
+			expected: []string{`{"name":"John"}`},
+		},
+		{
+			name:     "simple array",
+			input:    `[1,2,3]`,
+			expected: []string{`[1,2,3]`},
+		},
+		{
+			name:     "text before JSON",
+			input:    "Here is the result:\n{\"name\":\"John\"}",
+			expected: []string{`{"name":"John"}`},
+		},
+		{
+			name:     "text after JSON",
+			input:    "{\"name\":\"John\"}\nHope this helps!",
+			expected: []string{`{"name":"John"}`},
+		},
+		{
+			name:     "text before and after JSON",
+			input:    "The result is:\n{\"name\":\"John\"}\nThank you!",
+			expected: []string{`{"name":"John"}`},
+		},
+		{
+			name:     "multiple JSON objects",
+			input:    `{"first":1} and {"second":2}`,
+			expected: []string{`{"first":1}`, `{"second":2}`},
+		},
+		{
+			name:     "nested JSON",
+			input:    `{"outer":{"inner":"value"}}`,
+			expected: []string{`{"outer":{"inner":"value"}}`, `{"inner":"value"}`},
+		},
+		{
+			name:     "JSON with escaped quotes",
+			input:    `{"text":"He said \"hello\""}`,
+			expected: []string{`{"text":"He said \"hello\""}`},
+		},
+		{
+			name:     "array with objects",
+			input:    `[{"id":1},{"id":2}]`,
+			expected: []string{`[{"id":1},{"id":2}]`, `{"id":1}`, `{"id":2}`},
+		},
+		{
+			name:     "no JSON",
+			input:    "This is just plain text",
+			expected: []string{},
+		},
+		{
+			name:     "incomplete JSON ignored",
+			input:    "Here is incomplete: {\"name\":",
+			expected: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractJSONCandidates(tt.input)
+			if len(got) != len(tt.expected) {
+				t.Errorf("extractJSONCandidates() got %d candidates, want %d\nGot: %v\nWant: %v",
+					len(got), len(tt.expected), got, tt.expected)
+				return
+			}
+			for i := range got {
+				if got[i] != tt.expected[i] {
+					t.Errorf("extractJSONCandidates()[%d] = %v, want %v", i, got[i], tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestParseStringAs_LLMNarrativeText(t *testing.T) {
+	type Person struct {
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}
+
+	tests := []struct {
+		name    string
+		input   string
+		want    Person
+		wantErr bool
+	}{
+		{
+			name: "text before JSON",
+			input: `Here is the person data you requested:
+{"name":"John","age":30}`,
+			want:    Person{Name: "John", Age: 30},
+			wantErr: false,
+		},
+		{
+			name: "text after JSON",
+			input: `{"name":"Jane","age":25}
+Hope this helps!`,
+			want:    Person{Name: "Jane", Age: 25},
+			wantErr: false,
+		},
+		{
+			name: "text before and after JSON",
+			input: `Let me provide the data:
+{"name":"Bob","age":35}
+Is this what you needed?`,
+			want:    Person{Name: "Bob", Age: 35},
+			wantErr: false,
+		},
+		{
+			name: "multiline narrative with JSON",
+			input: `I found the information.
+The person details are as follows:
+{"name":"Alice","age":28}
+Let me know if you need anything else.`,
+			want:    Person{Name: "Alice", Age: 28},
+			wantErr: false,
+		},
+		{
+			name: "JSON without code block markdown",
+			input: `Sure, here's the result:
+{
+  "name": "Charlie",
+  "age": 40
+}`,
+			want:    Person{Name: "Charlie", Age: 40},
+			wantErr: false,
+		},
+		{
+			name: "malformed JSON with narrative (should repair)",
+			input: `Here you go:
+{name: 'David', age: 45}`,
+			want:    Person{Name: "David", Age: 45},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseStringAs[Person](tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseStringAs() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && got != tt.want {
+				t.Errorf("ParseStringAs() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseStringAs_TypeMismatch_ArrayToStruct(t *testing.T) {
+	type Person struct {
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}
+
+	tests := []struct {
+		name    string
+		input   string
+		want    Person
+		wantErr bool
+	}{
+		{
+			name:    "array with single object - should extract first element",
+			input:   `[{"name":"John","age":30}]`,
+			want:    Person{Name: "John", Age: 30},
+			wantErr: false,
+		},
+		{
+			name:    "array with multiple objects - should extract first element",
+			input:   `[{"name":"Jane","age":25},{"name":"Bob","age":35}]`,
+			want:    Person{Name: "Jane", Age: 25},
+			wantErr: false,
+		},
+		{
+			name: "narrative text with array - should extract first element",
+			input: `Here are the results:
+[{"name":"Alice","age":28}]`,
+			want:    Person{Name: "Alice", Age: 28},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseStringAs[Person](tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseStringAs() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && got != tt.want {
+				t.Errorf("ParseStringAs() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseStringAs_TypeMismatch_ObjectToArray(t *testing.T) {
+	type Person struct {
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}
+
+	tests := []struct {
+		name    string
+		input   string
+		want    []Person
+		wantErr bool
+	}{
+		{
+			name:    "single object - should wrap in array",
+			input:   `{"name":"John","age":30}`,
+			want:    []Person{{Name: "John", Age: 30}},
+			wantErr: false,
+		},
+		{
+			name: "narrative text with single object - should wrap in array",
+			input: `Here is the person:
+{"name":"Jane","age":25}`,
+			want:    []Person{{Name: "Jane", Age: 25}},
+			wantErr: false,
+		},
+		{
+			name:    "proper array - should parse normally",
+			input:   `[{"name":"Bob","age":35},{"name":"Alice","age":28}]`,
+			want:    []Person{{Name: "Bob", Age: 35}, {Name: "Alice", Age: 28}},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseStringAs[[]Person](tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseStringAs() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr {
+				if len(got) != len(tt.want) {
+					t.Errorf("ParseStringAs() length = %d, want %d", len(got), len(tt.want))
+					return
+				}
+				for i := range got {
+					if got[i] != tt.want[i] {
+						t.Errorf("ParseStringAs()[%d] = %+v, want %+v", i, got[i], tt.want[i])
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestParseStringAs_MultipleJSONObjects(t *testing.T) {
+	type Result struct {
+		Value int `json:"value"`
+	}
+
+	tests := []struct {
+		name    string
+		input   string
+		want    Result
+		wantErr bool
+	}{
+		{
+			name:    "multiple JSON - first is valid",
+			input:   `{"value":1} and {"value":2}`,
+			want:    Result{Value: 1},
+			wantErr: false,
+		},
+		{
+			// Note: If first JSON is syntactically valid but has wrong fields,
+			// Go's json.Unmarshal will succeed (fields are optional), so we use that JSON.
+			// "First that doesn't fail" means first that doesn't have a parsing error.
+			name: "narrative with multiple JSON - use first valid",
+			input: `I have two options:
+Option 1: {"value":10}
+Option 2: {"value":20}
+I recommend the first one.`,
+			want:    Result{Value: 10},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseStringAs[Result](tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseStringAs() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && got != tt.want {
+				t.Errorf("ParseStringAs() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}

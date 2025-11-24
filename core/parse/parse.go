@@ -9,12 +9,95 @@ import (
 	"github.com/kaptinlin/jsonrepair"
 )
 
+// extractJSONCandidates finds all potential JSON structures (objects and arrays) in a string.
+// It returns a slice of candidate JSON strings in the order they appear.
+// This is useful when LLMs add narrative text before or around JSON output.
+//
+// Parameters:
+//   - content: The string that may contain JSON embedded in text
+//
+// Returns:
+//   - []string: A slice of potential JSON strings found in the content
+//
+// Example:
+//
+//	content := "Here is the result:\n{\"name\":\"John\"}\nHope this helps!"
+//	candidates := extractJSONCandidates(content)
+//	// Returns: ["{\"name\":\"John\"}"]
+func extractJSONCandidates(content string) []string {
+	var candidates []string
+	runes := []rune(content)
+
+	// Look for opening brackets: { or [
+	for i := 0; i < len(runes); i++ {
+		if runes[i] != '{' && runes[i] != '[' {
+			continue
+		}
+
+		// Found an opening bracket, now find its balanced closing bracket
+		openChar := runes[i]
+		closeChar := '}'
+		if openChar == '[' {
+			closeChar = ']'
+		}
+
+		depth := 0
+		inString := false
+		escaped := false
+
+		for j := i; j < len(runes); j++ {
+			char := runes[j]
+
+			// Handle escape sequences in strings
+			if escaped {
+				escaped = false
+				continue
+			}
+
+			if char == '\\' && inString {
+				escaped = true
+				continue
+			}
+
+			// Handle string boundaries (only double quotes are valid in JSON)
+			if char == '"' {
+				inString = !inString
+				continue
+			}
+
+			// Skip characters inside strings
+			if inString {
+				continue
+			}
+
+			// Track bracket depth
+			if char == openChar {
+				depth++
+			} else if char == closeChar {
+				depth--
+				if depth == 0 {
+					// Found balanced closing bracket
+					candidate := string(runes[i : j+1])
+					candidates = append(candidates, candidate)
+					break
+				}
+			}
+		}
+	}
+
+	return candidates
+}
+
 // ParseStringAs attempts to parse a string into the specified type T.
 // For primitive types (string, bool, int, uint, float), it performs direct conversion.
 // For complex types (structs, maps, slices), it attempts JSON unmarshaling.
-// If JSON unmarshaling fails, it will attempt to repair the JSON string using jsonrepair
-// and retry the unmarshaling operation.
-// TODO
+//
+// The function handles various LLM output scenarios:
+//   - JSON with narrative text before/after (e.g., "Here is the result:\n{...}")
+//   - Multiple JSON objects (tries each until one succeeds)
+//   - Type mismatches (array when struct expected, or vice versa)
+//   - Malformed JSON (using jsonrepair library)
+//   - Markdown code blocks (handled by jsonrepair)
 //
 // Type parameters:
 //   - T: The target type to parse the string into
@@ -36,8 +119,17 @@ import (
 //	// Parse a valid JSON string
 //	person, err := ParseStringAs[Person](`{"name":"John","age":30}`)
 //
+//	// Parse JSON with LLM narrative text
+//	person, err := ParseStringAs[Person](`Here is the person data:\n{"name":"John","age":30}`)
+//
 //	// Parse an invalid JSON string (will be auto-repaired)
 //	person, err := ParseStringAs[Person](`{name: 'John', age: 30}`)
+//
+//	// Parse array when expecting struct (extracts first element)
+//	person, err := ParseStringAs[Person](`[{"name":"John","age":30}]`)
+//
+//	// Parse object when expecting array (wraps in array)
+//	people, err := ParseStringAs[[]Person](`{"name":"John","age":30}`)
 //
 //	// Parse primitive types
 //	num, err := ParseStringAs[int]("42")
@@ -127,17 +219,31 @@ func ParseStringAs[T any](content string) (T, error) {
 		// For structs, slices, maps, and other complex types, use JSON unmarshaling
 		err := json.Unmarshal([]byte(content), &result)
 		if err != nil {
-			// If JSON unmarshaling fails, attempt to repair the JSON and retry
-			repairedJSON, repairErr := jsonrepair.JSONRepair(content)
-			if repairErr != nil {
-				return result, fmt.Errorf("failed to unmarshal content as %T and failed to repair JSON: unmarshal error: %w, repair error: %v", result, err, repairErr)
+			// If JSON unmarshaling fails, try to extract JSON candidates from the content
+			// This handles cases where LLMs add narrative text before/after JSON
+			candidates := extractJSONCandidates(content)
+			if len(candidates) == 0 {
+				// No JSON candidates found, try to repair the entire content
+				candidates = []string{content}
 			}
 
-			// Retry unmarshaling with repaired JSON
-			err = json.Unmarshal([]byte(repairedJSON), &result)
-			if err != nil {
-				// If still failing, try to unwrap schema-like {type, value} structures
-				// This handles cases where LLMs confuse JSON schema with actual data
+			// Try each candidate in order until one succeeds
+			var lastErr error
+			for _, candidate := range candidates {
+				// Attempt to repair the JSON candidate
+				repairedJSON, repairErr := jsonrepair.JSONRepair(candidate)
+				if repairErr != nil {
+					lastErr = fmt.Errorf("repair error: %v", repairErr)
+					continue
+				}
+
+				// Try unmarshaling with repaired JSON
+				err = json.Unmarshal([]byte(repairedJSON), &result)
+				if err == nil {
+					return result, nil
+				}
+
+				// Try to unwrap schema-like {type, value} structures
 				unwrapped, unwrapErr := unwrapSchemaValues(repairedJSON)
 				if unwrapErr == nil {
 					err = json.Unmarshal([]byte(unwrapped), &result)
@@ -146,8 +252,35 @@ func ParseStringAs[T any](content string) (T, error) {
 					}
 				}
 
-				return result, fmt.Errorf("failed to unmarshal repaired JSON as %T: %w (original content: %s, repaired: %s)", result, err, content, repairedJSON)
+				// Handle type mismatches between expected type and found JSON
+				targetKind := reflect.TypeFor[T]().Kind()
+
+				// Case 1: Expected a struct/map but found an array - try first element
+				if targetKind == reflect.Struct || targetKind == reflect.Map {
+					var arr []json.RawMessage
+					if json.Unmarshal([]byte(repairedJSON), &arr) == nil && len(arr) > 0 {
+						// Try to unmarshal the first element
+						if json.Unmarshal(arr[0], &result) == nil {
+							return result, nil
+						}
+					}
+				}
+
+				// Case 2: Expected a slice but found an object - wrap in array
+				if targetKind == reflect.Slice {
+					wrapped := "[" + repairedJSON + "]"
+					if json.Unmarshal([]byte(wrapped), &result) == nil {
+						return result, nil
+					}
+				}
+
+				lastErr = err
 			}
+
+			if lastErr == nil {
+				lastErr = err
+			}
+			return result, fmt.Errorf("failed to unmarshal content as %T after trying all candidates: %w (original content: %s)", result, lastErr, content)
 		}
 		return result, nil
 	}
