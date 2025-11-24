@@ -2,6 +2,7 @@ package patterns
 
 import (
 	"context"
+	"time"
 
 	"github.com/leofalp/aigo/core/cost"
 	"github.com/leofalp/aigo/providers/ai"
@@ -17,6 +18,14 @@ type Overview struct {
 	ToolCosts map[string]float64 `json:"tool_costs,omitempty"`
 	// ModelCost is the pricing configuration for the model (optional)
 	ModelCost *cost.ModelCost `json:"model_cost,omitempty"`
+
+	// ExecutionStartTime marks when the execution started
+	ExecutionStartTime time.Time `json:"execution_start_time,omitempty"`
+	// ExecutionEndTime marks when the execution ended
+	ExecutionEndTime time.Time `json:"execution_end_time,omitempty"`
+	// ComputeCost is the infrastructure/compute pricing configuration (optional)
+	// Examples: AWS Lambda, VM cost, container runtime cost
+	ComputeCost *cost.ComputeCost `json:"compute_cost,omitempty"`
 }
 
 // StructuredOverview extends Overview with parsed structured data from the final response.
@@ -93,6 +102,31 @@ func (o *Overview) SetModelCost(modelCost *cost.ModelCost) {
 	o.ModelCost = modelCost
 }
 
+// SetComputeCost sets the compute/infrastructure cost configuration.
+// This is used to calculate the cost of running the execution environment.
+func (o *Overview) SetComputeCost(computeCost *cost.ComputeCost) {
+	o.ComputeCost = computeCost
+}
+
+// StartExecution marks the start of execution for compute cost tracking.
+func (o *Overview) StartExecution() {
+	o.ExecutionStartTime = time.Now()
+}
+
+// EndExecution marks the end of execution for compute cost tracking.
+func (o *Overview) EndExecution() {
+	o.ExecutionEndTime = time.Now()
+}
+
+// ExecutionDuration returns the total execution duration.
+// Returns 0 if execution hasn't started or ended.
+func (o *Overview) ExecutionDuration() time.Duration {
+	if o.ExecutionStartTime.IsZero() || o.ExecutionEndTime.IsZero() {
+		return 0
+	}
+	return o.ExecutionEndTime.Sub(o.ExecutionStartTime)
+}
+
 // TotalCost returns the total cost of the execution (tools + model).
 func (o *Overview) TotalCost() float64 {
 	summary := o.CostSummary()
@@ -131,7 +165,15 @@ func (o *Overview) CostSummary() cost.CostSummary {
 
 	summary.TotalModelCost = summary.ModelInputCost + summary.ModelOutputCost +
 		summary.ModelCachedCost + summary.ModelReasoningCost
-	summary.TotalCost = summary.TotalToolCost + summary.TotalModelCost
+
+	// Calculate compute/infrastructure costs
+	duration := o.ExecutionDuration()
+	if duration > 0 && o.ComputeCost != nil {
+		summary.ExecutionDurationSeconds = duration.Seconds()
+		summary.ComputeCost = o.ComputeCost.CalculateCost(duration.Seconds())
+	}
+
+	summary.TotalCost = summary.TotalToolCost + summary.TotalModelCost + summary.ComputeCost
 
 	return summary
 }

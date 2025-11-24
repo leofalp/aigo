@@ -186,6 +186,30 @@ func (mc ModelCost) String() string {
 		mc.InputCostPerMillion, mc.OutputCostPerMillion)
 }
 
+// ComputeCost represents the pricing for infrastructure/compute resources.
+// Cost is expressed in USD per second of execution time.
+//
+// Example usage:
+//
+//	computeCost := cost.ComputeCost{
+//	    CostPerSecond: 0.00167, // $0.10 per minute = $0.00167 per second
+//	}
+type ComputeCost struct {
+	// CostPerSecond is the infrastructure cost in USD per second of execution
+	// Examples: VM cost, container cost, serverless cost
+	CostPerSecond float64 `json:"cost_per_second"`
+}
+
+// CalculateCost calculates the total cost for the given execution duration in seconds.
+func (cc ComputeCost) CalculateCost(durationSeconds float64) float64 {
+	return durationSeconds * cc.CostPerSecond
+}
+
+// String returns a formatted string representation of the compute costs.
+func (cc ComputeCost) String() string {
+	return fmt.Sprintf("$%.6f/sec", cc.CostPerSecond)
+}
+
 // CostSummary provides a detailed breakdown of all costs during an execution.
 type CostSummary struct {
 	// ToolCosts maps tool names to their accumulated execution costs
@@ -212,8 +236,15 @@ type CostSummary struct {
 	// TotalModelCost is the sum of all model costs
 	TotalModelCost float64 `json:"total_model_cost"`
 
-	// TotalCost is the grand total (tools + model)
+	// TotalCost is the grand total (tools + model + compute)
 	TotalCost float64 `json:"total_cost"`
+
+	// ExecutionDurationSeconds is the total execution time in seconds
+	ExecutionDurationSeconds float64 `json:"execution_duration_seconds,omitempty"`
+
+	// ComputeCost is the infrastructure/compute cost based on execution time
+	// Calculated as: (execution_duration_minutes * compute_cost_per_minute)
+	ComputeCost float64 `json:"compute_cost,omitempty"`
 
 	// Currency is always "USD" for consistency
 	Currency string `json:"currency"`

@@ -100,6 +100,7 @@ func main() {
 
 	// Create client with cost tracking enabled
 	// GPT-4o pricing: $2.50 per million input tokens, $10.00 per million output tokens
+	// Compute cost: $0.00167 per second (~$0.10 per minute, example: cloud VM cost)
 	aiClient, err := client.New(
 		openai.New(),
 		client.WithSystemPrompt("You are a helpful assistant with access to tools. Consider the cost of tools when deciding which ones to use."),
@@ -108,6 +109,9 @@ func main() {
 		client.WithModelCost(cost.ModelCost{
 			InputCostPerMillion:  2.50,
 			OutputCostPerMillion: 10.00,
+		}),
+		client.WithComputeCost(cost.ComputeCost{
+			CostPerSecond: 0.00167, // Infrastructure cost: ~$0.10 per minute
 		}),
 		client.WithEnrichSystemPromptWithToolsDescriptions(),
 		client.WithEnrichSystemPromptWithToolsCosts(cost.OptimizeForCost), // Inform LLM to optimize for cost
@@ -213,6 +217,9 @@ func printCostSummary(overview *patterns.Overview) {
 	fmt.Printf("  Total Cost:       $%.6f USD\n", summary.TotalCost)
 	fmt.Printf("  - Tools:          $%.6f USD\n", summary.TotalToolCost)
 	fmt.Printf("  - Model API:      $%.6f USD\n", summary.TotalModelCost)
+	if summary.ComputeCost > 0 {
+		fmt.Printf("  - Compute:        $%.6f USD (%.2f seconds)\n", summary.ComputeCost, summary.ExecutionDurationSeconds)
+	}
 	fmt.Printf("\n  Token Usage:\n")
 	fmt.Printf("    Input:          %d tokens\n", overview.TotalUsage.PromptTokens)
 	fmt.Printf("    Output:         %d tokens\n", overview.TotalUsage.CompletionTokens)
@@ -245,6 +252,12 @@ func printDetailedCostBreakdown(overview *patterns.Overview) {
 		fmt.Printf("  - Reasoning:       $%.6f USD (%d tokens)\n", summary.ModelReasoningCost, overview.TotalUsage.ReasoningTokens)
 	}
 	fmt.Printf("  Total Model Cost:  $%.6f USD\n", summary.TotalModelCost)
+
+	if summary.ComputeCost > 0 {
+		fmt.Println("\n⚙️  Compute/Infrastructure Costs:")
+		fmt.Printf("  - Execution time:  %.2f seconds (%.2f minutes)\n", summary.ExecutionDurationSeconds, summary.ExecutionDurationSeconds/60)
+		fmt.Printf("  - Compute cost:    $%.6f USD\n", summary.ComputeCost)
+	}
 
 	fmt.Println("\n💵 Grand Total:")
 	fmt.Printf("  Total Execution Cost: $%.6f %s\n", summary.TotalCost, summary.Currency)

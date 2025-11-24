@@ -8,8 +8,9 @@ The cost tracking system allows you to:
 
 1. **Track model API costs** based on token usage (input/output tokens)
 2. **Track tool execution costs** for each tool call
-3. **Inform the LLM about tool costs** so it can make cost-aware decisions
-4. **Get detailed cost breakdowns** after execution
+3. **Track compute/infrastructure costs** based on execution time
+4. **Inform the LLM about tool costs** so it can make cost-aware decisions
+5. **Get detailed cost breakdowns** after execution
 
 ## Features
 
@@ -28,6 +29,31 @@ client, err := client.New(
 ```
 
 The client will automatically track costs for each API call based on token usage.
+
+### Compute/Infrastructure Cost Tracking
+
+Track the cost of running your application infrastructure:
+
+```go
+client, err := client.New(
+    llmProvider,
+    client.WithComputeCost(cost.ComputeCost{
+        CostPerSecond: 0.00167, // $0.00167 per second (e.g., VM, container, serverless)
+    }),
+)
+```
+
+Or via environment variable:
+
+```bash
+export AIGO_COMPUTE_COST_PER_SECOND=0.00167
+```
+
+**Examples:**
+- Serverless (AWS Lambda): ~$0.000017 - $0.00017 per second
+- Cloud VM (small): ~$0.00083 - $0.00333 per second
+- Cloud VM (large): ~$0.00333 - $0.00833+ per second
+- Container runtime: varies by platform
 
 ### Tool Cost Tracking
 
@@ -122,6 +148,7 @@ for toolName, cost := range summary.ToolCosts {
 // Model costs
 fmt.Printf("Model input cost: $%.6f\n", summary.ModelInputCost)
 fmt.Printf("Model output cost: $%.6f\n", summary.ModelOutputCost)
+fmt.Printf("Compute cost: $%.6f (%.2fs)\n", summary.ComputeCost, summary.ExecutionDurationSeconds)
 fmt.Printf("Total cost: $%.6f\n", summary.TotalCost)
 ```
 
@@ -185,12 +212,14 @@ Final Answer: 42 multiplied by 17 equals 714.
 
 ## Key Concepts
 
-1. **Optional Cost Tracking**: Cost tracking is only enabled when you use `WithModelCost()`
-2. **Tool Cost Declaration**: Tool costs are optional metadata - you can use tools without specifying costs
-3. **USD Standard**: All costs are tracked in USD for consistency
-4. **Per-Million Pricing**: Model costs are specified per million tokens to match provider pricing
-5. **Unified Tool Enrichment**: Tool descriptions and cost/quality metrics are shown together in one section
-6. **Optimization Strategies**: Choose from 6 strategies to guide the LLM's tool selection (cost, accuracy, speed, quality, balanced, cost-effective)
+1. **Optional Cost Tracking**: Cost tracking is only enabled when you configure it
+2. **Three Cost Components**: Track model API costs, tool execution costs, and compute/infrastructure costs
+3. **Tool Cost Declaration**: Tool costs are optional metadata - you can use tools without specifying costs
+4. **USD Standard**: All costs are tracked in USD for consistency
+5. **Per-Million Pricing**: Model costs are specified per million tokens to match provider pricing
+6. **Compute Cost Tracking**: Automatically tracks execution duration and calculates infrastructure costs
+7. **Unified Tool Enrichment**: Tool descriptions and metrics are shown together in one section
+8. **Optimization Strategies**: Choose from 5 strategies to guide the LLM's tool selection (cost, accuracy, speed, balanced, cost-effective)
 
 ## Notes
 
@@ -199,4 +228,8 @@ Final Answer: 42 multiplied by 17 equals 714.
 - The `Overview` object contains all cost information for post-execution analysis
 - Tool costs are tracked per execution, not per token or time
 - Tools can have zero cost (e.g., local tools) with 100% accuracy (1.0)
-- Use environment variables to configure model costs: `AIGO_MODEL_INPUT_COST_PER_MILLION` and `AIGO_MODEL_OUTPUT_COST_PER_MILLION`
+- Use environment variables to configure costs:
+  - Model: `AIGO_MODEL_INPUT_COST_PER_MILLION` and `AIGO_MODEL_OUTPUT_COST_PER_MILLION`
+  - Compute: `AIGO_COMPUTE_COST_PER_SECOND`
+- Compute costs are calculated automatically based on execution duration
+- Don't forget infrastructure costs - they can be significant for long-running executions!

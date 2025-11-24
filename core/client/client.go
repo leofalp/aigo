@@ -24,6 +24,7 @@ const (
 	envModelOutputCostPerM    = "AIGO_MODEL_OUTPUT_COST_PER_MILLION"
 	envModelCachedCostPerM    = "AIGO_MODEL_CACHED_COST_PER_MILLION"
 	envModelReasoningCostPerM = "AIGO_MODEL_REASONING_COST_PER_MILLION"
+	envComputeCostPerSecond   = "AIGO_COMPUTE_COST_PER_SECOND"
 )
 
 // Client is an immutable orchestrator for LLM interactions.
@@ -39,7 +40,8 @@ type Client struct {
 	toolDescriptions    []ai.ToolDescription
 	requiredTools       []ai.ToolDescription
 	state               map[string]any
-	modelCost           *cost.ModelCost // Optional: cost per million tokens for the model
+	modelCost           *cost.ModelCost   // Optional: cost per million tokens for the model
+	computeCost         *cost.ComputeCost // Optional: infrastructure/compute cost configuration
 }
 
 // ClientOptions contains all configuration for a Client.
@@ -58,6 +60,7 @@ type ClientOptions struct {
 	EnrichSystemPromptWithTools bool                      // If true, automatically append tool information to system prompt (default: false)
 	ToolOptimizationStrategy    cost.OptimizationStrategy // Strategy for tool selection optimization (empty = no optimization guidance)
 	ModelCost                   *cost.ModelCost           // Optional: cost per million tokens for cost tracking
+	ComputeCost                 *cost.ComputeCost         // Optional: infrastructure/compute cost configuration
 }
 
 // Functional option pattern for ergonomic API
@@ -198,6 +201,18 @@ func WithModelCost(modelCost cost.ModelCost) func(*ClientOptions) {
 	}
 }
 
+// WithComputeCost sets the infrastructure/compute cost configuration.
+// This tracks the cost of running the execution environment (VM, container, serverless, etc.).
+//
+// Example:
+//
+//	client.WithComputeCost(cost.ComputeCost{CostPerSecond: 0.001}) // $0.001 per second
+func WithComputeCost(computeCost cost.ComputeCost) func(*ClientOptions) {
+	return func(o *ClientOptions) {
+		o.ComputeCost = &computeCost
+	}
+}
+
 // New creates a new immutable Client instance.
 // The llmProvider is required as the first argument.
 // All other configuration is provided via functional options.
@@ -239,6 +254,14 @@ func New(llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client, error)
 		}
 	}
 
+	// Use compute cost from environment if not specified
+	if options.ComputeCost == nil {
+		computeCost := loadComputeCostFromEnv()
+		if computeCost != nil {
+			options.ComputeCost = computeCost
+		}
+	}
+
 	options.Tools = append(options.Tools, options.RequiredTools...)
 	// Build tool catalog and descriptions
 	toolCatalog := tool.NewCatalogWithTools(options.Tools...)
@@ -271,6 +294,7 @@ func New(llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client, error)
 		requiredTools:       requiredTools,
 		state:               map[string]any{},
 		modelCost:           options.ModelCost,
+		computeCost:         options.ComputeCost,
 	}, nil
 }
 
@@ -315,6 +339,24 @@ func loadModelCostFromEnv() *cost.ModelCost {
 	}
 
 	return modelCost
+}
+
+// loadComputeCostFromEnv attempts to load compute cost from environment variable.
+// Returns nil if not set or parsing fails (meaning no compute cost tracking).
+func loadComputeCostFromEnv() *cost.ComputeCost {
+	costStr := os.Getenv(envComputeCostPerSecond)
+	if costStr == "" {
+		return nil
+	}
+
+	costPerSecond, err := strconv.ParseFloat(costStr, 64)
+	if err != nil {
+		return nil
+	}
+
+	return &cost.ComputeCost{
+		CostPerSecond: costPerSecond,
+	}
 }
 
 // Memory returns the memory provider configured for this client.
@@ -587,6 +629,9 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 	if c.modelCost != nil {
 		overview.SetModelCost(c.modelCost)
 	}
+	if c.computeCost != nil {
+		overview.SetComputeCost(c.computeCost)
+	}
 
 	c.observeSuccess(&ctx, &span, response, timer, "sending message")
 
@@ -693,6 +738,9 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 	// Set model cost in overview if configured
 	if c.modelCost != nil {
 		overview.SetModelCost(c.modelCost)
+	}
+	if c.computeCost != nil {
+		overview.SetComputeCost(c.computeCost)
 	}
 
 	c.observeSuccess(&ctx, &span, response, timer, "continue conversation")

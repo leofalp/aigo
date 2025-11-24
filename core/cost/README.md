@@ -7,6 +7,7 @@ Comprehensive cost tracking system for aigo, enabling monitoring and optimizatio
 The cost package provides:
 - **Model cost tracking** based on token usage (input/output/cached/reasoning)
 - **Tool execution metrics** including cost and quality metrics
+- **Compute/infrastructure cost tracking** based on execution time
 - **Optimization strategies** to guide LLM tool selection
 - **Automatic cost calculation** in execution overview
 - **Environment variable fallback** for model cost configuration
@@ -40,9 +41,28 @@ export AIGO_MODEL_INPUT_COST_PER_MILLION=2.50
 export AIGO_MODEL_OUTPUT_COST_PER_MILLION=10.00
 export AIGO_MODEL_CACHED_COST_PER_MILLION=1.25      # Optional
 export AIGO_MODEL_REASONING_COST_PER_MILLION=5.00   # Optional
+export AIGO_COMPUTE_COST_PER_SECOND=0.00167         # Optional: infrastructure cost
 ```
 
-### 2. Define Tool Metrics
+### 2. Configure Compute/Infrastructure Cost (Optional)
+
+If your application runs on infrastructure with compute costs (VMs, containers, serverless), you can track those costs:
+
+```go
+client, _ := client.New(
+    provider,
+    client.WithComputeCost(cost.ComputeCost{
+        CostPerSecond: 0.00167, // $0.00167 per second (e.g., VM cost)
+    }),
+)
+```
+
+Or via environment variable:
+```bash
+export AIGO_COMPUTE_COST_PER_SECOND=0.00167
+```
+
+### 3. Define Tool Metrics
 
 ```go
 calculatorTool := tool.NewTool(
@@ -60,7 +80,7 @@ calculatorTool := tool.NewTool(
 
 **Note:** `tool.WithCost()` is deprecated but still supported. Use `tool.WithMetrics()` instead.
 
-### 3. Enable LLM Optimization (Optional)
+### 4. Enable LLM Optimization (Optional)
 
 ```go
 client, _ := client.New(
@@ -70,7 +90,7 @@ client, _ := client.New(
 )
 ```
 
-### 4. Access Cost Information
+### 5. Access Cost Information
 
 ```go
 overview, _ := pattern.Execute(ctx, "Calculate 42 * 17")
@@ -80,9 +100,10 @@ totalCost := overview.TotalCost()
 
 // Detailed breakdown
 summary := overview.CostSummary()
-fmt.Printf("Tools: $%.6f\n", summary.TotalToolCost)
-fmt.Printf("Model: $%.6f\n", summary.TotalModelCost)
-fmt.Printf("Total: $%.6f\n", summary.TotalCost)
+fmt.Printf("Tools:   $%.6f\n", summary.TotalToolCost)
+fmt.Printf("Model:   $%.6f\n", summary.TotalModelCost)
+fmt.Printf("Compute: $%.6f (%.2fs)\n", summary.ComputeCost, summary.ExecutionDurationSeconds)
+fmt.Printf("Total:   $%.6f\n", summary.TotalCost)
 ```
 
 ## Core Types
@@ -147,7 +168,9 @@ type CostSummary struct {
 
 ## Environment Variables
 
-The client supports the following environment variables for model cost configuration:
+The client supports the following environment variables for cost configuration:
+
+### Model Cost Variables
 
 | Variable | Description | Required |
 |----------|-------------|----------|
@@ -158,10 +181,31 @@ The client supports the following environment variables for model cost configura
 
 *Required only if you want automatic cost tracking without explicit `WithModelCost()` configuration.
 
+### Compute Cost Variables
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `AIGO_COMPUTE_COST_PER_SECOND` | Infrastructure cost per second | `0.00167` |
+
+**Practical Cost Per Second Reference:**
+
+| Infrastructure Type | Cost/Second | Monthly (730h) | Use Case |
+|--------------------|-------------|----------------|----------|
+| AWS Lambda (128MB) | $0.0000021 | ~$5.50 | Serverless light |
+| AWS Lambda (1GB) | $0.0000167 | ~$44 | Serverless standard |
+| AWS EC2 t3.nano | $0.0000014 | ~$3.80 | Testing/dev |
+| AWS EC2 t3.micro | $0.0000028 | ~$7.60 | Small workloads |
+| AWS EC2 t3.small | $0.0000056 | ~$15 | Development |
+| AWS EC2 t3.medium | $0.0001111 | ~$30 | Small production |
+| AWS EC2 c5.large | $0.0002361 | ~$64 | Compute optimized |
+| AWS EC2 c5.xlarge | $0.0004722 | ~$128 | Large production |
+
+**Conversion helper:** Divide monthly cost by 2,628,000 (seconds in 30.4 days) to get cost per second.
+
 **Precedence:**
-1. Explicit `client.WithModelCost()` takes precedence
+1. Explicit client options (`WithModelCost()`, `WithComputeCost()`) take precedence
 2. Environment variables are used as fallback
-3. If neither is set, cost tracking is disabled (no errors)
+3. If neither is set, that cost component is not tracked (no errors)
 
 ## Optimization Strategies
 
@@ -253,6 +297,9 @@ func main() {
             InputCostPerMillion:  2.50,
             OutputCostPerMillion: 10.00,
         }),
+        client.WithComputeCost(cost.ComputeCost{
+            CostPerSecond: 0.00167, // Infrastructure cost
+        }),
         client.WithEnrichSystemPromptWithToolsCosts(cost.OptimizeForCost),
     )
     
@@ -274,6 +321,12 @@ func main() {
         summary.ModelInputCost, overview.TotalUsage.PromptTokens)
     fmt.Printf("  Output: $%.6f (%d tokens)\n", 
         summary.ModelOutputCost, overview.TotalUsage.CompletionTokens)
+    
+    if summary.ComputeCost > 0 {
+        fmt.Printf("\nCompute Costs:\n")
+        fmt.Printf("  Duration: %.2f seconds\n", summary.ExecutionDurationSeconds)
+        fmt.Printf("  Cost:     $%.6f\n", summary.ComputeCost)
+    }
     
     fmt.Printf("\nTotal: $%.6f USD\n", summary.TotalCost)
 }
@@ -310,12 +363,20 @@ tool.WithMetrics(cost.ToolMetrics{
 
 ## How It Works
 
-1. **Configuration**: User specifies `ModelCost` (or uses env vars) and optional `ToolMetrics`
-2. **Execution**: Client sets model cost in Overview; patterns track tool costs
+1. **Configuration**: User specifies costs via options or environment variables:
+   - `ModelCost` - token pricing
+   - `ComputeCostPerMinute` - infrastructure pricing
+   - `ToolMetrics` - tool execution costs
+2. **Execution**: 
+   - Pattern calls `StartExecution()` at beginning
+   - Client sets costs in Overview
+   - Tools are executed with cost tracking
+   - Pattern calls `EndExecution()` at end
 3. **Calculation**: `CostSummary()` calculates costs on-demand from:
    - `Overview.TotalUsage` (token counts)
    - `Overview.ModelCost` (pricing)
    - `Overview.ToolCosts` (accumulated tool costs)
+   - `Overview.ExecutionDuration()` and `ComputeCostPerMinute` (compute cost)
 4. **Optimization** (optional): System prompt enriched with tool info and strategy guidance
 
 ## Best Practices
@@ -325,7 +386,11 @@ tool.WithMetrics(cost.ToolMetrics{
 3. **Choose Strategy**: Select optimization strategy based on your use case
 4. **Monitor Costs**: Use `CostSummary` to analyze and optimize spending
 5. **Use Environment Variables**: For deployment, prefer environment variables over hardcoded costs
-6. **Use ToolMetrics**: Migrate from deprecated `ToolCost` to `ToolMetrics`
+6. **Track Compute Costs**: Don't forget infrastructure costs - they can add up!
+   - Serverless: typically $0.000017-0.00017 per second
+   - VMs: $0.00083-0.00833 per second depending on size
+   - Containers: varies by platform
+7. **Use ToolMetrics**: Migrate from deprecated `ToolCost` to `ToolMetrics`
 
 ## API Design
 

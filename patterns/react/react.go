@@ -166,6 +166,10 @@ func (r *ReAct[T]) Execute(ctx context.Context, prompt string) (*patterns.Struct
 	toolCatalog := r.client.ToolCatalog()
 	overview := patterns.OverviewFromContext(&ctx)
 
+	// Start execution timing for compute cost tracking
+	overview.StartExecution()
+	defer overview.EndExecution()
+
 	// Start top-level ReAct span
 	observer := r.client.Observer()
 	if observer == nil {

@@ -395,4 +395,62 @@ func TestToolMetricsZeroCostHighAccuracy(t *testing.T) {
 	}
 }
 
+func TestComputeCost(t *testing.T) {
+	cc := ComputeCost{
+		CostPerSecond: 0.00167, // ~$0.10 per minute
+	}
+
+	if cc.CostPerSecond != 0.00167 {
+		t.Errorf("Expected cost per second 0.00167, got %f", cc.CostPerSecond)
+	}
+
+	// Test cost calculation
+	cost := cc.CalculateCost(60.0) // 60 seconds = 1 minute
+	expected := 0.1002             // 60 * 0.00167
+	if cost < expected-0.0001 || cost > expected+0.0001 {
+		t.Errorf("Expected cost ~%.4f for 60 seconds, got %.4f", expected, cost)
+	}
+}
+
+func TestComputeCostString(t *testing.T) {
+	cc := ComputeCost{
+		CostPerSecond: 0.00167,
+	}
+
+	result := cc.String()
+	// Should show both per-second and per-minute
+	if result == "" {
+		t.Error("Expected non-empty string representation")
+	}
+
+	// Should contain per-second cost
+	if !contains(result, "0.001670") && !contains(result, "0.00167") {
+		t.Errorf("Expected string to contain per-second cost, got: %s", result)
+	}
+}
+
+func TestComputeCostCalculateZeroDuration(t *testing.T) {
+	cc := ComputeCost{
+		CostPerSecond: 0.00167,
+	}
+
+	cost := cc.CalculateCost(0)
+	if cost != 0 {
+		t.Errorf("Expected 0 cost for 0 duration, got %f", cost)
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsMiddle(s, substr)))
+}
+
+func containsMiddle(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
 // Note: CostTracker has been removed - costs are now calculated directly in Overview
