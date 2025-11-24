@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -20,6 +21,14 @@ const (
 	DefaultUserAgent = "aigo-webfetch-tool/1.0"
 	// MaxBodySize is the maximum response body size (10MB)
 	MaxBodySize = 10 * 1024 * 1024
+	// DialTimeout is the maximum time to wait for a TCP connection
+	DialTimeout = 10 * time.Second
+	// TLSHandshakeTimeout is the maximum time to wait for TLS handshake
+	TLSHandshakeTimeout = 10 * time.Second
+	// ResponseHeaderTimeout is the maximum time to wait for response headers
+	ResponseHeaderTimeout = 10 * time.Second
+	// IdleConnTimeout is the maximum time an idle connection can be reused
+	IdleConnTimeout = 90 * time.Second
 )
 
 // NewWebFetchTool creates a new web fetch tool that retrieves web pages and converts HTML to Markdown.
@@ -120,8 +129,30 @@ func Fetch(ctx context.Context, req Input) (Output, error) {
 	}
 	httpReq.Header.Set("User-Agent", userAgent)
 
-	// Make HTTP request
+	// Create HTTP client with comprehensive timeout configuration
+	// This prevents indefinite blocking on slow or unresponsive servers
 	client := &http.Client{
+		Timeout: timeout, // Overall request timeout
+		Transport: &http.Transport{
+			// DialContext controls the timeout for establishing TCP connections
+			DialContext: (&net.Dialer{
+				Timeout:   DialTimeout,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			// TLSHandshakeTimeout controls the timeout for TLS handshake
+			TLSHandshakeTimeout: TLSHandshakeTimeout,
+			// ResponseHeaderTimeout controls the timeout waiting for response headers
+			ResponseHeaderTimeout: ResponseHeaderTimeout,
+			// IdleConnTimeout controls how long idle connections are kept
+			IdleConnTimeout: IdleConnTimeout,
+			// MaxIdleConns limits the number of idle connections
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 10,
+			// Disable compression to avoid issues with slow decompression
+			DisableCompression: false,
+			// Force attempt HTTP/2
+			ForceAttemptHTTP2: true,
+		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			// Allow up to 10 redirects
 			if len(via) >= 10 {
@@ -133,6 +164,10 @@ func Fetch(ctx context.Context, req Input) (Output, error) {
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
+		// Check if error was due to context cancellation or timeout
+		if ctxWithTimeout.Err() != nil {
+			return Output{}, fmt.Errorf("request timeout or cancelled: %w", err)
+		}
 		return Output{}, fmt.Errorf("failed to fetch URL: %w", err)
 	}
 	defer resp.Body.Close()
@@ -142,11 +177,30 @@ func Fetch(ctx context.Context, req Input) (Output, error) {
 		return Output{}, fmt.Errorf("unexpected status code: %d %s", resp.StatusCode, resp.Status)
 	}
 
-	// Read body with size limit
+	// Read body with size limit and context check
+	// Use a channel to handle reading with timeout awareness
 	limitedReader := io.LimitReader(resp.Body, MaxBodySize)
-	htmlBytes, err := io.ReadAll(limitedReader)
-	if err != nil {
-		return Output{}, fmt.Errorf("failed to read response body: %w", err)
+
+	type readResult struct {
+		data []byte
+		err  error
+	}
+
+	readChan := make(chan readResult, 1)
+	go func() {
+		data, err := io.ReadAll(limitedReader)
+		readChan <- readResult{data: data, err: err}
+	}()
+
+	var htmlBytes []byte
+	select {
+	case <-ctxWithTimeout.Done():
+		return Output{}, fmt.Errorf("timeout while reading response body: %w", ctxWithTimeout.Err())
+	case result := <-readChan:
+		if result.err != nil {
+			return Output{}, fmt.Errorf("failed to read response body: %w", result.err)
+		}
+		htmlBytes = result.data
 	}
 
 	// Check if we hit the size limit
