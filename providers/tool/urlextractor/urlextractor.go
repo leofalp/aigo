@@ -32,6 +32,14 @@ const (
 	DefaultCrawlDelayMs = 100
 	// MaxCrawlTimeout is the maximum total time for crawling
 	MaxCrawlTimeout = 5 * time.Minute
+	// DialTimeout is the maximum time to wait for a TCP connection
+	DialTimeout = 10 * time.Second
+	// TLSHandshakeTimeout is the maximum time to wait for TLS handshake
+	TLSHandshakeTimeout = 10 * time.Second
+	// ResponseHeaderTimeout is the maximum time to wait for response headers
+	ResponseHeaderTimeout = 10 * time.Second
+	// IdleConnTimeout is the maximum time an idle connection can be reused
+	IdleConnTimeout = 90 * time.Second
 )
 
 // NewURLExtractorTool creates a new URL extraction tool that extracts all URLs from a website.
@@ -111,6 +119,25 @@ func Extract(ctx context.Context, input Input) (Output, error) {
 	// Extract observability provider from context
 	observer := observability.ObserverFromContext(ctx)
 
+	// Create HTTP client with comprehensive timeout configuration
+	// This prevents indefinite blocking on slow or unresponsive servers
+	httpClient := &http.Client{
+		Timeout: DefaultTimeout,
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   DialTimeout,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			TLSHandshakeTimeout:   TLSHandshakeTimeout,
+			ResponseHeaderTimeout: ResponseHeaderTimeout,
+			IdleConnTimeout:       IdleConnTimeout,
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   10,
+			DisableCompression:    false,
+			ForceAttemptHTTP2:     true,
+		},
+	}
+
 	// Create extractor
 	extractor := &urlExtractor{
 		baseURL:             baseURL,
@@ -118,7 +145,7 @@ func Extract(ctx context.Context, input Input) (Output, error) {
 		disallowed:          make(map[string]bool),
 		maxURLs:             DefaultMaxURLs,
 		userAgent:           DefaultUserAgent,
-		client:              &http.Client{Timeout: DefaultTimeout},
+		client:              httpClient,
 		forceRecursiveCrawl: input.ForceRecursiveCrawling,
 		crawlDelayMs:        DefaultCrawlDelayMs,
 		observer:            observer,
@@ -271,18 +298,20 @@ func (e *urlExtractor) followRedirectsToCanonicalURL(ctx context.Context) (*url.
 	}
 	req.Header.Set("User-Agent", e.userAgent)
 
-	// Create a client that follows redirects
-	client := &http.Client{
-		Timeout: DefaultTimeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
-		},
+	// Use existing client with configured redirect handling
+	// Store original CheckRedirect to restore it later
+	originalCheckRedirect := e.client.CheckRedirect
+	e.client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("too many redirects")
+		}
+		return nil
 	}
+	defer func() {
+		e.client.CheckRedirect = originalCheckRedirect
+	}()
 
-	resp, err := client.Do(req)
+	resp, err := e.client.Do(req)
 	if err != nil {
 		// If HEAD fails, try GET on robots.txt
 		return e.tryRobotsTxtForCanonicalURL(ctx)
@@ -342,7 +371,13 @@ func (e *urlExtractor) analyzeRobots(ctx context.Context) bool {
 	}
 	defer resp.Body.Close()
 
-	scanner := bufio.NewScanner(resp.Body)
+	// Read body with context awareness
+	bodyBytes, err := e.readBodyWithContext(ctx, resp.Body, MaxBodySize)
+	if err != nil {
+		return false
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(string(bodyBytes)))
 
 	// Track which User-Agent block we're in
 	currentUserAgent := ""
@@ -598,8 +633,8 @@ func (e *urlExtractor) parseSitemap(ctx context.Context, sitemapURL string) ([]s
 		reader = gzReader
 	}
 
-	// Read the (potentially decompressed) content
-	body, err := io.ReadAll(reader)
+	// Read the (potentially decompressed) content with context awareness
+	body, err := e.readBodyWithContext(ctx, reader, MaxBodySize)
 	if err != nil {
 		return nil, nil
 	}
@@ -648,15 +683,52 @@ func (e *urlExtractor) extractLinks(ctx context.Context, pageURL string) []strin
 		return nil
 	}
 
-	// Read body with limit
-	limitedReader := io.LimitReader(resp.Body, MaxBodySize)
-	body, err := io.ReadAll(limitedReader)
+	// Read body with context awareness
+	body, err := e.readBodyWithContext(ctx, resp.Body, MaxBodySize)
 	if err != nil {
 		return nil
 	}
 
 	// Extract links using simple HTML parsing (no external dependencies)
 	return e.parseHTMLLinks(string(body), pageURL)
+}
+
+// readBodyWithContext reads the response body with context cancellation awareness.
+// It uses a goroutine and channel to make io.ReadAll respect context timeouts,
+// preventing indefinite blocking when servers send data very slowly.
+func (e *urlExtractor) readBodyWithContext(ctx context.Context, reader io.Reader, maxSize int64) ([]byte, error) {
+	limitedReader := io.LimitReader(reader, maxSize)
+
+	type readResult struct {
+		data []byte
+		err  error
+	}
+
+	readChan := make(chan readResult, 1)
+	go func() {
+		data, err := io.ReadAll(limitedReader)
+		readChan <- readResult{data: data, err: err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("timeout while reading response body: %w", ctx.Err())
+	case result := <-readChan:
+		if result.err != nil {
+			return nil, fmt.Errorf("failed to read response body: %w", result.err)
+		}
+		// Check if we hit the size limit
+		if int64(len(result.data)) == maxSize {
+			return nil, fmt.Errorf("response body exceeds maximum size of %d bytes", maxSize)
+		}
+		return result.data, nil
+	}
+}
+
+func (e *urlExtractor) reportProgress(current int, stage string) {
+	if e.progressCallback != nil {
+		e.progressCallback(current, stage)
+	}
 }
 
 // parseHTMLLinks extracts links from HTML using golang.org/x/net/html parser
@@ -939,13 +1011,6 @@ func isPrivateOrLocalIP(ip net.IP) bool {
 	}
 
 	return false
-}
-
-// reportProgress calls the progress callback if it's set
-func (e *urlExtractor) reportProgress(currentURLs int, phase string) {
-	if e.progressCallback != nil {
-		e.progressCallback(currentURLs, phase)
-	}
 }
 
 // Input represents the input parameters for the URL extractor tool
