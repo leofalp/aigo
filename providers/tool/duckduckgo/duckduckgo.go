@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/leofalp/aigo/core/cost"
+	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/providers/tool"
 )
 
@@ -107,7 +108,7 @@ func fetchDDGResponse(ctx context.Context, query string) (*DDGResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error making request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer utils.CloseWithLog(resp.Body)
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)

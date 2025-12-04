@@ -3,8 +3,8 @@ package client
 import (
 	"context"
 	"fmt"
-	"github.com/leofalp/aigo/core/parse"
 
+	"github.com/leofalp/aigo/core/parse"
 	"github.com/leofalp/aigo/internal/jsonschema"
 	"github.com/leofalp/aigo/providers/ai"
 )

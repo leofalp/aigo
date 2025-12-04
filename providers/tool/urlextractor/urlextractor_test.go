@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -18,11 +19,11 @@ func TestExtract_Success(t *testing.T) {
 		switch r.URL.Path {
 		case "/robots.txt":
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, "Sitemap: %s/sitemap.xml\n", baseURL)
+			_, _ = fmt.Fprintf(w, "Sitemap: %s/sitemap.xml\n", baseURL)
 		case "/sitemap.xml":
 			w.Header().Set("Content-Type", "application/xml")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+			_, _ = fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 	<url><loc>%s/page1</loc></url>
 	<url><loc>%s/page2</loc></url>
@@ -109,7 +110,7 @@ func TestExtract_SitemapIndex(t *testing.T) {
 		case "/sitemap.xml":
 			w.Header().Set("Content-Type", "application/xml")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+			_, _ = fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 	<sitemap><loc>%s/sitemap1.xml</loc></sitemap>
 	<sitemap><loc>%s/sitemap2.xml</loc></sitemap>
@@ -117,7 +118,7 @@ func TestExtract_SitemapIndex(t *testing.T) {
 		case "/sitemap1.xml":
 			w.Header().Set("Content-Type", "application/xml")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+			_, _ = fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 	<url><loc>%s/page1</loc></url>
 	<url><loc>%s/page2</loc></url>
@@ -125,7 +126,7 @@ func TestExtract_SitemapIndex(t *testing.T) {
 		case "/sitemap2.xml":
 			w.Header().Set("Content-Type", "application/xml")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+			_, _ = fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 	<url><loc>%s/page3</loc></url>
 </urlset>`, baseURL)
@@ -161,11 +162,11 @@ func TestExtract_RobotsTxtDisallow(t *testing.T) {
 		switch r.URL.Path {
 		case "/robots.txt":
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, "User-agent: *\nDisallow: /admin/\nSitemap: %s/sitemap.xml\n", baseURL)
+			_, _ = fmt.Fprintf(w, "User-agent: *\nDisallow: /admin/\nSitemap: %s/sitemap.xml\n", baseURL)
 		case "/sitemap.xml":
 			w.Header().Set("Content-Type", "application/xml")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+			_, _ = fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 	<url><loc>%s/page1</loc></url>
 	<url><loc>%s/admin/secret</loc></url>
@@ -208,20 +209,20 @@ func TestExtract_Crawling(t *testing.T) {
 		case "/":
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<html><body>
+			_, _ = fmt.Fprintf(w, `<html><body>
 				<a href="%s/page1">Page 1</a>
 				<a href="%s/page2">Page 2</a>
 			</body></html>`, baseURL, baseURL)
 		case "/page1":
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<html><body>
+			_, _ = fmt.Fprintf(w, `<html><body>
 				<a href="%s/page3">Page 3</a>
 			</body></html>`, baseURL)
 		case "/page2", "/page3":
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("<html><body>Content</body></html>"))
+			_, _ = w.Write([]byte("<html><body>Content</body></html>"))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -256,7 +257,7 @@ func TestExtract_MaxURLs(t *testing.T) {
 		if r.URL.Path == "/sitemap.xml" {
 			w.Header().Set("Content-Type", "application/xml")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+			_, _ = fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 	<url><loc>%s/page1</loc></url>
 	<url><loc>%s/page2</loc></url>
@@ -315,7 +316,7 @@ func TestExtract_SameDomainOnly(t *testing.T) {
 		if r.URL.Path == "/sitemap.xml" {
 			w.Header().Set("Content-Type", "application/xml")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+			_, _ = fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 	<url><loc>%s/page1</loc></url>
 	<url><loc>https://external.com/page2</loc></url>
@@ -365,7 +366,7 @@ func TestExtract_CustomUserAgent(t *testing.T) {
 		DisableSSRFProtection: true,
 	}
 
-	Extract(context.Background(), input)
+	_, _ = Extract(context.Background(), input)
 
 	if receivedUA != customUA {
 		t.Errorf("Expected User-Agent %q, got %q", customUA, receivedUA)
@@ -387,7 +388,7 @@ func TestExtract_DefaultUserAgent(t *testing.T) {
 		DisableSSRFProtection: true,
 	}
 
-	Extract(context.Background(), input)
+	_, _ = Extract(context.Background(), input)
 
 	if receivedUA != DefaultUserAgent {
 		t.Errorf("Expected default User-Agent %q, got %q", DefaultUserAgent, receivedUA)
@@ -419,7 +420,7 @@ func TestExtract_RelativeLinks(t *testing.T) {
 		case "/":
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<html><body>
+			_, _ = fmt.Fprintf(w, `<html><body>
 				<a href="/page1">Page 1</a>
 				<a href="page2">Page 2</a>
 				<a href="./page3">Page 3</a>
@@ -427,7 +428,7 @@ func TestExtract_RelativeLinks(t *testing.T) {
 		case "/page1", "/page2", "/page3":
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("<html><body>Content</body></html>"))
+			_, _ = w.Write([]byte("<html><body>Content</body></html>"))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -455,18 +456,19 @@ func TestExtract_RelativeLinks(t *testing.T) {
 func TestExtract_IgnoreFragments(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		baseURL := "http://" + r.Host
-		if r.URL.Path == "/" {
+		switch r.URL.Path {
+		case "/":
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<html><body>
+			_, _ = fmt.Fprintf(w, `<html><body>
 				<a href="#section1">Section 1</a>
 				<a href="#section2">Section 2</a>
 				<a href="%s/page1">Page 1</a>
 			</body></html>`, baseURL)
-		} else if r.URL.Path == "/page1" {
+		case "/page1":
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("<html><body>Content</body></html>"))
+			_, _ = fmt.Fprintf(w, `<html><body>Page 1 content</body></html>`)
 		}
 	}))
 	defer server.Close()
@@ -534,14 +536,14 @@ func TestNormalizeURL(t *testing.T) {
 
 // TestExtract_CrawlDepthLimit tests crawl depth limiting
 func TestExtract_CrawlDepthLimit(t *testing.T) {
-	callCount := 0
+	var callCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		baseURL := "http://" + r.Host
-		callCount++
+		count := callCount.Add(1)
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
 		// Each page links to next level
-		fmt.Fprintf(w, `<html><body><a href="%s/level%d">Next</a></body></html>`, baseURL, callCount+1)
+		_, _ = fmt.Fprintf(w, `<html><body><a href="%s/level%d">Next</a></body></html>`, baseURL, count+1)
 	}))
 	defer server.Close()
 
@@ -572,11 +574,11 @@ func TestExtract_NoSitemapAutoCrawl(t *testing.T) {
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
 			baseURL := "http://" + r.Host
-			fmt.Fprintf(w, `<html><body><a href="%s/page1">Page 1</a></body></html>`, baseURL)
+			_, _ = fmt.Fprintf(w, `<html><body><a href="%s/page1">Page 1</a></body></html>`, baseURL)
 		case "/page1":
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("<html><body>Content</body></html>"))
+			_, _ = w.Write([]byte("<html><body>Content</body></html>"))
 		default:
 			// No sitemap, return 404
 			w.WriteHeader(http.StatusNotFound)
@@ -618,7 +620,7 @@ func TestExtract_WWWSubdomainHandling(t *testing.T) {
 			w.Header().Set("Content-Type", "application/xml")
 			w.WriteHeader(http.StatusOK)
 			// Sitemap contains www. prefix while base URL doesn't
-			fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+			_, _ = fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 	<url><loc>http://www.%s/page1</loc></url>
 	<url><loc>http://www.%s/page2</loc></url>
@@ -697,11 +699,11 @@ func TestExtract_RobotsTxtSitemapNormalization(t *testing.T) {
 		case "/robots.txt":
 			w.WriteHeader(http.StatusOK)
 			// robots.txt points to sitemap with www. prefix
-			fmt.Fprintf(w, "Sitemap: http://www.%s/sitemap.xml\n", r.Host)
+			_, _ = fmt.Fprintf(w, "Sitemap: http://www.%s/sitemap.xml\n", r.Host)
 		case "/sitemap.xml":
 			w.Header().Set("Content-Type", "application/xml")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+			_, _ = fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 	<url><loc>%s/page1</loc></url>
 	<url><loc>http://www.%s/page2</loc></url>
@@ -745,7 +747,7 @@ func TestExtract_RedirectToCanonicalURL(t *testing.T) {
 		case "/sitemap.xml":
 			w.Header().Set("Content-Type", "application/xml")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+			_, _ = fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 	<url><loc>%s/page1</loc></url>
 </urlset>`, baseURL)
@@ -797,14 +799,14 @@ func TestExtract_CrawlDelay(t *testing.T) {
 		case "/":
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<html><body>
+			_, _ = fmt.Fprintf(w, `<html><body>
 				<a href="%s/page1">Page 1</a>
 				<a href="%s/page2">Page 2</a>
 			</body></html>`, baseURL, baseURL)
 		case "/page1", "/page2":
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("<html><body>Content</body></html>"))
+			_, _ = w.Write([]byte("<html><body>Content</body></html>"))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -858,18 +860,18 @@ func TestExtract_ForceCrawlingWithSitemap(t *testing.T) {
 		case "/sitemap.xml":
 			w.Header().Set("Content-Type", "application/xml")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+			_, _ = fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 	<url><loc>%s/sitemap-page</loc></url>
 </urlset>`, baseURL)
 		case "/":
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<html><body><a href="%s/crawled-page">Link</a></body></html>`, baseURL)
+			_, _ = fmt.Fprintf(w, `<html><body><a href="%s/crawled-page">Link</a></body></html>`, baseURL)
 		case "/crawled-page":
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("<html><body>Content</body></html>"))
+			_, _ = w.Write([]byte("<html><body>Content</body></html>"))
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -911,7 +913,7 @@ func TestExtract_RobotsTxtUserAgentParsing(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			// BadBot is disallowed from everything
 			// Our bot should only be blocked from /admin/
-			fmt.Fprintf(w, `User-agent: BadBot
+			_, _ = fmt.Fprintf(w, `User-agent: BadBot
 Disallow: /
 
 User-agent: *
@@ -921,7 +923,7 @@ Sitemap: %s/sitemap.xml
 		case "/sitemap.xml":
 			w.Header().Set("Content-Type", "application/xml")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+			_, _ = fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 	<url><loc>%s/page1</loc></url>
 	<url><loc>%s/admin/secret</loc></url>
@@ -1037,17 +1039,17 @@ func TestExtract_RobotsCrawlDelay(t *testing.T) {
 		case "/robots.txt":
 			w.WriteHeader(http.StatusOK)
 			// Set a 1 second crawl delay
-			fmt.Fprintf(w, `User-agent: *
+			_, _ = fmt.Fprintf(w, `User-agent: *
 Crawl-delay: 1
 `)
 		case "/":
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<html><body><a href="%s/page1">Page 1</a></body></html>`, baseURL)
+			_, _ = fmt.Fprintf(w, `<html><body><a href="%s/page1">Page 1</a></body></html>`, baseURL)
 		case "/page1":
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("<html><body>Content</body></html>"))
+			_, _ = w.Write([]byte("<html><body>Content</body></html>"))
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -1169,7 +1171,7 @@ func TestExtract_RobustHTMLParsing(t *testing.T) {
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
 			// Complex HTML with various link formats
-			fmt.Fprintf(w, `<!DOCTYPE html>
+			_, _ = fmt.Fprintf(w, `<!DOCTYPE html>
 <html>
 <head>
 	<base href="%s/subdir/">
@@ -1271,7 +1273,7 @@ func TestExtract_HTMLBaseTag(t *testing.T) {
 		case "/":
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<html>
+			_, _ = fmt.Fprintf(w, `<html>
 <head>
 	<base href="%s/docs/">
 </head>
@@ -1326,7 +1328,7 @@ func TestExtract_MalformedHTML(t *testing.T) {
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
 			// Intentionally malformed HTML
-			fmt.Fprintf(w, `<html>
+			_, _ = fmt.Fprintf(w, `<html>
 <body>
 	<a href="%s/page1">Link 1
 	<a href="%s/page2">Link 2</a>
@@ -1369,7 +1371,7 @@ func TestExtract_WithObservability(t *testing.T) {
 		case "/sitemap.xml":
 			w.Header().Set("Content-Type", "application/xml")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+			_, _ = fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 	<url><loc>%s/page1</loc></url>
 </urlset>`, baseURL)
@@ -1416,7 +1418,7 @@ func TestExtract_SitemapSizeLimitBeforeDecompression(t *testing.T) {
 			// Write a small compressed payload
 			// In production, a 5MB .gz could expand to 200MB
 			// The limit should prevent reading the compressed stream
-			w.Write([]byte("small compressed data"))
+			_, _ = w.Write([]byte("small compressed data"))
 		}
 	}))
 	defer server.Close()
@@ -1449,11 +1451,11 @@ func TestExtract_MaxURLsConsistency(t *testing.T) {
 				html += fmt.Sprintf(`<a href="%s/page%d">Page %d</a>`, baseURL, i, i)
 			}
 			html += "</body></html>"
-			w.Write([]byte(html))
+			_, _ = w.Write([]byte(html))
 		default:
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("<html><body>Page</body></html>"))
+			_, _ = w.Write([]byte("<html><body>Page</body></html>"))
 		}
 	}))
 	defer server.Close()
@@ -1530,7 +1532,7 @@ func TestExtract_ProgressCallback(t *testing.T) {
 				sitemap += fmt.Sprintf(`<url><loc>%s/page%d</loc></url>`, baseURL, i)
 			}
 			sitemap += `</urlset>`
-			w.Write([]byte(sitemap))
+			_, _ = w.Write([]byte(sitemap))
 		case "/":
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
@@ -1539,7 +1541,7 @@ func TestExtract_ProgressCallback(t *testing.T) {
 				html += fmt.Sprintf(`<a href="%s/page%d">Page %d</a>`, baseURL, i, i)
 			}
 			html += "</body></html>"
-			w.Write([]byte(html))
+			_, _ = w.Write([]byte(html))
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -1633,7 +1635,7 @@ func TestExtract_ProgressCallback_LargeExtraction(t *testing.T) {
 				html += fmt.Sprintf(`<a href="%s/page%d">Page %d</a>`, baseURL, i, i)
 			}
 			html += "</body></html>"
-			w.Write([]byte(html))
+			_, _ = w.Write([]byte(html))
 		} else {
 			w.WriteHeader(http.StatusOK)
 		}

@@ -11,6 +11,19 @@ import (
 	"github.com/leofalp/aigo/providers/ai"
 )
 
+// Test helpers for JSON encoding/decoding
+func mustEncodeJSON(t *testing.T, w http.ResponseWriter, v any) {
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		t.Fatalf("failed to encode JSON: %v", err)
+	}
+}
+
+func mustDecodeJSON(t *testing.T, r *http.Request, v any) {
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		t.Fatalf("failed to decode JSON: %v", err)
+	}
+}
+
 func TestCapabilitiesDetectionFromBaseURL(t *testing.T) {
 	cases := []struct {
 		baseURL   string
@@ -43,7 +56,7 @@ func TestSendMessageUsesResponsesEndpointWhenSupported(t *testing.T) {
 			t.Fatalf("unexpected auth header: %s", r.Header.Get("Authorization"))
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		if err := json.NewEncoder(w).Encode(map[string]any{
 			"id":         "resp_x",
 			"object":     "response",
 			"created_at": 1,
@@ -53,7 +66,9 @@ func TestSendMessageUsesResponsesEndpointWhenSupported(t *testing.T) {
 				"content": []map[string]any{{"type": "output_text", "text": "hi"}},
 			}},
 			"status": "completed",
-		})
+		}); err != nil {
+			t.Fatalf("failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -77,7 +92,7 @@ func TestSendMessageUsesChatCompletionsWhenResponsesNotSupported(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seenPath = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		mustEncodeJSON(t, w, map[string]any{
 			"id":      "chat_x",
 			"object":  "chat.completion",
 			"created": 1,
@@ -109,7 +124,7 @@ func TestSendMessageUsesChatCompletionsWhenResponsesNotSupported(t *testing.T) {
 func TestChatCompletionsMapsToolCallsNewFormat(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		mustEncodeJSON(t, w, map[string]any{
 			"id":      "chat_tools",
 			"object":  "chat.completion",
 			"created": 1,
@@ -148,7 +163,7 @@ func TestChatCompletionsMapsToolCallsNewFormat(t *testing.T) {
 func TestChatCompletionsErrorsOnEmptyChoices(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		mustEncodeJSON(t, w, map[string]any{
 			"id":      "x",
 			"object":  "chat.completion",
 			"created": 1,
@@ -169,7 +184,7 @@ func TestChatCompletionsErrorsOnEmptyChoices(t *testing.T) {
 func TestResponsesRequestIncludesSystemPromptAsDeveloper(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		mustDecodeJSON(t, r, &body)
 		input, ok := body["input"].([]any)
 		if !ok || len(input) != 2 {
 			t.Fatalf("unexpected input: %#v", body["input"])
@@ -183,7 +198,7 @@ func TestResponsesRequestIncludesSystemPromptAsDeveloper(t *testing.T) {
 			t.Fatalf("unexpected second message: %#v", second)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": "r", "object": "response", "created_at": 1, "model": "m", "output": []map[string]any{{"id": "o", "type": "message", "role": "assistant", "content": []map[string]any{{"type": "output_text", "text": "ok"}}}}, "status": "completed"})
+		mustEncodeJSON(t, w, map[string]any{"id": "r", "object": "response", "created_at": 1, "model": "m", "output": []map[string]any{{"id": "o", "type": "message", "role": "assistant", "content": []map[string]any{{"type": "output_text", "text": "ok"}}}}, "status": "completed"})
 	}))
 	defer server.Close()
 
@@ -199,7 +214,7 @@ func TestResponsesRequestIncludesSystemPromptAsDeveloper(t *testing.T) {
 func TestChatCompletionsRequestMapsGenerationConfig(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		mustDecodeJSON(t, r, &body)
 		if _, ok := body["temperature"]; !ok {
 			t.Fatalf("missing temperature in request")
 		}
@@ -213,7 +228,7 @@ func TestChatCompletionsRequestMapsGenerationConfig(t *testing.T) {
 			t.Fatalf("unexpected max_tokens present when max_completion_tokens set")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		mustEncodeJSON(t, w, map[string]any{
 			"id":      "c",
 			"object":  "chat.completion",
 			"created": 1,
@@ -238,12 +253,12 @@ func TestChatCompletionsRequestMapsGenerationConfig(t *testing.T) {
 func TestResponsesRequestHonorsForcedToolChoiceNone(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		mustDecodeJSON(t, r, &body)
 		if body["tool_choice"] != "none" {
 			t.Fatalf("expected tool_choice=none, got %#v", body["tool_choice"])
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": "r", "object": "response", "created_at": 1, "model": "m", "output": []map[string]any{{"id": "o", "type": "message", "role": "assistant", "content": []map[string]any{{"type": "output_text", "text": "ok"}}}}, "status": "completed"})
+		mustEncodeJSON(t, w, map[string]any{"id": "r", "object": "response", "created_at": 1, "model": "m", "output": []map[string]any{{"id": "o", "type": "message", "role": "assistant", "content": []map[string]any{{"type": "output_text", "text": "ok"}}}}, "status": "completed"})
 	}))
 	defer server.Close()
 
@@ -266,7 +281,7 @@ func TestResponsesRequestHonorsForcedToolChoiceNone(t *testing.T) {
 func TestChatCompletionsUsesLegacyFunctionsWhenConfigured(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		mustDecodeJSON(t, r, &body)
 		if _, hasFunctions := body["functions"]; !hasFunctions {
 			t.Fatalf("expected legacy functions present")
 		}
@@ -280,7 +295,7 @@ func TestChatCompletionsUsesLegacyFunctionsWhenConfigured(t *testing.T) {
 			t.Fatalf("did not expect tool_choice in legacy mode")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		mustEncodeJSON(t, w, map[string]any{
 			"id":      "c",
 			"object":  "chat.completion",
 			"created": 1,

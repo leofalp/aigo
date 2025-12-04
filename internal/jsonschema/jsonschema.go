@@ -266,9 +266,10 @@ func parseJSONSchemaTag(fieldType reflect.Type, tag reflect.StructTag, schema *S
 		kv := strings.Split(tagItem, "=")
 		if len(kv) == 2 {
 			key, value := kv[0], kv[1]
-			if key == "description" {
+			switch key {
+			case "description":
 				schema.Description = value
-			} else if key == "enum" {
+			case "enum":
 				if schema.Enum == nil {
 					schema.Enum = make([]any, 0)
 				}
@@ -479,7 +480,7 @@ func (s *Schema) JsonString(indent ...bool) (string, error) {
 }
 
 // String returns the JSON representation of the schema with indentation
-// Returns an error message if marshalling fails
+// Returns an error message if marshaling fails
 func (s *Schema) String() string {
 	jsonStr, err := s.JsonString() // usa il default (true)
 	if err != nil {

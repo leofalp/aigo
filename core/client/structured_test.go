@@ -36,7 +36,10 @@ func TestStructuredClient_SendMessage(t *testing.T) {
 				Answer:     "The answer is 42",
 				Confidence: 95,
 			}
-			jsonBytes, _ := json.Marshal(responseData)
+			jsonBytes, err := json.Marshal(responseData)
+			if err != nil {
+				panic(err) // Should never happen in tests with valid data
+			}
 
 			return &ai.ChatResponse{
 				Id:           "test-response-1",
@@ -98,7 +101,10 @@ func TestStructuredClient_ContinueConversation(t *testing.T) {
 			responseData := ConversationResponse{
 				Message: "Response " + string(rune('0'+callCount)),
 			}
-			jsonBytes, _ := json.Marshal(responseData)
+			jsonBytes, err := json.Marshal(responseData)
+			if err != nil {
+				panic(err) // Should never happen in tests with valid data
+			}
 
 			return &ai.ChatResponse{
 				Id:           "test-response",

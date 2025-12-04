@@ -2,7 +2,6 @@ package webfetch
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,7 +25,7 @@ func TestFetch_SlowBodyRead(t *testing.T) {
 
 		data := []byte("<html><body><h1>Slow response</h1></body></html>")
 		for i := 0; i < len(data); i++ {
-			w.Write(data[i : i+1])
+			_, _ = w.Write(data[i : i+1])
 			flusher.Flush()
 			time.Sleep(200 * time.Millisecond) // 200ms per byte = very slow
 		}
@@ -88,7 +87,7 @@ func TestFetch_SlowHeaders(t *testing.T) {
 		// Delay before sending any response
 		time.Sleep(5 * time.Second)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("<html><body>Test</body></html>"))
+		_, _ = w.Write([]byte("<html><body>Test</body></html>"))
 	}))
 	defer server.Close()
 
@@ -130,7 +129,7 @@ func TestFetch_ContextCancellationDuringRead(t *testing.T) {
 
 		// Send data slowly over 10 seconds
 		for i := 0; i < 50; i++ {
-			w.Write([]byte("<p>Data chunk</p>"))
+			_, _ = w.Write([]byte("<p>Data chunk</p>"))
 			flusher.Flush()
 			time.Sleep(200 * time.Millisecond)
 		}
@@ -182,12 +181,12 @@ func TestFetch_PartialBodyTimeout(t *testing.T) {
 		}
 
 		// Send some data quickly
-		w.Write([]byte("<html><body>"))
+		_, _ = w.Write([]byte("<html><body>"))
 		flusher.Flush()
 
 		// Then stall
 		time.Sleep(10 * time.Second)
-		w.Write([]byte("</body></html>"))
+		_, _ = w.Write([]byte("</body></html>"))
 	}))
 	defer server.Close()
 
@@ -215,44 +214,19 @@ func TestFetch_PartialBodyTimeout(t *testing.T) {
 	}
 }
 
-// slowReader is a custom io.Reader that reads data very slowly
-type slowReader struct {
-	data  []byte
-	pos   int
-	delay time.Duration
-}
-
-func (sr *slowReader) Read(p []byte) (n int, err error) {
-	if sr.pos >= len(sr.data) {
-		return 0, io.EOF
-	}
-
-	// Simulate slow reading
-	time.Sleep(sr.delay)
-
-	// Read one byte at a time
-	n = 1
-	if len(p) > 0 && sr.pos < len(sr.data) {
-		p[0] = sr.data[sr.pos]
-		sr.pos++
-	}
-
-	return n, nil
-}
-
 // TestFetch_ConcurrentRequests tests that multiple concurrent requests
 // with different timeouts work correctly and don't interfere with each other
 func TestFetch_ConcurrentRequests(t *testing.T) {
 	slowServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(3 * time.Second)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("<html><body>Slow</body></html>"))
+		_, _ = w.Write([]byte("<html><body>Slow</body></html>"))
 	}))
 	defer slowServer.Close()
 
 	fastServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("<html><body>Fast</body></html>"))
+		_, _ = w.Write([]byte("<html><body>Fast</body></html>"))
 	}))
 	defer fastServer.Close()
 

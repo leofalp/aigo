@@ -85,10 +85,17 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 
 // WithAttrs returns a new Handler with additional attributes.
 func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	newHandler := *h
-	newHandler.attrs = append([]slog.Attr{}, h.attrs...)
-	newHandler.attrs = append(newHandler.attrs, attrs...)
-	return &newHandler
+	newAttrs := append([]slog.Attr{}, h.attrs...)
+	newAttrs = append(newAttrs, attrs...)
+
+	return &Handler{
+		format: h.format,
+		level:  h.level,
+		output: h.output,
+		colors: h.colors,
+		attrs:  newAttrs,
+		groups: h.groups,
+	}
 }
 
 // WithGroup returns a new Handler with a group name.
@@ -96,10 +103,17 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
 	}
-	newHandler := *h
-	newHandler.groups = append([]string{}, h.groups...)
-	newHandler.groups = append(newHandler.groups, name)
-	return &newHandler
+	newGroups := append([]string{}, h.groups...)
+	newGroups = append(newGroups, name)
+
+	return &Handler{
+		format: h.format,
+		level:  h.level,
+		output: h.output,
+		colors: h.colors,
+		attrs:  h.attrs,
+		groups: newGroups,
+	}
 }
 
 // handleCompact writes a compact single-line format with JSON attributes.

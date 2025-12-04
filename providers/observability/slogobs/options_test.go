@@ -61,10 +61,10 @@ func TestWithLogger(t *testing.T) {
 
 func TestDefaultConfig(t *testing.T) {
 	// Clear env vars
-	os.Unsetenv("AIGO_LOG_FORMAT")
-	os.Unsetenv("LOG_FORMAT")
-	os.Unsetenv("AIGO_LOG_LEVEL")
-	os.Unsetenv("LOG_LEVEL")
+	_ = os.Unsetenv("AIGO_LOG_FORMAT")
+	_ = os.Unsetenv("LOG_FORMAT")
+	_ = os.Unsetenv("AIGO_LOG_LEVEL")
+	_ = os.Unsetenv("LOG_LEVEL")
 
 	cfg := defaultConfig()
 

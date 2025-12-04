@@ -8,6 +8,12 @@ import (
 	"github.com/leofalp/aigo/providers/ai"
 )
 
+// contextKey is a custom type for context keys to avoid collisions.
+type contextKey string
+
+// overviewContextKey is the key used to store Overview in context.
+const overviewContextKey contextKey = "overview"
+
 type Overview struct {
 	LastResponse  *ai.ChatResponse   `json:"last_response,omitempty"`
 	Requests      []*ai.ChatRequest  `json:"requests"`
@@ -37,7 +43,7 @@ type StructuredOverview[T any] struct {
 }
 
 func OverviewFromContext(ctx *context.Context) *Overview {
-	overviewVal := (*ctx).Value("overview")
+	overviewVal := (*ctx).Value(overviewContextKey)
 	if overviewVal == nil {
 		overview := &Overview{
 			ToolCosts: make(map[string]float64),
@@ -46,7 +52,11 @@ func OverviewFromContext(ctx *context.Context) *Overview {
 		return overview
 	}
 
-	return overviewVal.(*Overview)
+	overview, ok := overviewVal.(*Overview)
+	if !ok {
+		return nil
+	}
+	return overview
 }
 
 func (o *Overview) ToContext(ctx context.Context) context.Context {
@@ -54,7 +64,7 @@ func (o *Overview) ToContext(ctx context.Context) context.Context {
 		ctx = context.Background()
 	}
 
-	return context.WithValue(ctx, "overview", o)
+	return context.WithValue(ctx, overviewContextKey, o)
 }
 
 func (o *Overview) IncludeUsage(usage *ai.Usage) {

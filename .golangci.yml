@@ -1,0 +1,57 @@
+version: "2"
+
+run:
+  timeout: 5m
+  go: "1.24"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - gosec
+    - unused
+    - ineffassign
+    - misspell
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+
+    govet:
+      enable:
+        - shadow
+
+    gosec:
+      excludes:
+        - G104
+
+    misspell:
+      locale: US
+
+  exclusions:
+    paths:
+      - examples/
+
+    rules:
+      - path: '_test\.go'
+        linters:
+          - gosec
+          - unused
+          - errcheck
+          - govet
+          - misspell
+
+      - path: 'providers/observability/context\.go'
+        linters:
+          - errcheck
+
+      - text: 'shadow: declaration of "(err|counter|histogram)"'
+        linters:
+          - govet
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

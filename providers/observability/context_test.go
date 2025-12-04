@@ -5,6 +5,9 @@ import (
 	"testing"
 )
 
+// testContextKey is a custom type for context keys in tests to avoid collisions.
+type testContextKey string
+
 func TestSpanFromContext_Nil(t *testing.T) {
 	span := SpanFromContext(context.Background())
 	if span != nil {
@@ -92,8 +95,8 @@ func TestContextPropagation_Nested(t *testing.T) {
 	ctx = ContextWithSpan(ctx, span)
 
 	// Simulate passing context through multiple layers
-	ctx2 := context.WithValue(ctx, "key", "value")
-	ctx3 := context.WithValue(ctx2, "another", "data")
+	ctx2 := context.WithValue(ctx, testContextKey("key"), "value")
+	ctx3 := context.WithValue(ctx2, testContextKey("another"), "data")
 
 	// Span should still be accessible
 	retrievedSpan := SpanFromContext(ctx3)

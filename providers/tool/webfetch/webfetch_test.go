@@ -29,7 +29,7 @@ func TestFetch_Success(t *testing.T) {
 </html>`
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, html)
+		_, _ = fmt.Fprint(w, html)
 	}))
 	defer server.Close()
 
@@ -90,7 +90,7 @@ func TestFetch_WhitespaceURL(t *testing.T) {
 func TestFetch_PartialURL(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "<html><body><h1>Test</h1></body></html>")
+		_, _ = fmt.Fprint(w, "<html><body><h1>Test</h1></body></html>")
 	}))
 	defer server.Close()
 
@@ -223,7 +223,7 @@ func TestFetch_CustomUserAgent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedUA = r.Header.Get("User-Agent")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "<html><body>Test</body></html>")
+		_, _ = fmt.Fprint(w, "<html><body>Test</body></html>")
 	}))
 	defer server.Close()
 
@@ -249,7 +249,7 @@ func TestFetch_DefaultUserAgent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedUA = r.Header.Get("User-Agent")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "<html><body>Test</body></html>")
+		_, _ = fmt.Fprint(w, "<html><body>Test</body></html>")
 	}))
 	defer server.Close()
 
@@ -268,7 +268,7 @@ func TestFetch_DefaultUserAgent(t *testing.T) {
 func TestFetch_Redirect(t *testing.T) {
 	finalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "<html><body><h1>Final Page</h1></body></html>")
+		_, _ = fmt.Fprint(w, "<html><body><h1>Final Page</h1></body></html>")
 	}))
 	defer finalServer.Close()
 
@@ -325,7 +325,7 @@ func TestFetch_LargeResponse(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		// Write more than MaxBodySize
 		largeContent := strings.Repeat("<p>Large content</p>", MaxBodySize/20)
-		fmt.Fprint(w, largeContent)
+		_, _ = fmt.Fprint(w, largeContent)
 	}))
 	defer server.Close()
 
@@ -362,7 +362,7 @@ func TestFetch_ComplexHTML(t *testing.T) {
 </html>`
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, html)
+		_, _ = fmt.Fprint(w, html)
 	}))
 	defer server.Close()
 
@@ -389,7 +389,7 @@ func TestFetch_ComplexHTML(t *testing.T) {
 func TestFetch_EmptyHTML(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "")
+		_, _ = fmt.Fprint(w, "")
 	}))
 	defer server.Close()
 
@@ -411,7 +411,7 @@ func TestFetch_PlainText(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "This is plain text content")
+		_, _ = fmt.Fprint(w, "This is plain text content")
 	}))
 	defer server.Close()
 
@@ -440,7 +440,7 @@ func TestFetch_SpecialCharacters(t *testing.T) {
 </html>`
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, html)
+		_, _ = fmt.Fprint(w, html)
 	}))
 	defer server.Close()
 
@@ -461,7 +461,7 @@ func TestFetch_SpecialCharacters(t *testing.T) {
 func TestFetch_CustomTimeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "<html><body>Test</body></html>")
+		_, _ = fmt.Fprint(w, "<html><body>Test</body></html>")
 	}))
 	defer server.Close()
 
@@ -505,7 +505,7 @@ func TestNewWebFetchTool(t *testing.T) {
 func TestFetch_URLTrimming(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "<html><body>Test</body></html>")
+		_, _ = fmt.Fprint(w, "<html><body>Test</body></html>")
 	}))
 	defer server.Close()
 
@@ -527,7 +527,7 @@ func TestFetch_PartialURLWithServer(t *testing.T) {
 	// In real usage: "google.com" -> "https://google.com"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "<html><body><h1>Success</h1></body></html>")
+		_, _ = fmt.Fprint(w, "<html><body><h1>Success</h1></body></html>")
 	}))
 	defer server.Close()
 

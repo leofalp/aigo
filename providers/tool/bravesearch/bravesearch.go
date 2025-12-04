@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/leofalp/aigo/core/cost"
+	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/providers/tool"
 )
 
@@ -350,10 +351,13 @@ func fetchBraveSearchResults(ctx context.Context, input Input) (*BraveAPIRespons
 	if err != nil {
 		return nil, fmt.Errorf("error making request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer utils.CloseWithLog(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("unexpected status code %d (failed to read error body: %w)", resp.StatusCode, err)
+		}
 		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
 	}
 

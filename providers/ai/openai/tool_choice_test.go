@@ -2,7 +2,6 @@ package openai
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -67,7 +66,7 @@ func TestToolChoice_ToolChoiceForced(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var body map[string]any
-				_ = json.NewDecoder(r.Body).Decode(&body)
+				mustDecodeJSON(t, r, &body)
 
 				if body[tt.expectedField] != tt.expectedValue {
 					t.Errorf("expected %s=%s, got %v", tt.expectedField, tt.expectedValue, body[tt.expectedField])
@@ -75,7 +74,7 @@ func TestToolChoice_ToolChoiceForced(t *testing.T) {
 
 				w.Header().Set("Content-Type", "application/json")
 				if tt.useResponses {
-					_ = json.NewEncoder(w).Encode(map[string]any{
+					mustEncodeJSON(t, w, map[string]any{
 						"id":         "r",
 						"object":     "response",
 						"created_at": 1,
@@ -84,7 +83,7 @@ func TestToolChoice_ToolChoiceForced(t *testing.T) {
 						"status":     "completed",
 					})
 				} else {
-					_ = json.NewEncoder(w).Encode(map[string]any{
+					mustEncodeJSON(t, w, map[string]any{
 						"id":      "c",
 						"object":  "chat.completion",
 						"created": 1,
@@ -155,7 +154,7 @@ func TestToolChoice_AtLeastOneRequired(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var body map[string]any
-				_ = json.NewDecoder(r.Body).Decode(&body)
+				mustDecodeJSON(t, r, &body)
 
 				if body[tt.expectedField] != "required" {
 					t.Errorf("expected %s=required, got %v", tt.expectedField, body[tt.expectedField])
@@ -163,7 +162,7 @@ func TestToolChoice_AtLeastOneRequired(t *testing.T) {
 
 				w.Header().Set("Content-Type", "application/json")
 				if tt.useResponses {
-					_ = json.NewEncoder(w).Encode(map[string]any{
+					mustEncodeJSON(t, w, map[string]any{
 						"id":         "r",
 						"object":     "response",
 						"created_at": 1,
@@ -172,7 +171,7 @@ func TestToolChoice_AtLeastOneRequired(t *testing.T) {
 						"status":     "completed",
 					})
 				} else {
-					_ = json.NewEncoder(w).Encode(map[string]any{
+					mustEncodeJSON(t, w, map[string]any{
 						"id":      "c",
 						"object":  "chat.completion",
 						"created": 1,
@@ -242,7 +241,7 @@ func TestToolChoice_SingleRequiredTool(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var body map[string]any
-				_ = json.NewDecoder(r.Body).Decode(&body)
+				mustDecodeJSON(t, r, &body)
 
 				var fieldName string
 				if tt.useLegacy {
@@ -267,7 +266,7 @@ func TestToolChoice_SingleRequiredTool(t *testing.T) {
 
 				w.Header().Set("Content-Type", "application/json")
 				if tt.useResponses {
-					_ = json.NewEncoder(w).Encode(map[string]any{
+					mustEncodeJSON(t, w, map[string]any{
 						"id":         "r",
 						"object":     "response",
 						"created_at": 1,
@@ -276,7 +275,7 @@ func TestToolChoice_SingleRequiredTool(t *testing.T) {
 						"status":     "completed",
 					})
 				} else {
-					_ = json.NewEncoder(w).Encode(map[string]any{
+					mustEncodeJSON(t, w, map[string]any{
 						"id":      "c",
 						"object":  "chat.completion",
 						"created": 1,
@@ -356,7 +355,7 @@ func TestToolChoice_MultipleRequiredTools(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var body map[string]any
-				_ = json.NewDecoder(r.Body).Decode(&body)
+				mustDecodeJSON(t, r, &body)
 
 				var fieldName string
 				if tt.useLegacy {
@@ -422,7 +421,7 @@ func TestToolChoice_MultipleRequiredTools(t *testing.T) {
 
 				w.Header().Set("Content-Type", "application/json")
 				if tt.useResponses {
-					_ = json.NewEncoder(w).Encode(map[string]any{
+					mustEncodeJSON(t, w, map[string]any{
 						"id":         "r",
 						"object":     "response",
 						"created_at": 1,
@@ -431,7 +430,7 @@ func TestToolChoice_MultipleRequiredTools(t *testing.T) {
 						"status":     "completed",
 					})
 				} else {
-					_ = json.NewEncoder(w).Encode(map[string]any{
+					mustEncodeJSON(t, w, map[string]any{
 						"id":      "c",
 						"object":  "chat.completion",
 						"created": 1,
@@ -481,7 +480,7 @@ func TestToolChoice_MultipleRequiredTools(t *testing.T) {
 func TestToolChoice_PriorityOrder(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		mustDecodeJSON(t, r, &body)
 
 		// ToolChoiceForced should take priority over everything
 		if body["tool_choice"] != "none" {
@@ -489,7 +488,7 @@ func TestToolChoice_PriorityOrder(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		mustEncodeJSON(t, w, map[string]any{
 			"id":      "c",
 			"object":  "chat.completion",
 			"created": 1,
@@ -525,7 +524,7 @@ func TestToolChoice_PriorityOrder(t *testing.T) {
 func TestToolChoice_DefaultAuto(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		mustDecodeJSON(t, r, &body)
 
 		// Should default to "auto" when no ToolChoice specified
 		if body["tool_choice"] != "auto" {
@@ -533,7 +532,7 @@ func TestToolChoice_DefaultAuto(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		mustEncodeJSON(t, w, map[string]any{
 			"id":      "c",
 			"object":  "chat.completion",
 			"created": 1,

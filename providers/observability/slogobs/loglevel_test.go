@@ -79,15 +79,15 @@ func TestGetLogLevelFromEnv(t *testing.T) {
 			// Save and clear environment variables
 			oldAigo := os.Getenv("AIGO_LOG_LEVEL")
 			oldGeneric := os.Getenv("LOG_LEVEL")
-			os.Unsetenv("AIGO_LOG_LEVEL")
-			os.Unsetenv("LOG_LEVEL")
+			_ = os.Unsetenv("AIGO_LOG_LEVEL")
+			_ = os.Unsetenv("LOG_LEVEL")
 
 			// Set test environment variables
 			if tt.shouldSetAigo {
-				os.Setenv("AIGO_LOG_LEVEL", tt.aigoLogLevel)
+				_ = os.Setenv("AIGO_LOG_LEVEL", tt.aigoLogLevel)
 			}
 			if tt.shouldSetGeneric {
-				os.Setenv("LOG_LEVEL", tt.logLevel)
+				_ = os.Setenv("LOG_LEVEL", tt.logLevel)
 			}
 
 			// Test
@@ -97,13 +97,13 @@ func TestGetLogLevelFromEnv(t *testing.T) {
 			}
 
 			// Restore environment variables
-			os.Unsetenv("AIGO_LOG_LEVEL")
-			os.Unsetenv("LOG_LEVEL")
+			_ = os.Unsetenv("AIGO_LOG_LEVEL")
+			_ = os.Unsetenv("LOG_LEVEL")
 			if oldAigo != "" {
-				os.Setenv("AIGO_LOG_LEVEL", oldAigo)
+				_ = os.Setenv("AIGO_LOG_LEVEL", oldAigo)
 			}
 			if oldGeneric != "" {
-				os.Setenv("LOG_LEVEL", oldGeneric)
+				_ = os.Setenv("LOG_LEVEL", oldGeneric)
 			}
 		})
 	}

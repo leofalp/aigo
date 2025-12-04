@@ -11,6 +11,7 @@ import (
 
 	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
 	"github.com/leofalp/aigo/core/cost"
+	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/providers/tool"
 )
 
@@ -166,11 +167,11 @@ func Fetch(ctx context.Context, req Input) (Output, error) {
 	if err != nil {
 		// Check if error was due to context cancellation or timeout
 		if ctxWithTimeout.Err() != nil {
-			return Output{}, fmt.Errorf("request timeout or cancelled: %w", err)
+			return Output{}, fmt.Errorf("request timeout or canceled: %w", err)
 		}
 		return Output{}, fmt.Errorf("failed to fetch URL: %w", err)
 	}
-	defer resp.Body.Close()
+	defer utils.CloseWithLog(resp.Body)
 
 	// Check status code
 	if resp.StatusCode != http.StatusOK {

@@ -82,7 +82,9 @@ var categoryPatterns = map[PageCategory][]string{
 	CategoryProducts: {
 		"/products", "/services", "/catalog", "/shop", "/store", "/solutions", "/offerings", // English
 		"/prodotti", "/servizi", "/catalogo", "/negozio", // Italian
+		//nolint:misspell // Spanish words: productos, servicios, tienda, catalogo-es
 		"/productos", "/servicios", "/tienda", "/catalogo-es", // Spanish
+		//nolint:misspell // French word: catalogue
 		"/produits", "/services-fr", "/boutique", "/catalogue", // French
 		"/produkte", "/dienstleistungen", "/katalog", // German
 		"/produtos", "/servicos", "/loja", "/catalogo-pt", // Portuguese
@@ -147,6 +149,7 @@ var categoryPatterns = map[PageCategory][]string{
 		"/signin", "/sign-in", "/register", "/signup", "/sign-up", "/my-account", "/user", "/auth", // English
 		"/accedi", "/account", "/registrati", "/area-riservata", "/entra", // Italian
 		"/acceso", "/ingresar", "/registro", "/iniciar-sesion", "/entrar", // Spanish
+		//nolint:misspell // French word: connexion
 		"/connexion", "/se-connecter", "/inscription", "/mon-compte", // French
 		"/anmelden", "/registrieren", "/einloggen", "/konto", // German
 		"/entrar", "/login-pt", "/registro-pt", "/minha-conta", // Portuguese

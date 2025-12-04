@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/leofalp/aigo/core/cost"
+	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/providers/observability"
 	"github.com/leofalp/aigo/providers/tool"
 	"golang.org/x/net/html"
@@ -316,7 +317,7 @@ func (e *urlExtractor) followRedirectsToCanonicalURL(ctx context.Context) (*url.
 		// If HEAD fails, try GET on robots.txt
 		return e.tryRobotsTxtForCanonicalURL(ctx)
 	}
-	defer resp.Body.Close()
+	defer utils.CloseWithLog(resp.Body)
 
 	// Return the final URL after following redirects
 	if resp.Request != nil && resp.Request.URL != nil {
@@ -340,7 +341,7 @@ func (e *urlExtractor) tryRobotsTxtForCanonicalURL(ctx context.Context) (*url.UR
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch robots.txt: %w", err)
 	}
-	defer resp.Body.Close()
+	defer utils.CloseWithLog(resp.Body)
 
 	// Return the final URL after following redirects
 	if resp.Request != nil && resp.Request.URL != nil {
@@ -369,7 +370,7 @@ func (e *urlExtractor) analyzeRobots(ctx context.Context) bool {
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return false
 	}
-	defer resp.Body.Close()
+	defer utils.CloseWithLog(resp.Body)
 
 	// Read body with context awareness
 	bodyBytes, err := e.readBodyWithContext(ctx, resp.Body, MaxBodySize)
@@ -427,8 +428,8 @@ func (e *urlExtractor) analyzeRobots(ctx context.Context) bool {
 		// Extract crawl-delay for our user-agent
 		if strings.HasPrefix(lineLower, "crawl-delay:") {
 			delayStr := strings.TrimSpace(line[12:])
-			if delaySeconds, err := time.ParseDuration(delayStr + "s"); err == nil {
-				e.robotsCrawlDelay = int(delaySeconds.Milliseconds())
+			if delay, err := time.ParseDuration(delayStr + "s"); err == nil {
+				e.robotsCrawlDelay = int(delay.Milliseconds())
 			}
 			continue
 		}
@@ -616,20 +617,20 @@ func (e *urlExtractor) parseSitemap(ctx context.Context, sitemapURL string) ([]s
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return nil, nil
 	}
-	defer resp.Body.Close()
+	defer utils.CloseWithLog(resp.Body)
 
 	// Limit body size BEFORE decompression to prevent memory exhaustion
 	// A 5MB .gz file could decompress to 200MB without this limit
 	limitedBody := io.LimitReader(resp.Body, MaxBodySize)
 
 	// Handle gzip compression
-	var reader io.Reader = limitedBody
+	reader := limitedBody
 	if strings.HasSuffix(sitemapURL, ".gz") {
 		gzReader, err := gzip.NewReader(limitedBody)
 		if err != nil {
 			return nil, nil
 		}
-		defer gzReader.Close()
+		defer utils.CloseWithLog(gzReader)
 		reader = gzReader
 	}
 
@@ -675,7 +676,7 @@ func (e *urlExtractor) extractLinks(ctx context.Context, pageURL string) []strin
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer utils.CloseWithLog(resp.Body)
 
 	// Only process HTML content
 	contentType := resp.Header.Get("Content-Type")
@@ -995,7 +996,10 @@ func isPrivateOrLocalIP(ip net.IP) bool {
 	}
 
 	for _, cidr := range privateIPv4Ranges {
-		_, subnet, _ := net.ParseCIDR(cidr)
+		_, subnet, err := net.ParseCIDR(cidr)
+		if err != nil {
+			continue // Should never happen with hardcoded CIDRs
+		}
 		if subnet.Contains(ip) {
 			return true
 		}
@@ -1004,7 +1008,10 @@ func isPrivateOrLocalIP(ip net.IP) bool {
 	// Private IPv6 ranges
 	if ip.To4() == nil { // IPv6
 		// Unique local addresses (fc00::/7)
-		_, ula, _ := net.ParseCIDR("fc00::/7")
+		_, ula, err := net.ParseCIDR("fc00::/7")
+		if err != nil {
+			return false // Should never happen with hardcoded CIDR
+		}
 		if ula.Contains(ip) {
 			return true
 		}

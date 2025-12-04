@@ -74,15 +74,15 @@ func TestGetFormatFromEnv(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Clear environment
-			os.Unsetenv("AIGO_LOG_FORMAT")
-			os.Unsetenv("LOG_FORMAT")
+			_ = os.Unsetenv("AIGO_LOG_FORMAT")
+			_ = os.Unsetenv("LOG_FORMAT")
 
 			// Set environment variables
 			if tt.setAigoLogFormat {
-				os.Setenv("AIGO_LOG_FORMAT", tt.aigoLogFormat)
+				_ = os.Setenv("AIGO_LOG_FORMAT", tt.aigoLogFormat)
 			}
 			if tt.setLogFormat {
-				os.Setenv("LOG_FORMAT", tt.logFormat)
+				_ = os.Setenv("LOG_FORMAT", tt.logFormat)
 			}
 
 			result := GetFormatFromEnv()
@@ -91,8 +91,8 @@ func TestGetFormatFromEnv(t *testing.T) {
 			}
 
 			// Cleanup
-			os.Unsetenv("AIGO_LOG_FORMAT")
-			os.Unsetenv("LOG_FORMAT")
+			_ = os.Unsetenv("AIGO_LOG_FORMAT")
+			_ = os.Unsetenv("LOG_FORMAT")
 		})
 	}
 }

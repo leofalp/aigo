@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -40,7 +41,7 @@ func TestExtract_ContextCancellationTimeout(t *testing.T) {
 		// Slow server that would normally take a long time
 		time.Sleep(10 * time.Second)
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "<html><body>Test</body></html>")
+		_, _ = fmt.Fprint(w, "<html><body>Test</body></html>")
 	}))
 	defer server.Close()
 
@@ -77,7 +78,7 @@ func TestExtract_HTTPClientTimeout(t *testing.T) {
 		// Delay sending response headers
 		time.Sleep(15 * time.Second)
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "<html><body>Test</body></html>")
+		_, _ = fmt.Fprint(w, "<html><body>Test</body></html>")
 	}))
 	defer server.Close()
 
@@ -106,13 +107,13 @@ func TestExtract_ConcurrentTimeouts(t *testing.T) {
 	slowServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(5 * time.Second)
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "<html><body>Slow</body></html>")
+		_, _ = fmt.Fprint(w, "<html><body>Slow</body></html>")
 	}))
 	defer slowServer.Close()
 
 	fastServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `<html><body><a href="/page1">Page 1</a></body></html>`)
+		_, _ = fmt.Fprint(w, `<html><body><a href="/page1">Page 1</a></body></html>`)
 	}))
 	defer fastServer.Close()
 
@@ -161,9 +162,9 @@ func TestExtract_ConcurrentTimeouts(t *testing.T) {
 
 // TestExtract_TimeoutRespected tests that overall timeout is respected during extraction
 func TestExtract_TimeoutRespected(t *testing.T) {
-	requestCount := 0
+	var requestCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount++
+		requestCount.Add(1)
 
 		if strings.HasSuffix(r.URL.Path, "/robots.txt") {
 			w.WriteHeader(http.StatusNotFound)
@@ -181,7 +182,7 @@ func TestExtract_TimeoutRespected(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 
 		// Return links to create a crawl scenario
-		fmt.Fprintf(w, `<html><body><a href="/page%d">Next</a></body></html>`, requestCount)
+		_, _ = fmt.Fprintf(w, `<html><body><a href="/page%d">Next</a></body></html>`, requestCount.Load())
 	}))
 	defer server.Close()
 
@@ -203,7 +204,7 @@ func TestExtract_TimeoutRespected(t *testing.T) {
 	}
 
 	t.Logf("Extraction completed in %v, error: %v, URLs found: %d, requests made: %d",
-		duration, err, len(output.URLs), requestCount)
+		duration, err, len(output.URLs), requestCount.Load())
 }
 
 // TestExtract_DialTimeout tests that dial timeout prevents hanging on unreachable hosts
@@ -251,13 +252,13 @@ func TestExtract_NoHangOnSlowResponse(t *testing.T) {
 		}
 
 		// Send data slowly but steadily
-		fmt.Fprint(w, "<html><body><h1>Slow Server</h1>")
+		_, _ = fmt.Fprint(w, "<html><body><h1>Slow Server</h1>")
 		for i := 0; i < 10; i++ {
-			fmt.Fprintf(w, "<p>Data chunk %d</p>", i)
+			_, _ = fmt.Fprintf(w, "<p>Data chunk %d</p>", i)
 			flusher.Flush()
 			time.Sleep(500 * time.Millisecond)
 		}
-		fmt.Fprint(w, "</body></html>")
+		_, _ = fmt.Fprint(w, "</body></html>")
 	}))
 	defer server.Close()
 

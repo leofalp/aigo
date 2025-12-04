@@ -147,8 +147,8 @@ func TestIgnoresFieldsWithJSONDashTag(t *testing.T) {
 
 func TestIgnoresUnexportedFields(t *testing.T) {
 	type Data struct {
-		Public  string
-		private string
+		Public string
+		_      string // private field intentionally unused to test that it's ignored
 	}
 
 	schema := GenerateJSONSchema[Data]()
@@ -584,8 +584,8 @@ func TestHandlesEmptyStruct(t *testing.T) {
 
 func TestHandlesStructWithOnlyUnexportedFields(t *testing.T) {
 	type Private struct {
-		name string
-		age  int
+		_ string // name - intentionally unused to test unexported fields
+		_ int    // age - intentionally unused to test unexported fields
 	}
 
 	schema := GenerateJSONSchema[Private]()
@@ -677,9 +677,9 @@ func TestHandlesMapWithComplexKeys(t *testing.T) {
 func TestHandlesStructWithMixedFieldVisibility(t *testing.T) {
 	type Mixed struct {
 		Public   string
-		private  string
+		_        string // private - intentionally unused to test unexported fields
 		Exported int
-		internal int
+		_        int // internal - intentionally unused to test unexported fields
 	}
 
 	schema := GenerateJSONSchema[Mixed]()
@@ -909,7 +909,7 @@ func TestDoesNotCreateDefinitionsForNonRecursiveStructs(t *testing.T) {
 	}
 
 	schema := GenerateJSONSchema[Container]()
-	if schema.Defs != nil && len(schema.Defs) > 0 {
+	if len(schema.Defs) > 0 {
 		t.Error("Did not expect $defs for non-recursive structures")
 	}
 }

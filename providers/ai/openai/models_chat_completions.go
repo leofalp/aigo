@@ -2,9 +2,9 @@ package openai
 
 import (
 	"encoding/json"
-	"github.com/leofalp/aigo/core/parse"
 	"strings"
 
+	"github.com/leofalp/aigo/core/parse"
 	"github.com/leofalp/aigo/internal/jsonschema"
 	"github.com/leofalp/aigo/providers/ai"
 )
@@ -48,17 +48,6 @@ type chatMessage struct {
 	Name       string         `json:"name,omitempty"`
 	ToolCallID string         `json:"tool_call_id,omitempty"` // For role=tool
 	ToolCalls  []chatToolCall `json:"tool_calls,omitempty"`   // For role=assistant
-}
-
-type contentPart struct {
-	Type     string           `json:"type"` // "text", "image_url"
-	Text     string           `json:"text,omitempty"`
-	ImageURL *contentImageURL `json:"image_url,omitempty"`
-}
-
-type contentImageURL struct {
-	URL    string `json:"url"`
-	Detail string `json:"detail,omitempty"` // "auto", "low", "high"
 }
 
 type chatTool struct {
@@ -473,14 +462,10 @@ func parseChatCompletionToolCallsFromContent(content string) []ai.ToolCall {
 	}
 
 	// Log only if we truly failed to parse anything
-	if len(toolCalls) == 0 && len(cleaned) > 0 {
-		// Only log if it looks like it might have been a tool call
-		if strings.Contains(cleaned, "TOOLCALL") || strings.Contains(cleaned, "name") {
-			// Note: Using fmt instead of slog to avoid import, this is rare enough
-			// that it's acceptable to use standard logging
-			// slog.Debug("Could not parse tool calls from content", "content_preview", truncateForLog(cleaned, 100))
-		}
-	}
+	// Note: Logging disabled to avoid dependencies, but we could add it if needed
+	// if len(toolCalls) == 0 && len(cleaned) > 0 && (strings.Contains(cleaned, "TOOLCALL") || strings.Contains(cleaned, "name")) {
+	//     slog.Debug("Could not parse tool calls from content", "content_preview", truncateForLog(cleaned, 100))
+	// }
 
 	return toolCalls
 }

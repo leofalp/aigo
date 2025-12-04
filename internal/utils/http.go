@@ -13,6 +13,26 @@ import (
 	"github.com/leofalp/aigo/providers/observability"
 )
 
+// CloseWithLog closes an io.Closer and logs any error that occurs.
+// This is useful for defer statements where you want to ensure cleanup
+// happens but don't want to override the main return error.
+//
+// Example usage:
+//
+//	resp, err := http.Get(url)
+//	if err != nil {
+//	    return err
+//	}
+//	defer CloseWithLog(resp.Body)
+func CloseWithLog(closer io.Closer) {
+	if closer == nil {
+		return
+	}
+	if err := closer.Close(); err != nil {
+		slog.Warn("failed to close resource", "error", err.Error())
+	}
+}
+
 // DoPostSync performs a synchronous HTTP POST request with JSON body and parses the response.
 // It handles observability tracing, authorization headers, and proper resource cleanup.
 //
@@ -69,13 +89,7 @@ func DoPostSync[OutputStruct any](ctx context.Context, client *http.Client, url 
 		}
 		return res, nil, fmt.Errorf("error sending request: %w", err)
 	}
-	defer func(Body io.ReadCloser) {
-		if closeErr := Body.Close(); closeErr != nil {
-			// Log the close error, but don't override the main error
-			// If the main function returns an error, it takes precedence
-			slog.Warn("failed to close response body", "error", closeErr.Error(), "url", url)
-		}
-	}(res.Body)
+	defer CloseWithLog(res.Body)
 
 	respBody, err := io.ReadAll(res.Body)
 	if err != nil {

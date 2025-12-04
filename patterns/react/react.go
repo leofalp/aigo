@@ -121,7 +121,10 @@ func New[T any](baseClient *client.Client, opts ...Option) (*ReAct[T], error) {
 	}
 
 	// Inject schema constraint into system prompt from the start
-	schemaJSON, _ := json.MarshalIndent(schema, "", "  ")
+	schemaJSON, err := json.MarshalIndent(schema, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal schema: %w", err)
+	}
 	schemaPrompt := fmt.Sprintf(
 		"\n\nWhen providing your final answer (no tool calls), format it as valid JSON matching this schema:\n%s",
 		string(schemaJSON),
@@ -245,16 +248,20 @@ func (r *ReAct[T]) Execute(ctx context.Context, prompt string) (*patterns.Struct
 
 				// Success after retry
 				r.observeSuccess(&ctx, retryResponse, iteration)
+				// Get updated overview from context (includes all responses added by client)
+				finalOverview := patterns.OverviewFromContext(&ctx)
 				return &patterns.StructuredOverview[T]{
-					Overview: *overview,
+					Overview: *finalOverview,
 					Data:     &data,
 				}, nil
 			}
 
 			// Parse succeeded on first try
 			r.observeSuccess(&ctx, response, iteration)
+			// Get updated overview from context (includes all responses added by client)
+			finalOverview := patterns.OverviewFromContext(&ctx)
 			return &patterns.StructuredOverview[T]{
-				Overview: *overview,
+				Overview: *finalOverview,
 				Data:     &data,
 			}, nil
 		}
@@ -338,7 +345,10 @@ func (r *ReAct[T]) executeToolCall(
 				toolCall.Function.Name,
 				strings.Join(getToolNames(toolCatalog), ", ")),
 		)
-		resultJSON, _ := toolResult.ToJSON()
+		resultJSON, err := toolResult.ToJSON()
+		if err != nil {
+			resultJSON = fmt.Sprintf(`{"error":"failed to serialize tool result: %s"}`, err.Error())
+		}
 		mem.AppendMessage(ctx, &ai.Message{
 			Role:       ai.RoleTool,
 			Content:    resultJSON,
@@ -381,7 +391,10 @@ func (r *ReAct[T]) executeToolCall(
 
 		// Add error as structured ToolResult to memory
 		toolResult := ai.NewToolResultError("tool_execution_failed", err.Error())
-		resultJSON, _ := toolResult.ToJSON()
+		resultJSON, err := toolResult.ToJSON()
+		if err != nil {
+			resultJSON = fmt.Sprintf(`{"error":"failed to serialize tool result: %s"}`, err.Error())
+		}
 		mem.AppendMessage(ctx, &ai.Message{
 			Role:       ai.RoleTool,
 			Content:    resultJSON,
@@ -428,9 +441,18 @@ func (r *ReAct[T]) observeMaxIteration(ctx *context.Context) {
 	if r.state["observer"] == nil {
 		return
 	}
-	observer := r.state["observer"].(observability.Provider)
-	span := r.state["span"].(observability.Span)
-	timer := r.state["execTimer"].(*utils.Timer)
+	observer, ok := r.state["observer"].(observability.Provider)
+	if !ok {
+		return
+	}
+	span, ok := r.state["span"].(observability.Span)
+	if !ok {
+		return
+	}
+	timer, ok := r.state["execTimer"].(*utils.Timer)
+	if !ok {
+		return
+	}
 
 	span.SetStatus(observability.StatusError, "Max iterations reached")
 	observer.Warn(*ctx, "ReAct pattern reached max iterations without final answer",
@@ -449,8 +471,14 @@ func (r *ReAct[T]) observeNextIteration(ctx *context.Context, iteration int, too
 	if r.state["observer"] == nil {
 		return
 	}
-	observer := r.state["observer"].(observability.Provider)
-	timer := r.state["iterationTimer"].(*utils.Timer)
+	observer, ok := r.state["observer"].(observability.Provider)
+	if !ok {
+		return
+	}
+	timer, ok := r.state["iterationTimer"].(*utils.Timer)
+	if !ok {
+		return
+	}
 
 	observer.Info(*ctx, "ReAct iteration completed - continuing to next iteration",
 		observability.Int("iteration", iteration),
@@ -468,10 +496,22 @@ func (r *ReAct[T]) observeIterationError(ctx *context.Context, err error, iterat
 	if r.state["observer"] == nil {
 		return
 	}
-	observer := r.state["observer"].(observability.Provider)
-	span := r.state["span"].(observability.Span)
-	timer := r.state["iterationTimer"].(*utils.Timer)
-	execTimer := r.state["execTimer"].(*utils.Timer)
+	observer, ok := r.state["observer"].(observability.Provider)
+	if !ok {
+		return
+	}
+	span, ok := r.state["span"].(observability.Span)
+	if !ok {
+		return
+	}
+	timer, ok := r.state["iterationTimer"].(*utils.Timer)
+	if !ok {
+		return
+	}
+	execTimer, ok := r.state["execTimer"].(*utils.Timer)
+	if !ok {
+		return
+	}
 
 	execTimer.Stop()
 	span.RecordError(err)
@@ -488,8 +528,14 @@ func (r *ReAct[T]) observeToolError(ctx *context.Context, err error, iteration i
 	if r.state["observer"] == nil {
 		return
 	}
-	observer := r.state["observer"].(observability.Provider)
-	span := r.state["span"].(observability.Span)
+	observer, ok := r.state["observer"].(observability.Provider)
+	if !ok {
+		return
+	}
+	span, ok := r.state["span"].(observability.Span)
+	if !ok {
+		return
+	}
 
 	if r.stopOnError {
 		span.RecordError(err)
@@ -512,9 +558,18 @@ func (r *ReAct[T]) observeStopOnError(ctx *context.Context, iteration int, err e
 	if r.state["observer"] == nil {
 		return
 	}
-	observer := r.state["observer"].(observability.Provider)
-	span := r.state["span"].(observability.Span)
-	timer := r.state["execTimer"].(*utils.Timer)
+	observer, ok := r.state["observer"].(observability.Provider)
+	if !ok {
+		return
+	}
+	span, ok := r.state["span"].(observability.Span)
+	if !ok {
+		return
+	}
+	timer, ok := r.state["execTimer"].(*utils.Timer)
+	if !ok {
+		return
+	}
 
 	timer.Stop()
 
@@ -534,7 +589,10 @@ func (r *ReAct[T]) observeStartIteration(ctx *context.Context, iteration int) {
 	if r.state["observer"] == nil {
 		return
 	}
-	observer := r.state["observer"].(observability.Provider)
+	observer, ok := r.state["observer"].(observability.Provider)
+	if !ok {
+		return
+	}
 
 	observer.Debug(*ctx, "ReAct iteration",
 		observability.Int("iteration", iteration),
@@ -545,7 +603,10 @@ func (r *ReAct[T]) observeRequestingStructuredFinalAnswer(ctx *context.Context, 
 	if r.state["observer"] == nil {
 		return
 	}
-	observer := r.state["observer"].(observability.Provider)
+	observer, ok := r.state["observer"].(observability.Provider)
+	if !ok {
+		return
+	}
 
 	observer.Debug(*ctx, "Requesting structured final answer",
 		observability.Int("iteration", iteration),
@@ -557,8 +618,14 @@ func (r *ReAct[T]) observeParseError(ctx *context.Context, err error, content st
 	if r.state["observer"] == nil {
 		return
 	}
-	observer := r.state["observer"].(observability.Provider)
-	span := r.state["span"].(observability.Span)
+	observer, ok := r.state["observer"].(observability.Provider)
+	if !ok {
+		return
+	}
+	span, ok := r.state["span"].(observability.Span)
+	if !ok {
+		return
+	}
 
 	span.RecordError(err)
 	observer.Error(*ctx, "Failed to parse final answer into structured type",
@@ -572,10 +639,22 @@ func (r *ReAct[T]) observeSuccess(ctx *context.Context, response *ai.ChatRespons
 	if r.state["observer"] == nil {
 		return
 	}
-	observer := r.state["observer"].(observability.Provider)
-	span := r.state["span"].(observability.Span)
-	timer := r.state["iterationTimer"].(*utils.Timer)
-	execTimer := r.state["execTimer"].(*utils.Timer)
+	observer, ok := r.state["observer"].(observability.Provider)
+	if !ok {
+		return
+	}
+	span, ok := r.state["span"].(observability.Span)
+	if !ok {
+		return
+	}
+	timer, ok := r.state["iterationTimer"].(*utils.Timer)
+	if !ok {
+		return
+	}
+	execTimer, ok := r.state["execTimer"].(*utils.Timer)
+	if !ok {
+		return
+	}
 
 	execTimer.Stop()
 	totalDuration := execTimer.GetDuration()
@@ -603,7 +682,10 @@ func (r *ReAct[T]) observeTools(ctx *context.Context, response *ai.ChatResponse,
 	if r.state["observer"] == nil {
 		return
 	}
-	observer := r.state["observer"].(observability.Provider)
+	observer, ok := r.state["observer"].(observability.Provider)
+	if !ok {
+		return
+	}
 
 	// Log tool calls as a list
 	toolNames := make([]string, len(response.ToolCalls))
@@ -620,7 +702,10 @@ func (r *ReAct[T]) observeInit(ctx *context.Context, prompt string, toolCatalog 
 	if r.state["observer"] == nil {
 		return
 	}
-	observer := r.state["observer"].(observability.Provider)
+	observer, ok := r.state["observer"].(observability.Provider)
+	if !ok {
+		return
+	}
 	var span observability.Span
 
 	*ctx, span = observer.StartSpan(*ctx, "react.execute",

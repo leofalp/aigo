@@ -466,17 +466,3 @@ func TestCatalog_AddToolsReplacesExisting(t *testing.T) {
 		t.Errorf("Should still have 1 tool after replacement, got %d", catalog.Size())
 	}
 }
-
-// Helper function
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsMiddle(s, substr)))
-}
-
-func containsMiddle(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}

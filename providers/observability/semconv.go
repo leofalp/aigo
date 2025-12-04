@@ -29,7 +29,7 @@ const (
 	AttrLLMTemperature = "llm.temperature"
 
 	// AttrLLMMaxTokens is the maximum tokens allowed
-	AttrLLMMaxTokens = "llm.max_tokens"
+	AttrLLMMaxTokens = "llm.max_tokens" // #nosec G101 -- Not a credential, token refers to LLM tokens
 
 	// AttrLLMEndpointType is the type of endpoint used (e.g., "responses", "chat_completions")
 	AttrLLMEndpointType = "llm.endpoint.type"
@@ -39,13 +39,13 @@ const (
 
 const (
 	// AttrLLMTokensPrompt is the number of prompt tokens
-	AttrLLMTokensPrompt = "llm.tokens.prompt"
+	AttrLLMTokensPrompt = "llm.tokens.prompt" // #nosec G101 -- Not a credential, token refers to LLM tokens
 
 	// AttrLLMTokensCompletion is the number of completion tokens
-	AttrLLMTokensCompletion = "llm.tokens.completion"
+	AttrLLMTokensCompletion = "llm.tokens.completion" // #nosec G101 -- Not a credential, token refers to LLM tokens
 
 	// AttrLLMTokensTotal is the total number of tokens
-	AttrLLMTokensTotal = "llm.tokens.total"
+	AttrLLMTokensTotal = "llm.tokens.total" // #nosec G101 -- Not a credential, token refers to LLM tokens
 )
 
 // --- Tool Execution Attributes ---
@@ -185,7 +185,7 @@ const (
 	EventToolExecutionEnd = "tool.execution.end"
 
 	// EventTokensReceived marks when tokens are received from LLM
-	EventTokensReceived = "llm.tokens.received"
+	EventTokensReceived = "llm.tokens.received" // #nosec G101 -- Not a credential, token refers to LLM tokens
 
 	// EventMemoryAppend marks when a message is appended to memory
 	EventMemoryAppend = "memory.append"

@@ -1,73 +1,10 @@
 package duckduckgo
 
 import (
-	"context"
 	"testing"
 )
 
-// Common test queries used across different test cases
-var testQueries = []struct {
-	name  string
-	query string
-}{
-	{"Programming query", "Golang programming language"},
-	{"Math query", "2+2"},
-	{"Definition query", "serendipity"},
-}
-
-func TestSearch(t *testing.T) {
-	for _, tt := range testQueries {
-		t.Run(tt.name, func(t *testing.T) {
-			input := Input{Query: tt.query}
-			output, err := Search(context.Background(), input)
-
-			if err != nil {
-				t.Errorf("Search() error = %v", err)
-				return
-			}
-
-			if output.Query != tt.query {
-				t.Errorf("Search() output.Query = %v, want %v", output.Query, tt.query)
-			}
-			if output.Summary == "" {
-				t.Errorf("Search() output.Summary is empty")
-			}
-
-			t.Logf("Query: %s, Summary length: %d", output.Query, len(output.Summary))
-		})
-	}
-}
-
-func TestSearchAdvanced(t *testing.T) {
-	for _, tt := range testQueries {
-		t.Run(tt.name, func(t *testing.T) {
-			input := Input{Query: tt.query}
-			output, err := SearchAdvanced(context.Background(), input)
-
-			if err != nil {
-				t.Errorf("SearchAdvanced() error = %v", err)
-				return
-			}
-
-			if output.Query != tt.query {
-				t.Errorf("SearchAdvanced() output.Query = %v, want %v", output.Query, tt.query)
-			}
-
-			// Log structured output details
-			t.Logf("Query: %s, Type: %s", output.Query, output.Type)
-			if output.Abstract != "" {
-				t.Logf("  Has Abstract from %s", output.AbstractSource)
-			}
-			if output.Answer != "" {
-				t.Logf("  Has Answer: %s", output.AnswerType)
-			}
-			if len(output.RelatedTopics) > 0 {
-				t.Logf("  Related Topics: %d", len(output.RelatedTopics))
-			}
-		})
-	}
-}
-
+// TestToolCreation tests that the tools are created correctly (unit test - no external calls)
 func TestToolCreation(t *testing.T) {
 	t.Run("Base tool", func(t *testing.T) {
 		tool := NewDuckDuckGoSearchTool()
@@ -94,4 +31,49 @@ func TestToolCreation(t *testing.T) {
 			t.Error("Tool function is nil")
 		}
 	})
+}
+
+// TestInputStructure tests the Input struct fields (unit test - no external calls)
+func TestInputStructure(t *testing.T) {
+	input := Input{
+		Query: "test query",
+	}
+
+	if input.Query != "test query" {
+		t.Errorf("Input.Query = %v, want 'test query'", input.Query)
+	}
+}
+
+// TestOutputStructure tests the Output struct fields (unit test - no external calls)
+func TestOutputStructure(t *testing.T) {
+	output := Output{
+		Query:   "test",
+		Summary: "test summary",
+	}
+
+	if output.Query != "test" {
+		t.Errorf("Output.Query = %v, want 'test'", output.Query)
+	}
+	if output.Summary != "test summary" {
+		t.Errorf("Output.Summary = %v, want 'test summary'", output.Summary)
+	}
+}
+
+// TestAdvancedOutputStructure tests the AdvancedOutput struct fields (unit test - no external calls)
+func TestAdvancedOutputStructure(t *testing.T) {
+	output := AdvancedOutput{
+		Query:    "test",
+		Type:     "A",
+		Abstract: "test abstract",
+	}
+
+	if output.Query != "test" {
+		t.Errorf("AdvancedOutput.Query = %v, want 'test'", output.Query)
+	}
+	if output.Type != "A" {
+		t.Errorf("AdvancedOutput.Type = %v, want 'A'", output.Type)
+	}
+	if output.Abstract != "test abstract" {
+		t.Errorf("AdvancedOutput.Abstract = %v, want 'test abstract'", output.Abstract)
+	}
 }

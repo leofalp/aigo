@@ -1,7 +1,6 @@
 package openai
 
 import (
-	"github.com/leofalp/aigo/core/parse"
 	"github.com/leofalp/aigo/internal/jsonschema"
 	"github.com/leofalp/aigo/providers/ai"
 )
@@ -37,13 +36,6 @@ type responseCreateRequest struct {
 type inputItem struct {
 	Role    string      `json:"role"`    // developer, user, assistant
 	Content interface{} `json:"content"` // string or []contentItem
-}
-
-// contentItem supports multimodal entries
-type contentItem struct {
-	Type     string `json:"type"` // input_text, input_image, output_text, etc.
-	Text     string `json:"text,omitempty"`
-	ImageURL string `json:"image_url,omitempty"`
 }
 
 // reasoningConfig for reasoning-capable models (o1, o3, gpt-5)
@@ -116,7 +108,7 @@ type responseCreateResponse struct {
 	CreatedAt          float64                `json:"created_at"`
 	Model              string                 `json:"model"`
 	Output             []outputItem           `json:"output"`
-	Status             string                 `json:"status"` // "completed", "in_progress", "failed", "cancelled"
+	Status             string                 `json:"status"` //nolint:misspell // OpenAI API values: "completed", "in_progress", "failed", "cancelled", "queued" or "incomplete"
 	Tools              []responseTool         `json:"tools"`
 	Usage              *usageDetails          `json:"usage,omitempty"`
 	Temperature        float64                `json:"temperature"`
@@ -226,7 +218,11 @@ func requestToResponses(request ai.ChatRequest) responseCreateRequest {
 	// Optimize single user prompt without system prompt
 	var finalInput interface{}
 	if len(input) == 1 && input[0].Role == "user" {
-		finalInput = input[0].Content.(string)
+		if content, ok := input[0].Content.(string); ok {
+			finalInput = content
+		} else {
+			finalInput = input
+		}
 	} else {
 		finalInput = input
 	}
@@ -409,26 +405,11 @@ func responsesToGeneric(resp responseCreateResponse) *ai.ChatResponse {
 		}
 	case "failed":
 		chatResp.FinishReason = "error"
-	case "cancelled":
-		chatResp.FinishReason = "cancelled"
+	case "cancelled": //nolint:misspell // OpenAI API uses British spelling
+		chatResp.FinishReason = "cancelled" //nolint:misspell // OpenAI API uses British spelling
 	default:
 		chatResp.FinishReason = resp.Status
 	}
 
 	return chatResp
-}
-
-// parseResponsesToolCallsFromContent tries to parse tool calls from raw content (fallback path).
-func parseResponsesToolCallsFromContent(content string) []ai.ToolCall {
-	var toolCalls []ai.ToolCall
-
-	functionCall, err := parse.ParseStringAs[ai.ToolCallFunction](content)
-	if err == nil && functionCall.Name != "" {
-		toolCalls = append(toolCalls, ai.ToolCall{
-			Type:     "function",
-			Function: functionCall,
-		})
-	}
-
-	return toolCalls
 }

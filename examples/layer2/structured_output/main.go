@@ -120,11 +120,19 @@ func exampleAutomatic(ctx context.Context) {
 
 	conversationClient := client.FromBaseClient[ConversationResponse](baseClient)
 
-	resp1, _ := conversationClient.SendMessage(ctx, "What is the capital of France?")
+	resp1, err := conversationClient.SendMessage(ctx, "What is the capital of France?")
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
 	fmt.Printf("Q: What is the capital of France?\n")
 	fmt.Printf("A: %s (confidence: %d/10)\n", resp1.Data.Answer, resp1.Data.Confidence)
 
-	resp2, _ := conversationClient.SendMessage(ctx, "What's its population?")
+	resp2, err := conversationClient.SendMessage(ctx, "What's its population?")
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
 	fmt.Printf("\nQ: What's its population?\n")
 	fmt.Printf("A: %s (confidence: %d/10)\n", resp2.Data.Answer, resp2.Data.Confidence)
 

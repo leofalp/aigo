@@ -264,6 +264,10 @@ func printDetailedCostBreakdown(overview *patterns.Overview) {
 
 	// Print as JSON for programmatic use
 	fmt.Println("\n📊 JSON Summary:")
-	jsonData, _ := json.MarshalIndent(summary, "  ", "  ")
-	fmt.Println(string(jsonData))
+	jsonData, err := json.MarshalIndent(summary, "  ", "  ")
+	if err != nil {
+		fmt.Printf("Error marshaling summary: %v\n", err)
+	} else {
+		fmt.Println(string(jsonData))
+	}
 }

@@ -101,7 +101,10 @@ func main() {
 				"tool_not_found",
 				fmt.Sprintf("Tool '%s' not found in catalog", toolCall.Function.Name),
 			)
-			resultJSON, _ := toolResult.ToJSON()
+			resultJSON, err := toolResult.ToJSON()
+			if err != nil {
+				resultJSON = fmt.Sprintf(`{"error":"failed to serialize tool result: %s"}`, err.Error())
+			}
 
 			// Add error to memory with proper linking
 			memory.AppendMessage(ctx, &ai.Message{
@@ -120,7 +123,10 @@ func main() {
 			fmt.Printf("  ✗ Execution failed: %v\n\n", err)
 
 			toolResult := ai.NewToolResultError("tool_execution_failed", err.Error())
-			resultJSON, _ := toolResult.ToJSON()
+			resultJSON, err := toolResult.ToJSON()
+			if err != nil {
+				resultJSON = fmt.Sprintf(`{"error":"failed to serialize tool result: %s"}`, err.Error())
+			}
 
 			// Add error to memory with proper linking
 			memory.AppendMessage(ctx, &ai.Message{
