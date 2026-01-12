@@ -50,22 +50,22 @@ func (s OptimizationStrategy) String() string {
 //	}
 type ToolMetrics struct {
 	// Amount is the cost value for executing this tool once
-	Amount float64 `json:"amount"`
+	Amount float64 `json:"amount" dynamodbav:"amount"`
 
 	// Currency is the currency or unit for the cost (e.g., "USD", "EUR", "credits")
-	Currency string `json:"currency,omitempty"`
+	Currency string `json:"currency,omitempty" dynamodbav:"currency,omitempty"`
 
 	// CostDescription provides additional context about the cost
 	// (e.g., "per API call", "per search query", "per MB processed")
-	CostDescription string `json:"cost_description,omitempty"`
+	CostDescription string `json:"cost_description,omitempty" dynamodbav:"cost_description,omitempty"`
 
 	// Accuracy represents the accuracy/reliability score (0.0 to 1.0)
 	// Higher values indicate more accurate/reliable results
-	Accuracy float64 `json:"accuracy,omitempty"`
+	Accuracy float64 `json:"accuracy,omitempty" dynamodbav:"accuracy,omitempty"`
 
 	// AverageDurationInMillis represents the average execution time in milliseconds
 	// Lower values indicate faster execution
-	AverageDurationInMillis int64 `json:"average_duration_in_millis,omitempty"`
+	AverageDurationInMillis int64 `json:"average_duration_in_millis,omitempty" dynamodbav:"average_duration_in_millis,omitempty"`
 }
 
 // String returns a formatted string representation of the cost.
@@ -130,18 +130,18 @@ func (tm ToolMetrics) CostEffectivenessScore() float64 {
 //	}
 type ModelCost struct {
 	// InputCostPerMillion is the cost in USD per 1 million input tokens
-	InputCostPerMillion float64 `json:"input_cost_per_million"`
+	InputCostPerMillion float64 `json:"input_cost_per_million" dynamodbav:"input_cost_per_million"`
 
 	// OutputCostPerMillion is the cost in USD per 1 million output tokens
-	OutputCostPerMillion float64 `json:"output_cost_per_million"`
+	OutputCostPerMillion float64 `json:"output_cost_per_million" dynamodbav:"output_cost_per_million"`
 
 	// CachedInputCostPerMillion is the cost in USD per 1 million cached input tokens
 	// Some providers offer discounted rates for cached tokens (optional)
-	CachedInputCostPerMillion float64 `json:"cached_input_cost_per_million,omitempty"`
+	CachedInputCostPerMillion float64 `json:"cached_input_cost_per_million,omitempty" dynamodbav:"cached_input_cost_per_million,omitempty"`
 
 	// ReasoningCostPerMillion is the cost in USD per 1 million reasoning tokens
 	// Used by models like o1/o3 that perform chain-of-thought reasoning (optional)
-	ReasoningCostPerMillion float64 `json:"reasoning_cost_per_million,omitempty"`
+	ReasoningCostPerMillion float64 `json:"reasoning_cost_per_million,omitempty" dynamodbav:"reasoning_cost_per_million,omitempty"`
 }
 
 // CalculateInputCost calculates the cost for the given number of input tokens.
@@ -197,7 +197,7 @@ func (mc ModelCost) String() string {
 type ComputeCost struct {
 	// CostPerSecond is the infrastructure cost in USD per second of execution
 	// Examples: VM cost, container cost, serverless cost
-	CostPerSecond float64 `json:"cost_per_second"`
+	CostPerSecond float64 `json:"cost_per_second" dynamodbav:"cost_per_second"`
 }
 
 // CalculateCost calculates the total cost for the given execution duration in seconds.
@@ -213,39 +213,39 @@ func (cc ComputeCost) String() string {
 // CostSummary provides a detailed breakdown of all costs during an execution.
 type CostSummary struct {
 	// ToolCosts maps tool names to their accumulated execution costs
-	ToolCosts map[string]float64 `json:"tool_costs,omitempty"`
+	ToolCosts map[string]float64 `json:"tool_costs,omitempty" dynamodbav:"tool_costs,omitempty"`
 
 	// ToolExecutionCount tracks how many times each tool was called
-	ToolExecutionCount map[string]int `json:"tool_execution_count,omitempty"`
+	ToolExecutionCount map[string]int `json:"tool_execution_count,omitempty" dynamodbav:"tool_execution_count,omitempty"`
 
 	// TotalToolCost is the sum of all tool execution costs
-	TotalToolCost float64 `json:"total_tool_cost"`
+	TotalToolCost float64 `json:"total_tool_cost" dynamodbav:"total_tool_cost"`
 
 	// ModelInputCost is the cost from input tokens
-	ModelInputCost float64 `json:"model_input_cost"`
+	ModelInputCost float64 `json:"model_input_cost" dynamodbav:"model_input_cost"`
 
 	// ModelOutputCost is the cost from output tokens
-	ModelOutputCost float64 `json:"model_output_cost"`
+	ModelOutputCost float64 `json:"model_output_cost" dynamodbav:"model_output_cost"`
 
 	// ModelCachedCost is the cost from cached tokens
-	ModelCachedCost float64 `json:"model_cached_cost"`
+	ModelCachedCost float64 `json:"model_cached_cost" dynamodbav:"model_cached_cost"`
 
 	// ModelReasoningCost is the cost from reasoning tokens
-	ModelReasoningCost float64 `json:"model_reasoning_cost"`
+	ModelReasoningCost float64 `json:"model_reasoning_cost" dynamodbav:"model_reasoning_cost"`
 
 	// TotalModelCost is the sum of all model costs
-	TotalModelCost float64 `json:"total_model_cost"`
+	TotalModelCost float64 `json:"total_model_cost" dynamodbav:"total_model_cost"`
 
 	// TotalCost is the grand total (tools + model + compute)
-	TotalCost float64 `json:"total_cost"`
+	TotalCost float64 `json:"total_cost" dynamodbav:"total_cost"`
 
 	// ExecutionDurationSeconds is the total execution time in seconds
-	ExecutionDurationSeconds float64 `json:"execution_duration_seconds,omitempty"`
+	ExecutionDurationSeconds float64 `json:"execution_duration_seconds,omitempty" dynamodbav:"execution_duration_seconds,omitempty"`
 
 	// ComputeCost is the infrastructure/compute cost based on execution time
 	// Calculated as: (execution_duration_minutes * compute_cost_per_minute)
-	ComputeCost float64 `json:"compute_cost,omitempty"`
+	ComputeCost float64 `json:"compute_cost,omitempty" dynamodbav:"compute_cost,omitempty"`
 
 	// Currency is always "USD" for consistency
-	Currency string `json:"currency"`
+	Currency string `json:"currency" dynamodbav:"currency"`
 }
