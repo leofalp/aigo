@@ -58,6 +58,57 @@ func TestFetch_Success(t *testing.T) {
 	}
 }
 
+// TestFetch_IncludeHTML tests that raw HTML is returned when requested
+func TestFetch_IncludeHTML(t *testing.T) {
+	rawHTML := `<!DOCTYPE html>
+<html>
+<head><title>Test Page</title></head>
+<body>
+	<h1>Welcome</h1>
+	<script type="application/ld+json">{"@type":"Organization"}</script>
+</body>
+</html>`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(w, rawHTML)
+	}))
+	defer server.Close()
+
+	// Test without IncludeHTML
+	input := Input{URL: server.URL}
+	output, err := Fetch(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Fetch failed: %v", err)
+	}
+	if output.HTML != "" {
+		t.Error("HTML should be empty when IncludeHTML is false")
+	}
+	if output.Markdown == "" {
+		t.Error("Markdown should not be empty")
+	}
+
+	// Test with IncludeHTML
+	inputWithHTML := Input{URL: server.URL, IncludeHTML: true}
+	outputWithHTML, err := Fetch(context.Background(), inputWithHTML)
+	if err != nil {
+		t.Fatalf("Fetch with IncludeHTML failed: %v", err)
+	}
+	if outputWithHTML.HTML == "" {
+		t.Error("HTML should be populated when IncludeHTML is true")
+	}
+	if !strings.Contains(outputWithHTML.HTML, "application/ld+json") {
+		t.Error("Raw HTML should contain JSON-LD script tag")
+	}
+	if !strings.Contains(outputWithHTML.HTML, "<!DOCTYPE html>") {
+		t.Error("Raw HTML should contain DOCTYPE declaration")
+	}
+	if outputWithHTML.Markdown == "" {
+		t.Error("Markdown should still be populated")
+	}
+}
+
 // TestFetch_EmptyURL tests validation of empty URL
 func TestFetch_EmptyURL(t *testing.T) {
 	input := Input{URL: ""}

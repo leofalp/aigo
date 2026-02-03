@@ -37,6 +37,22 @@ type ToolDescription struct {
 	Metrics *cost.ToolMetrics `json:"metrics,omitempty"`
 }
 
+// Built-in tool names for provider-specific capabilities.
+// These are "pseudo-tools" that enable special provider features.
+// Currently supported by: Gemini. Other providers may add support or ignore them.
+// Prefix with underscore to distinguish from user-defined tools.
+const (
+	ToolGoogleSearch  = "_google_search"  // Web search grounding (Gemini)
+	ToolURLContext    = "_url_context"    // URL content grounding (Gemini)
+	ToolCodeExecution = "_code_execution" // Code execution sandbox (Gemini)
+)
+
+// IsBuiltinTool returns true if the tool name is a built-in pseudo-tool.
+// Providers should check this to handle built-in tools differently from user tools.
+func IsBuiltinTool(name string) bool {
+	return len(name) > 0 && name[0] == '_'
+}
+
 // Message represents a single message in a conversation
 type Message struct {
 	// Core fields (always present)
@@ -62,7 +78,41 @@ type GenerationConfig struct {
 	FrequencyPenalty float32 `json:"frequency_penalty,omitempty"` // OpenAi only: Penalty [-2..2]. Positive values reduce repetition by penalizing frequent tokens.
 	PresencePenalty  float32 `json:"presence_penalty,omitempty"`  // OpenAi only: Penalty [-2..2]. Positive values encourage new topics by penalizing tokens that already appeared.
 	MaxOutputTokens  int     `json:"max_output_tokens,omitempty"` // Optional max tokens specifically for the output (if supported by provider)
+
+	// Extended thinking/reasoning configuration.
+	// Currently supported by: Gemini (thinkingBudget)
+	// Providers that don't support these fields will ignore them.
+	ThinkingBudget  *int `json:"thinking_budget,omitempty"`  // Token budget for reasoning (0=disable, -1=dynamic)
+	IncludeThoughts bool `json:"include_thoughts,omitempty"` // Include reasoning in response
+
+	// Safety/content filtering configuration.
+	// Currently supported by: Gemini.
+	// Other providers may use their own safety mechanisms or ignore this field.
+	SafetySettings []SafetySetting `json:"safety_settings,omitempty"`
 }
+
+// SafetySetting configures content safety thresholds.
+// Provider-agnostic structure that can be extended for future providers.
+type SafetySetting struct {
+	Category  string `json:"category"`  // Category identifier (provider-specific)
+	Threshold string `json:"threshold"` // Threshold level (provider-specific)
+}
+
+// Gemini-specific safety categories. Other providers may define their own.
+const (
+	HarmCategoryHarassment       = "HARM_CATEGORY_HARASSMENT"
+	HarmCategoryHateSpeech       = "HARM_CATEGORY_HATE_SPEECH"
+	HarmCategorySexuallyExplicit = "HARM_CATEGORY_SEXUALLY_EXPLICIT"
+	HarmCategoryDangerousContent = "HARM_CATEGORY_DANGEROUS_CONTENT"
+)
+
+// Gemini-specific safety thresholds. Other providers may define their own.
+const (
+	BlockNone           = "BLOCK_NONE"
+	BlockOnlyHigh       = "BLOCK_ONLY_HIGH"
+	BlockMediumAndAbove = "BLOCK_MEDIUM_AND_ABOVE"
+	BlockLowAndAbove    = "BLOCK_LOW_AND_ABOVE"
+)
 
 type ResponseFormat struct {
 	OutputSchema *jsonschema.Schema `json:"output_schema,omitempty"` // Optional schema for structured response. Implementation may vary by provider.
@@ -99,8 +149,40 @@ type ChatResponse struct {
 	Refusal   string `json:"refusal,omitempty"`   // If model refuses to respond (safety/policy)
 	Reasoning string `json:"reasoning,omitempty"` // Chain-of-thought reasoning (o1/o3/gpt-5)
 
+	// Grounding contains citation and source attribution (web search, RAG, etc.)
+	Grounding *GroundingMetadata `json:"grounding,omitempty"`
+
 	// TODO observability and debugging
 	//HttpResponse *http.Response `json:"-"` // Raw HTTP response, if applicable
+}
+
+// GroundingMetadata contains citation and source attribution from grounded responses.
+// This structure is provider-agnostic and supports Gemini, OpenAI, and Anthropic.
+type GroundingMetadata struct {
+	// Sources is the list of source documents/URLs used for grounding.
+	Sources []GroundingSource `json:"sources,omitempty"`
+
+	// Citations links specific text segments to their supporting sources.
+	Citations []Citation `json:"citations,omitempty"`
+
+	// SearchQueries contains the search queries used (Gemini-specific).
+	SearchQueries []string `json:"search_queries,omitempty"`
+}
+
+// GroundingSource represents a source document or URL.
+type GroundingSource struct {
+	Index int    `json:"index"` // 0-based index for reference from Citations
+	URI   string `json:"uri"`
+	Title string `json:"title,omitempty"`
+}
+
+// Citation links a text segment to its supporting sources.
+type Citation struct {
+	Text          string    `json:"text,omitempty"`       // The cited text (optional)
+	StartIndex    int       `json:"start_index"`          // Character start (0-indexed)
+	EndIndex      int       `json:"end_index"`            // Character end (0-indexed, exclusive)
+	SourceIndices []int     `json:"source_indices"`       // References to Sources array
+	Confidence    []float64 `json:"confidence,omitempty"` // Confidence scores (optional)
 }
 
 // StructuredChatResponse wraps a ChatResponse with parsed structured data.
