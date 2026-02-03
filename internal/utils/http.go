@@ -33,6 +33,12 @@ func CloseWithLog(closer io.Closer) {
 	}
 }
 
+// HeaderOption represents a custom HTTP header to be added to requests.
+type HeaderOption struct {
+	Key   string
+	Value string
+}
+
 // DoPostSync performs a synchronous HTTP POST request with JSON body and parses the response.
 // It handles observability tracing, authorization headers, and proper resource cleanup.
 //
@@ -44,7 +50,11 @@ func CloseWithLog(closer io.Closer) {
 //
 // The function always closes the response body via defer, logging any close errors
 // without overriding the primary error returned by the function.
-func DoPostSync[OutputStruct any](ctx context.Context, client *http.Client, url string, apiKey string, body any) (*http.Response, *OutputStruct, error) {
+//
+// Custom headers can be passed via the headers variadic parameter. These headers
+// can override the default Authorization header if needed (e.g., for APIs that use
+// different authentication schemes like x-goog-api-key).
+func DoPostSync[OutputStruct any](ctx context.Context, client *http.Client, url string, apiKey string, body any, headers ...HeaderOption) (*http.Response, *OutputStruct, error) {
 	// Get observer from context if available
 	span := observability.SpanFromContext(ctx)
 
@@ -74,6 +84,11 @@ func DoPostSync[OutputStruct any](ctx context.Context, client *http.Client, url 
 	req.Header.Set("Content-Type", "application/json")
 	if apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	// Apply custom headers (can override Authorization if needed)
+	for _, h := range headers {
+		req.Header.Set(h.Key, h.Value)
 	}
 
 	requestStart := time.Now()

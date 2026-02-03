@@ -218,10 +218,17 @@ func Fetch(ctx context.Context, req Input) (Output, error) {
 	// Get the final URL after redirects
 	finalURL := resp.Request.URL.String()
 
-	return Output{
+	output := Output{
 		URL:      finalURL,
 		Markdown: markdown,
-	}, nil
+	}
+
+	// Include HTML if requested
+	if req.IncludeHTML {
+		output.HTML = string(htmlBytes)
+	}
+
+	return output, nil
 }
 
 // Input represents the input parameters for the web fetch tool.
@@ -234,6 +241,9 @@ type Input struct {
 
 	// UserAgent is the User-Agent header to send with the request (optional)
 	UserAgent string `json:"user_agent,omitempty" jsonschema:"description=Custom User-Agent header for the HTTP request"`
+
+	// IncludeHTML when true includes the raw HTML content in the output alongside Markdown
+	IncludeHTML bool `json:"include_html,omitempty" jsonschema:"description=When true includes the raw HTML content in the output (useful for logo extraction and structured data parsing)"`
 }
 
 // Output represents the output of the web fetch tool.
@@ -243,4 +253,7 @@ type Output struct {
 
 	// Markdown is the page content converted from HTML to Markdown format
 	Markdown string `json:"markdown" jsonschema:"description=The web page content converted to Markdown format"`
+
+	// HTML is the raw HTML content (only populated when IncludeHTML is true in Input)
+	HTML string `json:"html,omitempty" jsonschema:"description=The raw HTML content (only populated when IncludeHTML is true in Input)"`
 }
