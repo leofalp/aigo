@@ -30,7 +30,7 @@ func NewBraveSearchTool() *tool.Tool[Input, Output] {
 			Amount:                  0.005, // $5 per 1000 queries = $0.005 per query
 			Currency:                "USD",
 			CostDescription:         "per search query",
-			Accuracy:                0.92, // High accuracy - enterprise-grade search results
+			Accuracy:                0.88, // Good accuracy - privacy-focused search results
 			AverageDurationInMillis: 800,  // Average API response time (~800ms)
 		}),
 	)
@@ -47,7 +47,7 @@ func NewBraveSearchAdvancedTool() *tool.Tool[Input, AdvancedOutput] {
 			Amount:                  0.005, // $5 per 1000 queries = $0.005 per query
 			Currency:                "USD",
 			CostDescription:         "per search query",
-			Accuracy:                0.95, // Very high accuracy with complete structured data
+			Accuracy:                0.90, // High accuracy with complete structured data
 			AverageDurationInMillis: 900,  // Slightly slower due to more comprehensive data
 		}),
 	)
