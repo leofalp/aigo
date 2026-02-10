@@ -17,7 +17,7 @@ import (
 
 const (
 	baseURL    = "https://api.tavily.com"
-	envAPIKey  = "TAVILY_API_KEY"
+	envAPIKey  = "TAVILY_API_KEY" //nolint:gosec // Environment variable name, not a credential
 	maxResults = 20
 )
 
@@ -110,23 +110,13 @@ func SearchAdvanced(ctx context.Context, input SearchInput) (SearchAdvancedOutpu
 	// Convert results
 	results := make([]SearchResultAdvanced, 0, len(apiResponse.Results))
 	for _, r := range apiResponse.Results {
-		results = append(results, SearchResultAdvanced{
-			Title:      r.Title,
-			URL:        r.URL,
-			Content:    r.Content,
-			RawContent: r.RawContent,
-			Score:      r.Score,
-			Images:     r.Images,
-		})
+		results = append(results, SearchResultAdvanced(r))
 	}
 
 	// Convert images
 	images := make([]ImageResult, 0, len(apiResponse.Images))
 	for _, img := range apiResponse.Images {
-		images = append(images, ImageResult{
-			URL:         img.URL,
-			Description: img.Description,
-		})
+		images = append(images, ImageResult(img))
 	}
 
 	return SearchAdvancedOutput{

@@ -17,7 +17,7 @@ import (
 
 const (
 	baseURL        = "https://api.exa.ai"
-	envAPIKey      = "EXA_API_KEY"
+	envAPIKey      = "EXA_API_KEY" //nolint:gosec // Environment variable name, not a credential
 	maxResults     = 100
 	defaultResults = 10
 )
@@ -130,18 +130,7 @@ func SearchAdvanced(ctx context.Context, input SearchInput) (SearchAdvancedOutpu
 	// Convert results
 	results := make([]SearchResultAdvanced, 0, len(apiResponse.Results))
 	for _, r := range apiResponse.Results {
-		results = append(results, SearchResultAdvanced{
-			ID:              r.ID,
-			Title:           r.Title,
-			URL:             r.URL,
-			Score:           r.Score,
-			PublishedDate:   r.PublishedDate,
-			Author:          r.Author,
-			Text:            r.Text,
-			Highlights:      r.Highlights,
-			HighlightScores: r.HighlightScores,
-			Summary:         r.Summary,
-		})
+		results = append(results, SearchResultAdvanced(r))
 	}
 
 	return SearchAdvancedOutput{

@@ -144,16 +144,3 @@ type exaAPIError struct {
 	Error   string `json:"error,omitempty"`
 	Message string `json:"message,omitempty"`
 }
-
-// contentsRequest represents the contents configuration for Exa API requests
-type contentsRequest struct {
-	Text       bool               `json:"text,omitempty"`
-	Highlights *highlightsRequest `json:"highlights,omitempty"`
-}
-
-// highlightsRequest represents highlights configuration
-type highlightsRequest struct {
-	NumSentences     int    `json:"numSentences,omitempty"`
-	HighlightsPerURL int    `json:"highlightsPerUrl,omitempty"`
-	Query            string `json:"query,omitempty"`
-}
