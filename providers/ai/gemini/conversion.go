@@ -48,10 +48,14 @@ func buildContents(messages []ai.Message) []content {
 	for _, msg := range messages {
 		switch msg.Role {
 		case ai.RoleUser:
-			contents = append(contents, content{
-				Role:  "user",
-				Parts: []part{{Text: msg.Content}},
-			})
+			userContent := content{Role: "user"}
+			// Use multimodal ContentParts if available, otherwise fall back to text Content
+			if len(msg.ContentParts) > 0 {
+				userContent.Parts = contentPartsToGeminiParts(msg.ContentParts)
+			} else {
+				userContent.Parts = []part{{Text: msg.Content}}
+			}
+			contents = append(contents, userContent)
 
 		case ai.RoleAssistant:
 			c := content{Role: "model"}
@@ -68,8 +72,10 @@ func buildContents(messages []ai.Message) []content {
 				}
 			}
 
-			// Handle text content
-			if msg.Content != "" {
+			// Use multimodal ContentParts if available, otherwise fall back to text Content
+			if len(msg.ContentParts) > 0 {
+				c.Parts = append(c.Parts, contentPartsToGeminiParts(msg.ContentParts)...)
+			} else if msg.Content != "" {
 				c.Parts = append(c.Parts, part{Text: msg.Content})
 			}
 
@@ -100,6 +106,28 @@ func buildContents(messages []ai.Message) []content {
 	}
 
 	return contents
+}
+
+// contentPartsToGeminiParts converts generic ContentPart slices to Gemini part slices.
+// Text parts become text parts, image parts become inlineData parts.
+func contentPartsToGeminiParts(contentParts []ai.ContentPart) []part {
+	var parts []part
+	for _, cp := range contentParts {
+		switch cp.Type {
+		case ai.ContentTypeText:
+			parts = append(parts, part{Text: cp.Text})
+		case ai.ContentTypeImage:
+			if cp.Image != nil {
+				parts = append(parts, part{
+					InlineData: &inlineData{
+						MimeType: cp.Image.MimeType,
+						Data:     cp.Image.Data,
+					},
+				})
+			}
+		}
+	}
+	return parts
 }
 
 // buildGenerationConfig converts ai.GenerationConfig and ai.ResponseFormat to Gemini generationConfig.
@@ -144,6 +172,11 @@ func buildGenerationConfig(cfg *ai.GenerationConfig, respFmt *ai.ResponseFormat)
 				ThinkingBudget:  cfg.ThinkingBudget,
 				IncludeThoughts: cfg.IncludeThoughts,
 			}
+		}
+
+		// Response modalities (e.g., ["TEXT", "IMAGE"] for image generation)
+		if len(cfg.ResponseModalities) > 0 {
+			gc.ResponseModalities = cfg.ResponseModalities
 		}
 	}
 
@@ -299,6 +332,14 @@ func geminiToGeneric(resp generateContentResponse) *ai.ChatResponse {
 						Name:      p.FunctionCall.Name,
 						Arguments: string(p.FunctionCall.Args),
 					},
+				})
+			}
+
+			// Extract inline image data from response
+			if p.InlineData != nil {
+				result.Images = append(result.Images, ai.ImageData{
+					MimeType: p.InlineData.MimeType,
+					Data:     p.InlineData.Data,
 				})
 			}
 		}

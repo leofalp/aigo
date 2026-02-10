@@ -240,8 +240,8 @@ func (p *OpenAIProvider) IsStopMessage(message *ai.ChatResponse) bool {
 		return true
 	}
 
-	// If there's no content and no tool calls, treat as stop
-	if message.Content == "" {
+	// If there's no content, no images, and no tool calls, treat as stop
+	if message.Content == "" && len(message.Images) == 0 {
 		return true
 	}
 

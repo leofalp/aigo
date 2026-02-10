@@ -1082,6 +1082,293 @@ func TestGeminiToGeneric_WithGroundingMetadata(t *testing.T) {
 	}
 }
 
+func TestBuildContents_WithImageInput(t *testing.T) {
+	messages := []ai.Message{
+		{
+			Role: ai.RoleUser,
+			ContentParts: []ai.ContentPart{
+				ai.NewTextPart("What is in this image?"),
+				ai.NewImagePart("image/png", "iVBORw0KGgoAAAANSUhEUg=="),
+			},
+		},
+	}
+
+	contents := buildContents(messages)
+
+	if len(contents) != 1 {
+		t.Fatalf("expected 1 content, got %d", len(contents))
+	}
+
+	if contents[0].Role != "user" {
+		t.Errorf("expected role 'user', got %q", contents[0].Role)
+	}
+
+	if len(contents[0].Parts) != 2 {
+		t.Fatalf("expected 2 parts, got %d", len(contents[0].Parts))
+	}
+
+	// Verify text part
+	if contents[0].Parts[0].Text != "What is in this image?" {
+		t.Errorf("expected text 'What is in this image?', got %q", contents[0].Parts[0].Text)
+	}
+
+	// Verify inlineData part
+	if contents[0].Parts[1].InlineData == nil {
+		t.Fatal("expected inlineData in second part")
+	}
+	if contents[0].Parts[1].InlineData.MimeType != "image/png" {
+		t.Errorf("expected mimeType 'image/png', got %q", contents[0].Parts[1].InlineData.MimeType)
+	}
+	if contents[0].Parts[1].InlineData.Data != "iVBORw0KGgoAAAANSUhEUg==" {
+		t.Errorf("expected base64 data, got %q", contents[0].Parts[1].InlineData.Data)
+	}
+}
+
+func TestBuildContents_BackwardCompatible(t *testing.T) {
+	// Message with only Content (no ContentParts) should work the same as before
+	messages := []ai.Message{
+		{Role: ai.RoleUser, Content: "Hello, world!"},
+		{Role: ai.RoleAssistant, Content: "Hi there!"},
+	}
+
+	contents := buildContents(messages)
+
+	if len(contents) != 2 {
+		t.Fatalf("expected 2 contents, got %d", len(contents))
+	}
+
+	// User message should have single text part
+	if len(contents[0].Parts) != 1 {
+		t.Fatalf("expected 1 part for user message, got %d", len(contents[0].Parts))
+	}
+	if contents[0].Parts[0].Text != "Hello, world!" {
+		t.Errorf("expected text 'Hello, world!', got %q", contents[0].Parts[0].Text)
+	}
+
+	// Assistant message should have single text part
+	if len(contents[1].Parts) != 1 {
+		t.Fatalf("expected 1 part for assistant message, got %d", len(contents[1].Parts))
+	}
+	if contents[1].Parts[0].Text != "Hi there!" {
+		t.Errorf("expected text 'Hi there!', got %q", contents[1].Parts[0].Text)
+	}
+}
+
+func TestGeminiToGeneric_WithImageOutput(t *testing.T) {
+	resp := generateContentResponse{
+		Candidates: []candidate{{
+			Content: &content{
+				Role: "model",
+				Parts: []part{
+					{Text: "Here is the generated image:"},
+					{InlineData: &inlineData{MimeType: "image/png", Data: "iVBORw0KGgoAAAANSUhEUg=="}},
+				},
+			},
+			FinishReason: "STOP",
+		}},
+	}
+
+	result := geminiToGeneric(resp)
+
+	if result.Content != "Here is the generated image:" {
+		t.Errorf("expected text content, got %q", result.Content)
+	}
+
+	if len(result.Images) != 1 {
+		t.Fatalf("expected 1 image, got %d", len(result.Images))
+	}
+
+	if result.Images[0].MimeType != "image/png" {
+		t.Errorf("expected mime type 'image/png', got %q", result.Images[0].MimeType)
+	}
+
+	if result.Images[0].Data != "iVBORw0KGgoAAAANSUhEUg==" {
+		t.Errorf("expected base64 data, got %q", result.Images[0].Data)
+	}
+}
+
+func TestGeminiToGeneric_ImageOnlyResponse(t *testing.T) {
+	resp := generateContentResponse{
+		Candidates: []candidate{{
+			Content: &content{
+				Role: "model",
+				Parts: []part{
+					{InlineData: &inlineData{MimeType: "image/jpeg", Data: "/9j/4AAQSkZJRg=="}},
+				},
+			},
+			FinishReason: "STOP",
+		}},
+	}
+
+	result := geminiToGeneric(resp)
+
+	// No text content expected
+	if result.Content != "" {
+		t.Errorf("expected empty content, got %q", result.Content)
+	}
+
+	// Image should be populated
+	if len(result.Images) != 1 {
+		t.Fatalf("expected 1 image, got %d", len(result.Images))
+	}
+
+	if result.Images[0].MimeType != "image/jpeg" {
+		t.Errorf("expected mime type 'image/jpeg', got %q", result.Images[0].MimeType)
+	}
+}
+
+func TestBuildGenerationConfig_WithResponseModalities(t *testing.T) {
+	cfg := &ai.GenerationConfig{
+		ResponseModalities: []string{"TEXT", "IMAGE"},
+	}
+
+	gc := buildGenerationConfig(cfg, nil)
+
+	if gc == nil {
+		t.Fatal("expected non-nil generation config")
+	}
+
+	if len(gc.ResponseModalities) != 2 {
+		t.Fatalf("expected 2 response modalities, got %d", len(gc.ResponseModalities))
+	}
+
+	if gc.ResponseModalities[0] != "TEXT" {
+		t.Errorf("expected first modality 'TEXT', got %q", gc.ResponseModalities[0])
+	}
+
+	if gc.ResponseModalities[1] != "IMAGE" {
+		t.Errorf("expected second modality 'IMAGE', got %q", gc.ResponseModalities[1])
+	}
+}
+
+func TestSendMessage_WithImageInput(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req generateContentRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		// Verify the request has multimodal content
+		if len(req.Contents) != 1 {
+			t.Fatalf("expected 1 content, got %d", len(req.Contents))
+		}
+
+		if len(req.Contents[0].Parts) != 2 {
+			t.Fatalf("expected 2 parts (text + image), got %d", len(req.Contents[0].Parts))
+		}
+
+		// Verify text part
+		if req.Contents[0].Parts[0].Text != "Describe this image" {
+			t.Errorf("expected text 'Describe this image', got %q", req.Contents[0].Parts[0].Text)
+		}
+
+		// Verify inlineData part
+		if req.Contents[0].Parts[1].InlineData == nil {
+			t.Fatal("expected inlineData in second part")
+		}
+		if req.Contents[0].Parts[1].InlineData.MimeType != "image/png" {
+			t.Errorf("expected mimeType 'image/png', got %q", req.Contents[0].Parts[1].InlineData.MimeType)
+		}
+
+		// Return response with text + image
+		resp := generateContentResponse{
+			Candidates: []candidate{{
+				Content: &content{
+					Role: "model",
+					Parts: []part{
+						{Text: "This is a test image showing..."},
+						{InlineData: &inlineData{MimeType: "image/png", Data: "generatedBase64=="}},
+					},
+				},
+				FinishReason: "STOP",
+			}},
+			UsageMetadata: &usageMetadata{
+				PromptTokenCount:     100,
+				CandidatesTokenCount: 50,
+				TotalTokenCount:      150,
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	provider := New().
+		WithAPIKey("test-key").
+		WithBaseURL(server.URL).(*GeminiProvider)
+
+	response, err := provider.SendMessage(context.Background(), ai.ChatRequest{
+		Model: "gemini-2.0-flash",
+		Messages: []ai.Message{
+			{
+				Role: ai.RoleUser,
+				ContentParts: []ai.ContentPart{
+					ai.NewTextPart("Describe this image"),
+					ai.NewImagePart("image/png", "testBase64Data=="),
+				},
+			},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("SendMessage failed: %v", err)
+	}
+
+	if response.Content != "This is a test image showing..." {
+		t.Errorf("unexpected content: %s", response.Content)
+	}
+
+	if len(response.Images) != 1 {
+		t.Fatalf("expected 1 image in response, got %d", len(response.Images))
+	}
+
+	if response.Images[0].MimeType != "image/png" {
+		t.Errorf("expected image mime type 'image/png', got %q", response.Images[0].MimeType)
+	}
+
+	if response.Images[0].Data != "generatedBase64==" {
+		t.Errorf("expected image data 'generatedBase64==', got %q", response.Images[0].Data)
+	}
+}
+
+func TestIsStopMessage_WithImages(t *testing.T) {
+	provider := New()
+
+	// Image-only response (no text) should NOT be treated as stop
+	imageOnlyResponse := &ai.ChatResponse{
+		Content: "",
+		Images: []ai.ImageData{
+			{MimeType: "image/png", Data: "base64data=="},
+		},
+	}
+
+	if provider.IsStopMessage(imageOnlyResponse) {
+		t.Error("expected image-only response to NOT be a stop message")
+	}
+
+	// Response with both text and images should still respect finish reason
+	textAndImageResponse := &ai.ChatResponse{
+		Content:      "Here is the image",
+		FinishReason: "stop",
+		Images: []ai.ImageData{
+			{MimeType: "image/png", Data: "base64data=="},
+		},
+	}
+
+	if !provider.IsStopMessage(textAndImageResponse) {
+		t.Error("expected response with stop finish reason to be a stop message")
+	}
+
+	// Empty response with no content and no images should be stop
+	emptyResponse := &ai.ChatResponse{
+		Content: "",
+	}
+
+	if !provider.IsStopMessage(emptyResponse) {
+		t.Error("expected empty response to be a stop message")
+	}
+}
+
 func TestSendMessage_WithGoogleSearchReturnsGrounding(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Return response with full grounding metadata

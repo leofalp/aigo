@@ -53,11 +53,55 @@ func IsBuiltinTool(name string) bool {
 	return len(name) > 0 && name[0] == '_'
 }
 
+// ContentType represents the type of a content part in a multimodal message.
+type ContentType string
+
+const (
+	ContentTypeText  ContentType = "text"  // Plain text content
+	ContentTypeImage ContentType = "image" // Image content (base64-encoded)
+)
+
+// ContentPart represents a single part of a multimodal message.
+// A message can contain multiple parts mixing text and images.
+type ContentPart struct {
+	Type  ContentType `json:"type"`
+	Text  string      `json:"text,omitempty"`
+	Image *ImageData  `json:"image,omitempty"`
+}
+
+// ImageData holds the binary data for an image, encoded as base64.
+type ImageData struct {
+	MimeType string `json:"mime_type"` // MIME type (e.g., "image/png", "image/jpeg")
+	Data     string `json:"data"`      // Base64-encoded image data
+}
+
+// NewTextPart creates a ContentPart containing text content.
+func NewTextPart(text string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeText,
+		Text: text,
+	}
+}
+
+// NewImagePart creates a ContentPart containing base64-encoded image data.
+func NewImagePart(mimeType, base64Data string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeImage,
+		Image: &ImageData{
+			MimeType: mimeType,
+			Data:     base64Data,
+		},
+	}
+}
+
 // Message represents a single message in a conversation
 type Message struct {
 	// Core fields (always present)
 	Role    MessageRole `json:"role"`
 	Content string      `json:"content,omitempty"`
+
+	// Multimodal content parts (optional, takes precedence over Content when populated)
+	ContentParts []ContentPart `json:"content_parts,omitempty"`
 
 	// Tool calling fields
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // For role=assistant requesting tools
@@ -67,8 +111,6 @@ type Message struct {
 	// Extended fields
 	Refusal   string `json:"refusal,omitempty"`   // If model refuses to respond (safety/policy)
 	Reasoning string `json:"reasoning,omitempty"` // Chain-of-thought reasoning (o1/o3/gpt-5)
-
-	// TODO support content types different than text in the future (images, audio, etc.)
 }
 
 type GenerationConfig struct {
@@ -89,6 +131,10 @@ type GenerationConfig struct {
 	// Currently supported by: Gemini.
 	// Other providers may use their own safety mechanisms or ignore this field.
 	SafetySettings []SafetySetting `json:"safety_settings,omitempty"`
+
+	// ResponseModalities specifies the desired output modalities (e.g., ["TEXT", "IMAGE"]).
+	// Currently supported by: Gemini (for image generation models).
+	ResponseModalities []string `json:"response_modalities,omitempty"`
 }
 
 // SafetySetting configures content safety thresholds.
@@ -136,14 +182,15 @@ type Usage struct {
 
 // ChatResponse represents the response from a chat completion
 type ChatResponse struct {
-	Id           string     `json:"id"`
-	Model        string     `json:"model"`
-	Object       string     `json:"object"`
-	Created      int64      `json:"created"`
-	Content      string     `json:"content"`
-	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
-	FinishReason string     `json:"finish_reason,omitempty"`
-	Usage        *Usage     `json:"usage,omitempty"`
+	Id           string      `json:"id"`
+	Model        string      `json:"model"`
+	Object       string      `json:"object"`
+	Created      int64       `json:"created"`
+	Content      string      `json:"content"`
+	Images       []ImageData `json:"images,omitempty"` // Generated images from the model response
+	ToolCalls    []ToolCall  `json:"tool_calls,omitempty"`
+	FinishReason string      `json:"finish_reason,omitempty"`
+	Usage        *Usage      `json:"usage,omitempty"`
 
 	// Extended fields
 	Refusal   string `json:"refusal,omitempty"`   // If model refuses to respond (safety/policy)

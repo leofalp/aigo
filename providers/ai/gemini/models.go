@@ -27,13 +27,19 @@ type content struct {
 	Parts []part `json:"parts"`
 }
 
-// part represents a content part (text, function call, function response, etc.).
+// part represents a content part (text, function call, function response, inline data, etc.).
 type part struct {
 	Text             string            `json:"text,omitempty"`
 	Thought          bool              `json:"thought,omitempty"` // true if this part contains a thinking/reasoning summary
 	FunctionCall     *functionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *functionResponse `json:"functionResponse,omitempty"`
-	// Future: InlineData for multimodal support
+	InlineData       *inlineData       `json:"inlineData,omitempty"` // For multimodal content (images)
+}
+
+// inlineData represents inline binary data (e.g., base64-encoded images).
+type inlineData struct {
+	MimeType string `json:"mimeType"`
+	Data     string `json:"data"`
 }
 
 // functionCall represents a function call from the model.
@@ -50,17 +56,18 @@ type functionResponse struct {
 
 // generationConfig represents generation parameters for Gemini.
 type generationConfig struct {
-	Temperature      *float64        `json:"temperature,omitempty"`
-	TopP             *float64        `json:"topP,omitempty"`
-	TopK             *int            `json:"topK,omitempty"`
-	MaxOutputTokens  *int            `json:"maxOutputTokens,omitempty"`
-	StopSequences    []string        `json:"stopSequences,omitempty"`
-	ResponseMimeType string          `json:"responseMimeType,omitempty"`
-	ResponseSchema   json.RawMessage `json:"responseSchema,omitempty"`
-	ThinkingConfig   *thinkingConfig `json:"thinkingConfig,omitempty"`
-	CandidateCount   *int            `json:"candidateCount,omitempty"`
-	PresencePenalty  *float64        `json:"presencePenalty,omitempty"`
-	FrequencyPenalty *float64        `json:"frequencyPenalty,omitempty"`
+	Temperature        *float64        `json:"temperature,omitempty"`
+	TopP               *float64        `json:"topP,omitempty"`
+	TopK               *int            `json:"topK,omitempty"`
+	MaxOutputTokens    *int            `json:"maxOutputTokens,omitempty"`
+	StopSequences      []string        `json:"stopSequences,omitempty"`
+	ResponseMimeType   string          `json:"responseMimeType,omitempty"`
+	ResponseSchema     json.RawMessage `json:"responseSchema,omitempty"`
+	ResponseModalities []string        `json:"responseModalities,omitempty"` // Output modalities (e.g., ["TEXT", "IMAGE"])
+	ThinkingConfig     *thinkingConfig `json:"thinkingConfig,omitempty"`
+	CandidateCount     *int            `json:"candidateCount,omitempty"`
+	PresencePenalty    *float64        `json:"presencePenalty,omitempty"`
+	FrequencyPenalty   *float64        `json:"frequencyPenalty,omitempty"`
 }
 
 // thinkingConfig represents the thinking/reasoning configuration for Gemini.
