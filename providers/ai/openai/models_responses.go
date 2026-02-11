@@ -208,6 +208,13 @@ func requestToResponses(request ai.ChatRequest) responseCreateRequest {
 	}
 
 	// Convert messages
+	// TODO: handle multimodal ContentParts (images, audio, video, documents).
+	// When msg.ContentParts is populated, convert each part to the Responses API
+	// content format: text parts become {"type":"input_text","text":"..."}, images
+	// become {"type":"input_image","image_url":"data:<mime>;base64,<data>"} or
+	// {"type":"input_image","image_url":"<uri>"}. Audio input uses
+	// {"type":"input_audio","input_audio":{"data":"<base64>","format":"<fmt>"}}.
+	// MimeType must be converted to format strings (e.g., "audio/wav" -> "wav").
 	for _, msg := range request.Messages {
 		input = append(input, inputItem{
 			Role:    string(msg.Role),
@@ -356,6 +363,11 @@ func responsesToGeneric(resp responseCreateResponse) *ai.ChatResponse {
 				if content.Type == "output_text" {
 					contentParts = append(contentParts, content.Text)
 				}
+				// TODO: extract output_image from Responses API output.
+				// When content.Type == "output_image", populate chatResp.Images with
+				// ai.ImageData{MimeType: "image/png", URI: content.ImageURL} (or decode
+				// base64 inline data if provided). This enables image generation models
+				// (e.g., gpt-image-1, dall-e-3) to return images through the generic response.
 			}
 		case "function_call":
 			toolCalls = append(toolCalls, ai.ToolCall{

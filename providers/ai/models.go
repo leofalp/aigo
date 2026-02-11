@@ -1,3 +1,6 @@
+// Package ai defines the shared types and interfaces used across all AI providers
+// (OpenAI, Gemini, Anthropic). Types in this package are provider-agnostic: each
+// provider's conversion layer is responsible for mapping them to wire format.
 package ai
 
 import (
@@ -57,22 +60,62 @@ func IsBuiltinTool(name string) bool {
 type ContentType string
 
 const (
-	ContentTypeText  ContentType = "text"  // Plain text content
-	ContentTypeImage ContentType = "image" // Image content (base64-encoded)
+	ContentTypeText     ContentType = "text"     // Plain text content
+	ContentTypeImage    ContentType = "image"    // Image content (base64-encoded or URI reference)
+	ContentTypeAudio    ContentType = "audio"    // Audio content (base64-encoded or URI reference)
+	ContentTypeVideo    ContentType = "video"    // Video content (base64-encoded or URI reference)
+	ContentTypeDocument ContentType = "document" // Document content (PDF, plain text; base64-encoded or URI reference)
 )
 
 // ContentPart represents a single part of a multimodal message.
-// A message can contain multiple parts mixing text and images.
+// A message can contain multiple parts mixing text, images, audio, video, and documents.
+// Each provider's conversion layer maps these parts to the appropriate wire format.
 type ContentPart struct {
-	Type  ContentType `json:"type"`
-	Text  string      `json:"text,omitempty"`
-	Image *ImageData  `json:"image,omitempty"`
+	Type     ContentType   `json:"type"`
+	Text     string        `json:"text,omitempty"`
+	Image    *ImageData    `json:"image,omitempty"`
+	Audio    *AudioData    `json:"audio,omitempty"`
+	Video    *VideoData    `json:"video,omitempty"`
+	Document *DocumentData `json:"document,omitempty"`
 }
 
-// ImageData holds the binary data for an image, encoded as base64.
+// ImageData holds image content, either as base64-encoded inline data or a URI reference.
+// Exactly one of Data or URI should be set. Each provider decides the wire format:
+//   - Gemini: URI maps to fileData, Data maps to inlineData
+//   - OpenAI: URI maps to image_url, Data maps to base64 data URL
+//   - Anthropic: URI maps to url source, Data maps to base64 source
 type ImageData struct {
-	MimeType string `json:"mime_type"` // MIME type (e.g., "image/png", "image/jpeg")
-	Data     string `json:"data"`      // Base64-encoded image data
+	MimeType string `json:"mime_type"`      // MIME type (e.g., "image/png", "image/jpeg")
+	Data     string `json:"data,omitempty"` // Base64-encoded image data
+	URI      string `json:"uri,omitempty"`  // URL, file URI, or opaque file ID
+}
+
+// AudioData holds audio content, either as base64-encoded inline data or a URI reference.
+// Exactly one of Data or URI should be set.
+// MimeType uses the canonical MIME form (e.g., "audio/wav", "audio/mp3").
+// Providers that require format strings (e.g., OpenAI uses "wav" instead of "audio/wav")
+// handle the conversion internally.
+type AudioData struct {
+	MimeType string `json:"mime_type"`      // MIME type (e.g., "audio/wav", "audio/mp3", "audio/ogg")
+	Data     string `json:"data,omitempty"` // Base64-encoded audio data
+	URI      string `json:"uri,omitempty"`  // URL, file URI, or opaque file ID
+}
+
+// VideoData holds video content, either as base64-encoded inline data or a URI reference.
+// Exactly one of Data or URI should be set.
+type VideoData struct {
+	MimeType string `json:"mime_type"`      // MIME type (e.g., "video/mp4", "video/webm")
+	Data     string `json:"data,omitempty"` // Base64-encoded video data
+	URI      string `json:"uri,omitempty"`  // URL, file URI, or opaque file ID
+}
+
+// DocumentData holds document content, either as base64-encoded inline data or a URI reference.
+// Exactly one of Data or URI should be set.
+// Supported formats depend on the provider (e.g., Gemini supports PDF via inline or file URI).
+type DocumentData struct {
+	MimeType string `json:"mime_type"`      // MIME type (e.g., "application/pdf", "text/plain")
+	Data     string `json:"data,omitempty"` // Base64-encoded document data
+	URI      string `json:"uri,omitempty"`  // URL, file URI, or opaque file ID
 }
 
 // NewTextPart creates a ContentPart containing text content.
@@ -90,6 +133,85 @@ func NewImagePart(mimeType, base64Data string) ContentPart {
 		Image: &ImageData{
 			MimeType: mimeType,
 			Data:     base64Data,
+		},
+	}
+}
+
+// NewImagePartFromURI creates a ContentPart referencing an image by URL or file URI.
+// The provider's conversion layer determines the wire format (e.g., Gemini fileData, OpenAI image_url).
+func NewImagePartFromURI(mimeType, uri string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeImage,
+		Image: &ImageData{
+			MimeType: mimeType,
+			URI:      uri,
+		},
+	}
+}
+
+// NewAudioPart creates a ContentPart containing base64-encoded audio data.
+// mimeType should be the canonical MIME form (e.g., "audio/wav", "audio/mp3").
+func NewAudioPart(mimeType, base64Data string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeAudio,
+		Audio: &AudioData{
+			MimeType: mimeType,
+			Data:     base64Data,
+		},
+	}
+}
+
+// NewAudioPartFromURI creates a ContentPart referencing audio by URL or file URI.
+func NewAudioPartFromURI(mimeType, uri string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeAudio,
+		Audio: &AudioData{
+			MimeType: mimeType,
+			URI:      uri,
+		},
+	}
+}
+
+// NewVideoPart creates a ContentPart containing base64-encoded video data.
+func NewVideoPart(mimeType, base64Data string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeVideo,
+		Video: &VideoData{
+			MimeType: mimeType,
+			Data:     base64Data,
+		},
+	}
+}
+
+// NewVideoPartFromURI creates a ContentPart referencing video by URL or file URI.
+func NewVideoPartFromURI(mimeType, uri string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeVideo,
+		Video: &VideoData{
+			MimeType: mimeType,
+			URI:      uri,
+		},
+	}
+}
+
+// NewDocumentPart creates a ContentPart containing base64-encoded document data (e.g., PDF).
+func NewDocumentPart(mimeType, base64Data string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeDocument,
+		Document: &DocumentData{
+			MimeType: mimeType,
+			Data:     base64Data,
+		},
+	}
+}
+
+// NewDocumentPartFromURI creates a ContentPart referencing a document by URL or file URI.
+func NewDocumentPartFromURI(mimeType, uri string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeDocument,
+		Document: &DocumentData{
+			MimeType: mimeType,
+			URI:      uri,
 		},
 	}
 }
@@ -188,6 +310,7 @@ type ChatResponse struct {
 	Created      int64       `json:"created"`
 	Content      string      `json:"content"`
 	Images       []ImageData `json:"images,omitempty"` // Generated images from the model response
+	Audio        []AudioData `json:"audio,omitempty"`  // Generated audio from the model response (TTS, native audio)
 	ToolCalls    []ToolCall  `json:"tool_calls,omitempty"`
 	FinishReason string      `json:"finish_reason,omitempty"`
 	Usage        *Usage      `json:"usage,omitempty"`
@@ -305,3 +428,47 @@ const (
 	RoleAssistant MessageRole = "assistant" // Middle llm response
 	RoleTool      MessageRole = "tool"      // Tool/function output
 )
+
+/*
+	##### MODEL METADATA #####
+*/
+
+// Modality represents an input or output modality supported by a model.
+// Used in ModelInfo to describe what content types a model can accept and produce.
+type Modality string
+
+const (
+	ModalityText     Modality = "text"     // Text input/output (universal)
+	ModalityImage    Modality = "image"    // Image input (vision) or output (generation)
+	ModalityAudio    Modality = "audio"    // Audio input (transcription) or output (TTS, native audio)
+	ModalityVideo    Modality = "video"    // Video input (understanding) or output (generation)
+	ModalityDocument Modality = "document" // Document input (PDF, plain text)
+)
+
+// ModelInfo describes a model's identity, capabilities, and pricing.
+// Provider packages populate this from their model registries.
+// This type is cross-provider compatible: Gemini, OpenAI, and Anthropic models
+// can all be described with the same structure.
+type ModelInfo struct {
+	// ID is the canonical model identifier used in API calls (e.g., "gemini-2.5-pro", "gpt-4o").
+	ID string `json:"id"`
+
+	// Name is a human-readable display name (e.g., "Gemini 2.5 Pro").
+	Name string `json:"name"`
+
+	// Description is a short summary of the model's purpose and characteristics.
+	Description string `json:"description,omitempty"`
+
+	// InputModalities lists the content types the model can accept as input.
+	InputModalities []Modality `json:"input_modalities"`
+
+	// OutputModalities lists the content types the model can produce as output.
+	OutputModalities []Modality `json:"output_modalities"`
+
+	// Pricing holds the cost structure for this model. Nil if pricing is unavailable
+	// (e.g., preview/experimental models with unpublished pricing).
+	Pricing *cost.ModelCost `json:"pricing,omitempty"`
+
+	// Deprecated indicates whether this model is deprecated and should be avoided.
+	Deprecated bool `json:"deprecated,omitempty"`
+}

@@ -166,6 +166,16 @@ func requestToChatCompletion(request ai.ChatRequest, useLegacyFunctions bool) ch
 			Content: msg.Content,
 		}
 
+		// TODO: handle multimodal ContentParts for Chat Completions API.
+		// When msg.ContentParts is populated, set chatMsg.Content to a
+		// []contentPart slice instead of a plain string:
+		//   - Text: {"type":"text","text":"..."}
+		//   - Image (data): {"type":"image_url","image_url":{"url":"data:<mime>;base64,<data>"}}
+		//   - Image (URI): {"type":"image_url","image_url":{"url":"<uri>"}}
+		//   - Audio: {"type":"input_audio","input_audio":{"data":"<base64>","format":"<fmt>"}}
+		//     where format is derived from MimeType (e.g., "audio/wav" -> "wav").
+		// Video and document types are not supported by the Chat Completions API.
+
 		// Map tool-related fields
 		if len(msg.ToolCalls) > 0 {
 			// Convert ai.ToolCall to chatToolCall

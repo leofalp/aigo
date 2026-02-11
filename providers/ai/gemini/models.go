@@ -27,19 +27,27 @@ type content struct {
 	Parts []part `json:"parts"`
 }
 
-// part represents a content part (text, function call, function response, inline data, etc.).
+// part represents a content part (text, function call, function response, inline data, file data, etc.).
 type part struct {
 	Text             string            `json:"text,omitempty"`
 	Thought          bool              `json:"thought,omitempty"` // true if this part contains a thinking/reasoning summary
 	FunctionCall     *functionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *functionResponse `json:"functionResponse,omitempty"`
-	InlineData       *inlineData       `json:"inlineData,omitempty"` // For multimodal content (images)
+	InlineData       *inlineData       `json:"inlineData,omitempty"` // For multimodal content (images, audio, video, documents)
+	FileData         *fileData         `json:"fileData,omitempty"`   // For URI-referenced multimodal content
 }
 
-// inlineData represents inline binary data (e.g., base64-encoded images).
+// inlineData represents inline binary data (e.g., base64-encoded images, audio, video).
 type inlineData struct {
 	MimeType string `json:"mimeType"`
 	Data     string `json:"data"`
+}
+
+// fileData represents a file reference by MIME type and URI.
+// Used for URI-based multimodal content (e.g., Google Cloud Storage URIs, uploaded file URIs).
+type fileData struct {
+	MimeType string `json:"mimeType"`
+	FileURI  string `json:"fileUri"`
 }
 
 // functionCall represents a function call from the model.

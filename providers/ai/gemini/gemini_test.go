@@ -1369,6 +1369,355 @@ func TestIsStopMessage_WithImages(t *testing.T) {
 	}
 }
 
+func TestBuildContents_WithAudioInput(t *testing.T) {
+	messages := []ai.Message{
+		{
+			Role: ai.RoleUser,
+			ContentParts: []ai.ContentPart{
+				ai.NewTextPart("Transcribe this audio"),
+				ai.NewAudioPart("audio/wav", "UklGRiQAAABXQVZFZm10=="),
+			},
+		},
+	}
+
+	contents := buildContents(messages)
+
+	if len(contents) != 1 {
+		t.Fatalf("expected 1 content, got %d", len(contents))
+	}
+
+	if len(contents[0].Parts) != 2 {
+		t.Fatalf("expected 2 parts (text + audio), got %d", len(contents[0].Parts))
+	}
+
+	// Verify text part
+	if contents[0].Parts[0].Text != "Transcribe this audio" {
+		t.Errorf("expected text 'Transcribe this audio', got %q", contents[0].Parts[0].Text)
+	}
+
+	// Verify audio inlineData part
+	if contents[0].Parts[1].InlineData == nil {
+		t.Fatal("expected inlineData in second part")
+	}
+	if contents[0].Parts[1].InlineData.MimeType != "audio/wav" {
+		t.Errorf("expected mimeType 'audio/wav', got %q", contents[0].Parts[1].InlineData.MimeType)
+	}
+	if contents[0].Parts[1].InlineData.Data != "UklGRiQAAABXQVZFZm10==" {
+		t.Errorf("expected base64 data, got %q", contents[0].Parts[1].InlineData.Data)
+	}
+}
+
+func TestBuildContents_WithVideoInputURI(t *testing.T) {
+	messages := []ai.Message{
+		{
+			Role: ai.RoleUser,
+			ContentParts: []ai.ContentPart{
+				ai.NewTextPart("Describe this video"),
+				ai.NewVideoPartFromURI("video/mp4", "gs://bucket/video.mp4"),
+			},
+		},
+	}
+
+	contents := buildContents(messages)
+
+	if len(contents) != 1 {
+		t.Fatalf("expected 1 content, got %d", len(contents))
+	}
+
+	if len(contents[0].Parts) != 2 {
+		t.Fatalf("expected 2 parts (text + video), got %d", len(contents[0].Parts))
+	}
+
+	// Verify text part
+	if contents[0].Parts[0].Text != "Describe this video" {
+		t.Errorf("expected text 'Describe this video', got %q", contents[0].Parts[0].Text)
+	}
+
+	// URI-based video should use FileData, not InlineData
+	if contents[0].Parts[1].FileData == nil {
+		t.Fatal("expected fileData in second part for URI-based video")
+	}
+	if contents[0].Parts[1].InlineData != nil {
+		t.Error("expected no inlineData when URI is used")
+	}
+	if contents[0].Parts[1].FileData.MimeType != "video/mp4" {
+		t.Errorf("expected mimeType 'video/mp4', got %q", contents[0].Parts[1].FileData.MimeType)
+	}
+	if contents[0].Parts[1].FileData.FileURI != "gs://bucket/video.mp4" {
+		t.Errorf("expected fileUri 'gs://bucket/video.mp4', got %q", contents[0].Parts[1].FileData.FileURI)
+	}
+}
+
+func TestBuildContents_WithDocumentInput(t *testing.T) {
+	messages := []ai.Message{
+		{
+			Role: ai.RoleUser,
+			ContentParts: []ai.ContentPart{
+				ai.NewTextPart("Summarize this PDF"),
+				ai.NewDocumentPart("application/pdf", "JVBERi0xLjQK=="),
+			},
+		},
+	}
+
+	contents := buildContents(messages)
+
+	if len(contents) != 1 {
+		t.Fatalf("expected 1 content, got %d", len(contents))
+	}
+
+	if len(contents[0].Parts) != 2 {
+		t.Fatalf("expected 2 parts (text + document), got %d", len(contents[0].Parts))
+	}
+
+	// Verify document inlineData part
+	if contents[0].Parts[1].InlineData == nil {
+		t.Fatal("expected inlineData in second part")
+	}
+	if contents[0].Parts[1].InlineData.MimeType != "application/pdf" {
+		t.Errorf("expected mimeType 'application/pdf', got %q", contents[0].Parts[1].InlineData.MimeType)
+	}
+	if contents[0].Parts[1].InlineData.Data != "JVBERi0xLjQK==" {
+		t.Errorf("expected base64 data, got %q", contents[0].Parts[1].InlineData.Data)
+	}
+}
+
+func TestContentPartsToGeminiParts_URIPrecedence(t *testing.T) {
+	// When both Data and URI are set, URI should take precedence
+	contentParts := []ai.ContentPart{
+		{
+			Type: ai.ContentTypeImage,
+			Image: &ai.ImageData{
+				MimeType: "image/png",
+				Data:     "inlineBase64Data==",
+				URI:      "gs://bucket/image.png",
+			},
+		},
+		{
+			Type: ai.ContentTypeAudio,
+			Audio: &ai.AudioData{
+				MimeType: "audio/wav",
+				Data:     "audioBase64Data==",
+				URI:      "https://storage.example.com/audio.wav",
+			},
+		},
+	}
+
+	parts := contentPartsToGeminiParts(contentParts)
+
+	if len(parts) != 2 {
+		t.Fatalf("expected 2 parts, got %d", len(parts))
+	}
+
+	// Image: URI should win over Data
+	if parts[0].FileData == nil {
+		t.Fatal("expected fileData for image when both Data and URI are set")
+	}
+	if parts[0].InlineData != nil {
+		t.Error("expected no inlineData when URI takes precedence")
+	}
+	if parts[0].FileData.FileURI != "gs://bucket/image.png" {
+		t.Errorf("expected fileUri 'gs://bucket/image.png', got %q", parts[0].FileData.FileURI)
+	}
+
+	// Audio: URI should win over Data
+	if parts[1].FileData == nil {
+		t.Fatal("expected fileData for audio when both Data and URI are set")
+	}
+	if parts[1].InlineData != nil {
+		t.Error("expected no inlineData when URI takes precedence")
+	}
+	if parts[1].FileData.FileURI != "https://storage.example.com/audio.wav" {
+		t.Errorf("expected correct audio URI, got %q", parts[1].FileData.FileURI)
+	}
+}
+
+func TestGeminiToGeneric_WithAudioOutput(t *testing.T) {
+	resp := generateContentResponse{
+		Candidates: []candidate{{
+			Content: &content{
+				Role: "model",
+				Parts: []part{
+					{Text: "Here is the generated audio:"},
+					{InlineData: &inlineData{MimeType: "audio/wav", Data: "UklGRiQAAABXQVZFZm10=="}},
+				},
+			},
+			FinishReason: "STOP",
+		}},
+	}
+
+	result := geminiToGeneric(resp)
+
+	if result.Content != "Here is the generated audio:" {
+		t.Errorf("expected text content, got %q", result.Content)
+	}
+
+	// Audio MIME type should route to result.Audio, not result.Images
+	if len(result.Audio) != 1 {
+		t.Fatalf("expected 1 audio output, got %d", len(result.Audio))
+	}
+	if result.Audio[0].MimeType != "audio/wav" {
+		t.Errorf("expected mime type 'audio/wav', got %q", result.Audio[0].MimeType)
+	}
+	if result.Audio[0].Data != "UklGRiQAAABXQVZFZm10==" {
+		t.Errorf("expected base64 audio data, got %q", result.Audio[0].Data)
+	}
+
+	// Images should be empty since audio is routed separately
+	if len(result.Images) != 0 {
+		t.Errorf("expected 0 images, got %d (audio was incorrectly routed to images)", len(result.Images))
+	}
+}
+
+func TestGeminiToGeneric_WithFileDataResponse(t *testing.T) {
+	resp := generateContentResponse{
+		Candidates: []candidate{{
+			Content: &content{
+				Role: "model",
+				Parts: []part{
+					{Text: "Here are the generated files:"},
+					{FileData: &fileData{MimeType: "image/png", FileURI: "gs://bucket/output.png"}},
+					{FileData: &fileData{MimeType: "audio/mp3", FileURI: "gs://bucket/output.mp3"}},
+				},
+			},
+			FinishReason: "STOP",
+		}},
+	}
+
+	result := geminiToGeneric(resp)
+
+	if result.Content != "Here are the generated files:" {
+		t.Errorf("expected text content, got %q", result.Content)
+	}
+
+	// Image FileData should go to result.Images with URI set
+	if len(result.Images) != 1 {
+		t.Fatalf("expected 1 image, got %d", len(result.Images))
+	}
+	if result.Images[0].MimeType != "image/png" {
+		t.Errorf("expected mime type 'image/png', got %q", result.Images[0].MimeType)
+	}
+	if result.Images[0].URI != "gs://bucket/output.png" {
+		t.Errorf("expected URI 'gs://bucket/output.png', got %q", result.Images[0].URI)
+	}
+	if result.Images[0].Data != "" {
+		t.Errorf("expected empty Data for URI-based image, got %q", result.Images[0].Data)
+	}
+
+	// Audio FileData should go to result.Audio with URI set
+	if len(result.Audio) != 1 {
+		t.Fatalf("expected 1 audio, got %d", len(result.Audio))
+	}
+	if result.Audio[0].MimeType != "audio/mp3" {
+		t.Errorf("expected mime type 'audio/mp3', got %q", result.Audio[0].MimeType)
+	}
+	if result.Audio[0].URI != "gs://bucket/output.mp3" {
+		t.Errorf("expected URI 'gs://bucket/output.mp3', got %q", result.Audio[0].URI)
+	}
+}
+
+func TestDetectCapabilities_PerModel(t *testing.T) {
+	tests := []struct {
+		name              string
+		model             string
+		expectMultimodal  bool
+		expectImageOutput bool
+		expectAudioOutput bool
+		expectVideoOutput bool
+	}{
+		{
+			name:              "text-only model (flash-lite)",
+			model:             Model20FlashLite,
+			expectMultimodal:  true, // Gemini flash-lite still accepts multimodal input
+			expectImageOutput: false,
+			expectAudioOutput: false,
+			expectVideoOutput: false,
+		},
+		{
+			name:              "image output model (text-only input)",
+			model:             Model30ProImagePreview,
+			expectMultimodal:  false, // Model30ProImagePreview accepts text-only input
+			expectImageOutput: true,
+			expectAudioOutput: false,
+			expectVideoOutput: false,
+		},
+		{
+			name:              "audio output model (native audio)",
+			model:             Model25FlashNativeAudio,
+			expectMultimodal:  true,
+			expectImageOutput: false,
+			expectAudioOutput: true,
+			expectVideoOutput: false,
+		},
+		{
+			name:              "unknown model gets conservative defaults",
+			model:             "some-future-model-xyz",
+			expectMultimodal:  true,
+			expectImageOutput: false,
+			expectAudioOutput: false,
+			expectVideoOutput: false,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			capabilities := detectCapabilities(testCase.model)
+
+			if capabilities.SupportsMultimodal != testCase.expectMultimodal {
+				t.Errorf("SupportsMultimodal: expected %v, got %v", testCase.expectMultimodal, capabilities.SupportsMultimodal)
+			}
+			if capabilities.SupportsImageOutput != testCase.expectImageOutput {
+				t.Errorf("SupportsImageOutput: expected %v, got %v", testCase.expectImageOutput, capabilities.SupportsImageOutput)
+			}
+			if capabilities.SupportsAudioOutput != testCase.expectAudioOutput {
+				t.Errorf("SupportsAudioOutput: expected %v, got %v", testCase.expectAudioOutput, capabilities.SupportsAudioOutput)
+			}
+			if capabilities.SupportsVideoOutput != testCase.expectVideoOutput {
+				t.Errorf("SupportsVideoOutput: expected %v, got %v", testCase.expectVideoOutput, capabilities.SupportsVideoOutput)
+			}
+
+			// All models should support these base capabilities
+			if !capabilities.SupportsStructuredOutputs {
+				t.Error("expected SupportsStructuredOutputs to be true")
+			}
+			if !capabilities.SupportsThinking {
+				t.Error("expected SupportsThinking to be true")
+			}
+			if !capabilities.SupportsFunctionCalling {
+				t.Error("expected SupportsFunctionCalling to be true")
+			}
+		})
+	}
+}
+
+func TestIsStopMessage_WithAudioOnly(t *testing.T) {
+	provider := New()
+
+	// Audio-only response (no text, no images) should NOT be a stop message
+	audioOnlyResponse := &ai.ChatResponse{
+		Content: "",
+		Audio: []ai.AudioData{
+			{MimeType: "audio/wav", Data: "audioBase64Data=="},
+		},
+	}
+
+	if provider.IsStopMessage(audioOnlyResponse) {
+		t.Error("expected audio-only response to NOT be a stop message")
+	}
+
+	// Response with audio and stop finish reason should be a stop message
+	audioWithStopResponse := &ai.ChatResponse{
+		Content:      "Here is the audio",
+		FinishReason: "stop",
+		Audio: []ai.AudioData{
+			{MimeType: "audio/wav", Data: "audioBase64Data=="},
+		},
+	}
+
+	if !provider.IsStopMessage(audioWithStopResponse) {
+		t.Error("expected response with stop finish reason to be a stop message")
+	}
+}
+
 func TestSendMessage_WithGoogleSearchReturnsGrounding(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Return response with full grounding metadata

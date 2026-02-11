@@ -109,25 +109,57 @@ func buildContents(messages []ai.Message) []content {
 }
 
 // contentPartsToGeminiParts converts generic ContentPart slices to Gemini part slices.
-// Text parts become text parts, image parts become inlineData parts.
+// For each content type, the conversion chooses between inlineData (base64) and fileData (URI)
+// based on which field is populated. If both Data and URI are set, URI takes precedence.
 func contentPartsToGeminiParts(contentParts []ai.ContentPart) []part {
 	var parts []part
-	for _, cp := range contentParts {
-		switch cp.Type {
+	for _, contentPart := range contentParts {
+		switch contentPart.Type {
 		case ai.ContentTypeText:
-			parts = append(parts, part{Text: cp.Text})
+			parts = append(parts, part{Text: contentPart.Text})
+
 		case ai.ContentTypeImage:
-			if cp.Image != nil {
-				parts = append(parts, part{
-					InlineData: &inlineData{
-						MimeType: cp.Image.MimeType,
-						Data:     cp.Image.Data,
-					},
-				})
+			if contentPart.Image != nil {
+				parts = append(parts, mediaDataToPart(contentPart.Image.MimeType, contentPart.Image.Data, contentPart.Image.URI))
 			}
+
+		case ai.ContentTypeAudio:
+			if contentPart.Audio != nil {
+				parts = append(parts, mediaDataToPart(contentPart.Audio.MimeType, contentPart.Audio.Data, contentPart.Audio.URI))
+			}
+
+		case ai.ContentTypeVideo:
+			if contentPart.Video != nil {
+				parts = append(parts, mediaDataToPart(contentPart.Video.MimeType, contentPart.Video.Data, contentPart.Video.URI))
+			}
+
+		case ai.ContentTypeDocument:
+			if contentPart.Document != nil {
+				parts = append(parts, mediaDataToPart(contentPart.Document.MimeType, contentPart.Document.Data, contentPart.Document.URI))
+			}
+			// TODO: implement document/PDF content part extraction from response
 		}
 	}
 	return parts
+}
+
+// mediaDataToPart converts media data (base64 or URI) to a Gemini part.
+// URI takes precedence over inline data when both are provided.
+func mediaDataToPart(mimeType, data, uri string) part {
+	if uri != "" {
+		return part{
+			FileData: &fileData{
+				MimeType: mimeType,
+				FileURI:  uri,
+			},
+		}
+	}
+	return part{
+		InlineData: &inlineData{
+			MimeType: mimeType,
+			Data:     data,
+		},
+	}
 }
 
 // buildGenerationConfig converts ai.GenerationConfig and ai.ResponseFormat to Gemini generationConfig.
@@ -335,12 +367,34 @@ func geminiToGeneric(resp generateContentResponse) *ai.ChatResponse {
 				})
 			}
 
-			// Extract inline image data from response
+			// Extract inline media data from response (images and audio)
 			if p.InlineData != nil {
-				result.Images = append(result.Images, ai.ImageData{
-					MimeType: p.InlineData.MimeType,
-					Data:     p.InlineData.Data,
-				})
+				if isAudioMimeType(p.InlineData.MimeType) {
+					result.Audio = append(result.Audio, ai.AudioData{
+						MimeType: p.InlineData.MimeType,
+						Data:     p.InlineData.Data,
+					})
+				} else {
+					result.Images = append(result.Images, ai.ImageData{
+						MimeType: p.InlineData.MimeType,
+						Data:     p.InlineData.Data,
+					})
+				}
+			}
+
+			// Extract file-referenced media from response
+			if p.FileData != nil {
+				if isAudioMimeType(p.FileData.MimeType) {
+					result.Audio = append(result.Audio, ai.AudioData{
+						MimeType: p.FileData.MimeType,
+						URI:      p.FileData.FileURI,
+					})
+				} else {
+					result.Images = append(result.Images, ai.ImageData{
+						MimeType: p.FileData.MimeType,
+						URI:      p.FileData.FileURI,
+					})
+				}
 			}
 		}
 
@@ -426,4 +480,9 @@ func mapGroundingMetadata(gm *groundingMetadata) *ai.GroundingMetadata {
 	}
 
 	return result
+}
+
+// isAudioMimeType returns true if the given MIME type represents audio content.
+func isAudioMimeType(mimeType string) bool {
+	return strings.HasPrefix(mimeType, "audio/")
 }

@@ -20,6 +20,7 @@ const (
 type GeminiProvider struct {
 	apiKey       string
 	baseURL      string
+	defaultModel string
 	client       *http.Client
 	capabilities Capabilities
 }
@@ -38,8 +39,9 @@ func New() *GeminiProvider {
 	return &GeminiProvider{
 		apiKey:       apiKey,
 		baseURL:      baseURL,
+		defaultModel: defaultModel,
 		client:       &http.Client{},
-		capabilities: detectCapabilities(),
+		capabilities: detectCapabilities(defaultModel),
 	}
 }
 
@@ -76,8 +78,16 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, request ai.ChatRequest
 	// Determine model
 	model := request.Model
 	if model == "" {
-		model = defaultModel
+		model = p.defaultModel
 	}
+
+	// Recalculate capabilities if request uses a different model than the default,
+	// since capabilities (e.g., image output, audio) vary per model.
+	capabilities := p.capabilities
+	if model != p.defaultModel {
+		capabilities = detectCapabilities(model)
+	}
+	_ = capabilities // Available for future per-request capability checks
 
 	if span != nil {
 		span.AddEvent(observability.EventLLMRequestStart)
@@ -168,8 +178,8 @@ func (p *GeminiProvider) IsStopMessage(message *ai.ChatResponse) bool {
 		return true
 	}
 
-	// If there's no content, no images, and no tool calls, treat as stop
-	if message.Content == "" && len(message.Images) == 0 {
+	// If there's no content, no media outputs, and no tool calls, treat as stop
+	if message.Content == "" && len(message.Images) == 0 && len(message.Audio) == 0 {
 		return true
 	}
 

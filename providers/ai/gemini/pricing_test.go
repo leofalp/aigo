@@ -111,12 +111,12 @@ func TestCalculateCost(t *testing.T) {
 			name:  "mixed usage for gemini-2.5-pro",
 			model: Model25Pro,
 			usage: &ai.Usage{
-				PromptTokens:     500_000, // 0.5M * $1.25 = $0.625
-				CompletionTokens: 100_000, // 0.1M * $10 = $1.00
+				PromptTokens:     500_000, // 0.5M * $2.50 (tier >200k) = $1.25
+				CompletionTokens: 100_000, // 0.1M * $10 (base, <200k) = $1.00
 				CachedTokens:     200_000, // 0.2M * $0.625 = $0.125
 				ReasoningTokens:  50_000,  // 0.05M * $10 = $0.50
 			},
-			expected: 2.25, // $0.625 + $1.00 + $0.125 + $0.50
+			expected: 2.875, // $1.25 + $1.00 + $0.125 + $0.50
 		},
 		{
 			name:  "typical small request",
@@ -233,5 +233,180 @@ func TestModelPricingMap_AllModelsHaveRequiredFields(t *testing.T) {
 				t.Errorf("Model %q has CachedInputCostPerMillion >= InputCostPerMillion", model)
 			}
 		})
+	}
+}
+
+// --- ModelRegistry tests ---
+
+func TestGetModelInfo_KnownModels(t *testing.T) {
+	tests := []struct {
+		model       string
+		expectFound bool
+		expectName  string
+	}{
+		{Model25Pro, true, "Gemini 2.5 Pro"},
+		{Model30ProPreview, true, "Gemini 3 Pro Preview"},
+		{Model25FlashImage, true, "Gemini 2.5 Flash Image"},
+		{ModelImagen4, true, "Imagen 4"},
+		{ModelVeo31, true, "Veo 3.1"},
+		{Model25FlashNativeAudio, true, "Gemini 2.5 Flash Native Audio"},
+		{Model20FlashLite, true, "Gemini 2.0 Flash Lite"},
+		{"unknown-model-xyz", false, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			info, found := GetModelInfo(tt.model)
+			if found != tt.expectFound {
+				t.Errorf("GetModelInfo(%q): found = %v, want %v", tt.model, found, tt.expectFound)
+			}
+			if found && info.Name != tt.expectName {
+				t.Errorf("GetModelInfo(%q).Name = %q, want %q", tt.model, info.Name, tt.expectName)
+			}
+		})
+	}
+}
+
+func TestGetModelInfo_NormalizesVersionedModels(t *testing.T) {
+	// Versioned model names should resolve to their canonical entry
+	info, found := GetModelInfo("gemini-2.0-flash-001")
+	if !found {
+		t.Fatal("expected to find normalized model")
+	}
+	if info.ID != Model20Flash {
+		t.Errorf("expected ID %q, got %q", Model20Flash, info.ID)
+	}
+}
+
+func TestModelRegistry_TieredPricingModels(t *testing.T) {
+	tieredModels := []string{Model25Pro, Model30ProPreview, Model15Pro, Model15Flash, Model15Flash8B}
+
+	for _, model := range tieredModels {
+		t.Run(model, func(t *testing.T) {
+			info, found := GetModelInfo(model)
+			if !found {
+				t.Fatalf("model %q not in registry", model)
+			}
+			if info.Pricing == nil {
+				t.Fatalf("model %q has nil pricing", model)
+			}
+			if len(info.Pricing.ContextTiers) == 0 {
+				t.Errorf("model %q expected to have ContextTiers", model)
+			}
+		})
+	}
+}
+
+func TestModelRegistry_ImageOutputModels(t *testing.T) {
+	imageModels := []string{Model30ProImagePreview, Model25FlashImage, ModelImagen4, ModelImagen4Ultra, ModelImagen4Fast}
+
+	for _, model := range imageModels {
+		t.Run(model, func(t *testing.T) {
+			info, found := GetModelInfo(model)
+			if !found {
+				t.Fatalf("model %q not in registry", model)
+			}
+			hasImageOutput := false
+			for _, modality := range info.OutputModalities {
+				if modality == ai.ModalityImage {
+					hasImageOutput = true
+				}
+			}
+			if !hasImageOutput {
+				t.Errorf("model %q expected to have image output modality", model)
+			}
+		})
+	}
+}
+
+func TestModelRegistry_NilPricingModels(t *testing.T) {
+	// Models with nil pricing should not appear in ModelPricing
+	nilPricingModels := []string{
+		ModelRoboticsER15, ModelImagen4, ModelImagen4Ultra, ModelImagen4Fast,
+		ModelVeo31, ModelVeo31Fast, ModelVeo20,
+		Model25FlashNativeAudio, Model25ProTTS, Model25FlashTTS,
+	}
+
+	for _, model := range nilPricingModels {
+		t.Run(model, func(t *testing.T) {
+			info, found := GetModelInfo(model)
+			if !found {
+				t.Fatalf("model %q not in registry", model)
+			}
+			if info.Pricing != nil {
+				t.Errorf("model %q expected nil pricing, got %+v", model, info.Pricing)
+			}
+			// Should not be in ModelPricing
+			if _, inPricing := ModelPricing[model]; inPricing {
+				t.Errorf("model %q with nil pricing should not be in ModelPricing map", model)
+			}
+		})
+	}
+}
+
+func TestModelRegistry_LegacyModelsAreDeprecated(t *testing.T) {
+	legacyModels := []string{Model15Pro, Model15Flash, Model15Flash8B}
+
+	for _, model := range legacyModels {
+		t.Run(model, func(t *testing.T) {
+			info, found := GetModelInfo(model)
+			if !found {
+				t.Fatalf("model %q not in registry", model)
+			}
+			if !info.Deprecated {
+				t.Errorf("model %q expected to be marked as deprecated", model)
+			}
+		})
+	}
+}
+
+func TestModelRegistry_MediaOutputCosts(t *testing.T) {
+	// gemini-3-pro-image-preview should have per-image cost
+	info, found := GetModelInfo(Model30ProImagePreview)
+	if !found {
+		t.Fatal("expected Model30ProImagePreview in registry")
+	}
+	if info.Pricing == nil {
+		t.Fatal("expected non-nil pricing")
+	}
+	if info.Pricing.ImageOutputCostPerUnit != 0.134 {
+		t.Errorf("expected ImageOutputCostPerUnit 0.134, got %v", info.Pricing.ImageOutputCostPerUnit)
+	}
+
+	// gemini-2.5-flash-image should have per-image cost
+	info2, found2 := GetModelInfo(Model25FlashImage)
+	if !found2 {
+		t.Fatal("expected Model25FlashImage in registry")
+	}
+	if info2.Pricing == nil {
+		t.Fatal("expected non-nil pricing")
+	}
+	if info2.Pricing.ImageOutputCostPerUnit != 0.039 {
+		t.Errorf("expected ImageOutputCostPerUnit 0.039, got %v", info2.Pricing.ImageOutputCostPerUnit)
+	}
+}
+
+func TestCalculateCostBreakdownWithMedia(t *testing.T) {
+	usage := &ai.Usage{
+		PromptTokens:     100_000,
+		CompletionTokens: 50_000,
+	}
+
+	breakdown := CalculateCostBreakdownWithMedia(Model30ProImagePreview, usage, 3, 0, 0)
+
+	if breakdown.ImageCount != 3 {
+		t.Errorf("expected ImageCount 3, got %d", breakdown.ImageCount)
+	}
+
+	// 3 images * $0.134 = $0.402
+	epsilon := 0.0000001
+	expectedImageCost := 0.402
+	if diff := breakdown.ImageCost - expectedImageCost; diff > epsilon || diff < -epsilon {
+		t.Errorf("expected ImageCost %v, got %v", expectedImageCost, breakdown.ImageCost)
+	}
+
+	// Total should include token costs + image costs
+	if breakdown.TotalCost <= breakdown.ImageCost {
+		t.Error("expected total cost to include both token and image costs")
 	}
 }
