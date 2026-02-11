@@ -483,8 +483,8 @@ func CalculateCostBreakdownWithMedia(model string, usage *ai.Usage, images, vide
 
 	mc := GetModelCost(model)
 
-	inputCost := mc.CalculateInputCost(usage.PromptTokens)
-	outputCost := mc.CalculateOutputCost(usage.CompletionTokens)
+	inputCost := mc.CalculateInputCostWithTiers(usage.PromptTokens)
+	outputCost := mc.CalculateOutputCostWithTiers(usage.CompletionTokens)
 	cachedCost := mc.CalculateCachedCost(usage.CachedTokens)
 	reasoningCost := mc.CalculateReasoningCost(usage.ReasoningTokens)
 	imageCost := mc.CalculateImageOutputCost(images)

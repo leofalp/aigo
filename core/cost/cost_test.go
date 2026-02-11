@@ -121,6 +121,27 @@ func TestModelCostCalculateInputCost(t *testing.T) {
 	}
 }
 
+func TestModelCostCalculateInputCostWithTiers(t *testing.T) {
+	mc := ModelCost{
+		InputCostPerMillion: 2.50,
+		ContextTiers: []ContextTier{
+			{InputTokenThreshold: 200_000, InputCostPerMillion: 5.00},
+		},
+	}
+
+	cost := mc.CalculateInputCostWithTiers(100_000)
+	expected := 0.25
+	if cost != expected {
+		t.Errorf("Expected cost %f, got %f", expected, cost)
+	}
+
+	cost = mc.CalculateInputCostWithTiers(300_000)
+	expected = 1.50
+	if cost != expected {
+		t.Errorf("Expected cost %f, got %f", expected, cost)
+	}
+}
+
 func TestModelCostCalculateOutputCost(t *testing.T) {
 	mc := ModelCost{
 		InputCostPerMillion:  2.50,
@@ -139,6 +160,27 @@ func TestModelCostCalculateOutputCost(t *testing.T) {
 	cost = mc.CalculateOutputCost(250_000)
 	expected = 2.50
 
+	if cost != expected {
+		t.Errorf("Expected cost %f, got %f", expected, cost)
+	}
+}
+
+func TestModelCostCalculateOutputCostWithTiers(t *testing.T) {
+	mc := ModelCost{
+		OutputCostPerMillion: 10.00,
+		ContextTiers: []ContextTier{
+			{OutputTokenThreshold: 200_000, OutputCostPerMillion: 20.00},
+		},
+	}
+
+	cost := mc.CalculateOutputCostWithTiers(100_000)
+	expected := 1.00
+	if cost != expected {
+		t.Errorf("Expected cost %f, got %f", expected, cost)
+	}
+
+	cost = mc.CalculateOutputCostWithTiers(300_000)
+	expected = 6.00
 	if cost != expected {
 		t.Errorf("Expected cost %f, got %f", expected, cost)
 	}

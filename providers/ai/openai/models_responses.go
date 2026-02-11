@@ -35,7 +35,21 @@ type responseCreateRequest struct {
 // inputItem represents a single message (developer/user/assistant) for Responses API
 type inputItem struct {
 	Role    string      `json:"role"`    // developer, user, assistant
-	Content interface{} `json:"content"` // string or []contentItem
+	Content interface{} `json:"content"` // string or []inputContentPart
+}
+
+// inputContentPart represents a Responses API multimodal content part.
+type inputContentPart struct {
+	Type       string               `json:"type"`
+	Text       string               `json:"text,omitempty"`
+	ImageURL   string               `json:"image_url,omitempty"`
+	InputAudio *responsesInputAudio `json:"input_audio,omitempty"`
+}
+
+// responsesInputAudio describes inline audio input for Responses API.
+type responsesInputAudio struct {
+	Data   string `json:"data"`
+	Format string `json:"format"`
 }
 
 // reasoningConfig for reasoning-capable models (o1, o3, gpt-5)
@@ -208,18 +222,48 @@ func requestToResponses(request ai.ChatRequest) responseCreateRequest {
 	}
 
 	// Convert messages
-	// TODO: handle multimodal ContentParts (images, audio, video, documents).
-	// When msg.ContentParts is populated, convert each part to the Responses API
-	// content format: text parts become {"type":"input_text","text":"..."}, images
-	// become {"type":"input_image","image_url":"data:<mime>;base64,<data>"} or
-	// {"type":"input_image","image_url":"<uri>"}. Audio input uses
-	// {"type":"input_audio","input_audio":{"data":"<base64>","format":"<fmt>"}}.
-	// MimeType must be converted to format strings (e.g., "audio/wav" -> "wav").
+	// Video and document types are not supported by the Responses API.
 	for _, msg := range request.Messages {
-		input = append(input, inputItem{
+		item := inputItem{
 			Role:    string(msg.Role),
 			Content: msg.Content,
-		})
+		}
+
+		if len(msg.ContentParts) > 0 {
+			parts := make([]inputContentPart, 0, len(msg.ContentParts))
+			for _, part := range msg.ContentParts {
+				switch part.Type {
+				case ai.ContentTypeText:
+					parts = append(parts, inputContentPart{Type: "input_text", Text: part.Text})
+				case ai.ContentTypeImage:
+					if part.Image == nil {
+						continue
+					}
+					imageURL := part.Image.URI
+					if imageURL == "" {
+						imageURL = buildDataURL(part.Image.MimeType, part.Image.Data)
+					}
+					if imageURL == "" {
+						continue
+					}
+					parts = append(parts, inputContentPart{Type: "input_image", ImageURL: imageURL})
+				case ai.ContentTypeAudio:
+					if part.Audio == nil || part.Audio.Data == "" {
+						continue
+					}
+					format := mimeTypeToAudioFormat(part.Audio.MimeType)
+					parts = append(parts, inputContentPart{Type: "input_audio", InputAudio: &responsesInputAudio{Data: part.Audio.Data, Format: format}})
+				case ai.ContentTypeVideo, ai.ContentTypeDocument:
+					// Responses API does not support video/document inputs.
+					continue
+				}
+			}
+			if len(parts) > 0 {
+				item.Content = parts
+			}
+		}
+
+		input = append(input, item)
 	}
 
 	// Optimize single user prompt without system prompt

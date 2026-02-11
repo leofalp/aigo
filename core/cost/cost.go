@@ -232,16 +232,30 @@ func (mc ModelCost) effectiveOutputRate(outputTokens int) float64 {
 
 // CalculateInputCost calculates the cost for the given number of input tokens
 // using the base rate (ignoring tiered pricing). For tier-aware calculation,
-// use CalculateTotalCost instead.
+// use CalculateInputCostWithTiers or CalculateTotalCost instead.
 func (mc ModelCost) CalculateInputCost(tokens int) float64 {
 	return (float64(tokens) / 1_000_000.0) * mc.InputCostPerMillion
 }
 
+// CalculateInputCostWithTiers calculates the cost for the given number of input tokens
+// using tiered pricing if ContextTiers is populated.
+func (mc ModelCost) CalculateInputCostWithTiers(tokens int) float64 {
+	rate := mc.effectiveInputRate(tokens)
+	return (float64(tokens) / 1_000_000.0) * rate
+}
+
 // CalculateOutputCost calculates the cost for the given number of output tokens
 // using the base rate (ignoring tiered pricing). For tier-aware calculation,
-// use CalculateTotalCost instead.
+// use CalculateOutputCostWithTiers or CalculateTotalCost instead.
 func (mc ModelCost) CalculateOutputCost(tokens int) float64 {
 	return (float64(tokens) / 1_000_000.0) * mc.OutputCostPerMillion
+}
+
+// CalculateOutputCostWithTiers calculates the cost for the given number of output tokens
+// using tiered pricing if ContextTiers is populated.
+func (mc ModelCost) CalculateOutputCostWithTiers(tokens int) float64 {
+	rate := mc.effectiveOutputRate(tokens)
+	return (float64(tokens) / 1_000_000.0) * rate
 }
 
 // CalculateCachedCost calculates the cost for the given number of cached tokens.

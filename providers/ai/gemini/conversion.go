@@ -367,14 +367,20 @@ func geminiToGeneric(resp generateContentResponse) *ai.ChatResponse {
 				})
 			}
 
-			// Extract inline media data from response (images and audio)
+			// Extract inline media data from response (images, audio, video)
 			if p.InlineData != nil {
-				if isAudioMimeType(p.InlineData.MimeType) {
+				switch {
+				case isAudioMimeType(p.InlineData.MimeType):
 					result.Audio = append(result.Audio, ai.AudioData{
 						MimeType: p.InlineData.MimeType,
 						Data:     p.InlineData.Data,
 					})
-				} else {
+				case isVideoMimeType(p.InlineData.MimeType):
+					result.Videos = append(result.Videos, ai.VideoData{
+						MimeType: p.InlineData.MimeType,
+						Data:     p.InlineData.Data,
+					})
+				default:
 					result.Images = append(result.Images, ai.ImageData{
 						MimeType: p.InlineData.MimeType,
 						Data:     p.InlineData.Data,
@@ -384,12 +390,18 @@ func geminiToGeneric(resp generateContentResponse) *ai.ChatResponse {
 
 			// Extract file-referenced media from response
 			if p.FileData != nil {
-				if isAudioMimeType(p.FileData.MimeType) {
+				switch {
+				case isAudioMimeType(p.FileData.MimeType):
 					result.Audio = append(result.Audio, ai.AudioData{
 						MimeType: p.FileData.MimeType,
 						URI:      p.FileData.FileURI,
 					})
-				} else {
+				case isVideoMimeType(p.FileData.MimeType):
+					result.Videos = append(result.Videos, ai.VideoData{
+						MimeType: p.FileData.MimeType,
+						URI:      p.FileData.FileURI,
+					})
+				default:
 					result.Images = append(result.Images, ai.ImageData{
 						MimeType: p.FileData.MimeType,
 						URI:      p.FileData.FileURI,
@@ -485,4 +497,9 @@ func mapGroundingMetadata(gm *groundingMetadata) *ai.GroundingMetadata {
 // isAudioMimeType returns true if the given MIME type represents audio content.
 func isAudioMimeType(mimeType string) bool {
 	return strings.HasPrefix(mimeType, "audio/")
+}
+
+// isVideoMimeType returns true if the given MIME type represents video content.
+func isVideoMimeType(mimeType string) bool {
+	return strings.HasPrefix(mimeType, "video/")
 }

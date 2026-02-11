@@ -9,6 +9,48 @@ import (
 	"github.com/leofalp/aigo/providers/ai"
 )
 
+// contentPart represents a chat completions multimodal content part.
+type contentPart struct {
+	Type       string            `json:"type"`
+	Text       string            `json:"text,omitempty"`
+	ImageURL   *contentPartImage `json:"image_url,omitempty"`
+	InputAudio *contentPartAudio `json:"input_audio,omitempty"`
+}
+
+// contentPartImage describes image content for chat completions.
+type contentPartImage struct {
+	URL string `json:"url"`
+}
+
+// contentPartAudio describes audio content for chat completions.
+type contentPartAudio struct {
+	Data   string `json:"data"`
+	Format string `json:"format"`
+}
+
+// buildDataURL formats base64 data into a data URL for OpenAI image inputs.
+func buildDataURL(mimeType, data string) string {
+	if mimeType == "" || data == "" {
+		return ""
+	}
+	return "data:" + mimeType + ";base64," + data
+}
+
+// mimeTypeToAudioFormat converts a MIME type into the expected OpenAI audio format.
+// Defaults to "wav" when the format is unknown.
+func mimeTypeToAudioFormat(mimeType string) string {
+	if mimeType == "" {
+		return "wav"
+	}
+	mimeType = strings.ToLower(mimeType)
+	mimeType = strings.TrimSpace(mimeType)
+	mimeType = strings.TrimPrefix(mimeType, "audio/")
+	if mimeType == "" {
+		return "wav"
+	}
+	return mimeType
+}
+
 /*
 	CHAT COMPLETIONS API - INPUT
 */
@@ -166,15 +208,41 @@ func requestToChatCompletion(request ai.ChatRequest, useLegacyFunctions bool) ch
 			Content: msg.Content,
 		}
 
-		// TODO: handle multimodal ContentParts for Chat Completions API.
-		// When msg.ContentParts is populated, set chatMsg.Content to a
-		// []contentPart slice instead of a plain string:
-		//   - Text: {"type":"text","text":"..."}
-		//   - Image (data): {"type":"image_url","image_url":{"url":"data:<mime>;base64,<data>"}}
-		//   - Image (URI): {"type":"image_url","image_url":{"url":"<uri>"}}
-		//   - Audio: {"type":"input_audio","input_audio":{"data":"<base64>","format":"<fmt>"}}
-		//     where format is derived from MimeType (e.g., "audio/wav" -> "wav").
+		// Handle multimodal ContentParts for Chat Completions API.
 		// Video and document types are not supported by the Chat Completions API.
+		if len(msg.ContentParts) > 0 {
+			parts := make([]contentPart, 0, len(msg.ContentParts))
+			for _, part := range msg.ContentParts {
+				switch part.Type {
+				case ai.ContentTypeText:
+					parts = append(parts, contentPart{Type: "text", Text: part.Text})
+				case ai.ContentTypeImage:
+					if part.Image == nil {
+						continue
+					}
+					imageURL := part.Image.URI
+					if imageURL == "" {
+						imageURL = buildDataURL(part.Image.MimeType, part.Image.Data)
+					}
+					if imageURL == "" {
+						continue
+					}
+					parts = append(parts, contentPart{Type: "image_url", ImageURL: &contentPartImage{URL: imageURL}})
+				case ai.ContentTypeAudio:
+					if part.Audio == nil || part.Audio.Data == "" {
+						continue
+					}
+					format := mimeTypeToAudioFormat(part.Audio.MimeType)
+					parts = append(parts, contentPart{Type: "input_audio", InputAudio: &contentPartAudio{Data: part.Audio.Data, Format: format}})
+				case ai.ContentTypeVideo, ai.ContentTypeDocument:
+					// Chat Completions API does not support video/document inputs.
+					continue
+				}
+			}
+			if len(parts) > 0 {
+				chatMsg.Content = parts
+			}
+		}
 
 		// Map tool-related fields
 		if len(msg.ToolCalls) > 0 {

@@ -179,7 +179,7 @@ func (p *GeminiProvider) IsStopMessage(message *ai.ChatResponse) bool {
 	}
 
 	// If there's no content, no media outputs, and no tool calls, treat as stop
-	if message.Content == "" && len(message.Images) == 0 && len(message.Audio) == 0 {
+	if message.Content == "" && len(message.Images) == 0 && len(message.Audio) == 0 && len(message.Videos) == 0 {
 		return true
 	}
 

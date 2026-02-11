@@ -240,9 +240,8 @@ func (p *OpenAIProvider) IsStopMessage(message *ai.ChatResponse) bool {
 		return true
 	}
 
-	// If there's no content, no images, no audio, and no tool calls, treat as stop
-	// TODO: also check for video output when OpenAI adds video generation support.
-	if message.Content == "" && len(message.Images) == 0 && len(message.Audio) == 0 {
+	// If there's no content, no media outputs, and no tool calls, treat as stop
+	if message.Content == "" && len(message.Images) == 0 && len(message.Audio) == 0 && len(message.Videos) == 0 {
 		return true
 	}
 

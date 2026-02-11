@@ -311,6 +311,7 @@ type ChatResponse struct {
 	Content      string      `json:"content"`
 	Images       []ImageData `json:"images,omitempty"` // Generated images from the model response
 	Audio        []AudioData `json:"audio,omitempty"`  // Generated audio from the model response (TTS, native audio)
+	Videos       []VideoData `json:"videos,omitempty"` // Generated video from the model response
 	ToolCalls    []ToolCall  `json:"tool_calls,omitempty"`
 	FinishReason string      `json:"finish_reason,omitempty"`
 	Usage        *Usage      `json:"usage,omitempty"`

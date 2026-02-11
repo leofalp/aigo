@@ -167,8 +167,9 @@ func (o *Overview) CostSummary() cost.CostSummary {
 
 	// Calculate model costs
 	if o.ModelCost != nil {
-		summary.ModelInputCost = o.ModelCost.CalculateInputCost(o.TotalUsage.PromptTokens)
-		summary.ModelOutputCost = o.ModelCost.CalculateOutputCost(o.TotalUsage.CompletionTokens)
+		summary.ModelInputCost = o.ModelCost.CalculateInputCostWithTiers(o.TotalUsage.PromptTokens)
+		summary.ModelOutputCost = o.ModelCost.CalculateOutputCostWithTiers(o.TotalUsage.CompletionTokens)
+
 		summary.ModelCachedCost = o.ModelCost.CalculateCachedCost(o.TotalUsage.CachedTokens)
 		summary.ModelReasoningCost = o.ModelCost.CalculateReasoningCost(o.TotalUsage.ReasoningTokens)
 	}
