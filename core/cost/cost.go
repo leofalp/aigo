@@ -50,7 +50,7 @@ func (s OptimizationStrategy) String() string {
 //	}
 type ToolMetrics struct {
 	// Amount is the cost value for executing this tool once
-	Amount float64 `json:"amount"`
+	Amount float64 `json:"amount,omitempty"`
 
 	// Currency is the currency or unit for the cost (e.g., "USD", "EUR", "credits")
 	Currency string `json:"currency,omitempty"`
@@ -136,17 +136,17 @@ func (tm ToolMetrics) CostEffectivenessScore() float64 {
 type ContextTier struct {
 	// InputTokenThreshold is the minimum input token count for this tier to apply.
 	// If input tokens exceed this value, InputCostPerMillion is used instead of the base rate.
-	InputTokenThreshold int `json:"input_token_threshold"`
+	InputTokenThreshold int `json:"input_token_threshold,omitempty"`
 
 	// InputCostPerMillion is the cost in USD per 1 million input tokens for this tier.
-	InputCostPerMillion float64 `json:"input_cost_per_million"`
+	InputCostPerMillion float64 `json:"input_cost_per_million,omitempty"`
 
 	// OutputTokenThreshold is the minimum output token count for this tier to apply.
 	// If output tokens exceed this value, OutputCostPerMillion is used instead of the base rate.
-	OutputTokenThreshold int `json:"output_token_threshold"`
+	OutputTokenThreshold int `json:"output_token_threshold,omitempty"`
 
 	// OutputCostPerMillion is the cost in USD per 1 million output tokens for this tier.
-	OutputCostPerMillion float64 `json:"output_cost_per_million"`
+	OutputCostPerMillion float64 `json:"output_cost_per_million,omitempty"`
 }
 
 // ModelCost represents the pricing structure for a language model.

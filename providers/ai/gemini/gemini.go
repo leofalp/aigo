@@ -13,7 +13,7 @@ import (
 
 const (
 	defaultBaseURL = "https://generativelanguage.googleapis.com/v1beta"
-	defaultModel   = "gemini-2.0-flash-lite" // Most cost-effective model
+	defaultModel   = Model25FlashLite // Most cost-effective model
 )
 
 // GeminiProvider implements the ai.Provider interface for Google's Gemini API.
