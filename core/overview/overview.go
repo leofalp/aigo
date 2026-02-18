@@ -1,4 +1,4 @@
-package patterns
+package overview
 
 import (
 	"context"
@@ -14,6 +14,8 @@ type contextKey string
 // overviewContextKey is the key used to store Overview in context.
 const overviewContextKey contextKey = "overview"
 
+// Overview aggregates execution statistics, token usage, cost tracking,
+// and request/response history for a single execution lifecycle.
 type Overview struct {
 	LastResponse  *ai.ChatResponse   `json:"last_response,omitempty"`
 	Requests      []*ai.ChatRequest  `json:"requests"`
@@ -42,6 +44,9 @@ type StructuredOverview[T any] struct {
 	Data *T // Parsed final response data
 }
 
+// OverviewFromContext retrieves the Overview from the context, creating one if
+// it does not already exist. The context pointer is updated in-place when a new
+// Overview is created so callers see the enriched context.
 func OverviewFromContext(ctx *context.Context) *Overview {
 	overviewVal := (*ctx).Value(overviewContextKey)
 	if overviewVal == nil {
@@ -59,92 +64,98 @@ func OverviewFromContext(ctx *context.Context) *Overview {
 	return overview
 }
 
-func (o *Overview) ToContext(ctx context.Context) context.Context {
+// ToContext stores the Overview in the given context and returns the enriched context.
+func (overview *Overview) ToContext(ctx context.Context) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	return context.WithValue(ctx, overviewContextKey, o)
+	return context.WithValue(ctx, overviewContextKey, overview)
 }
 
-func (o *Overview) IncludeUsage(usage *ai.Usage) {
+// IncludeUsage accumulates token usage from an AI response into the overview totals.
+func (overview *Overview) IncludeUsage(usage *ai.Usage) {
 	if usage == nil {
 		return
 	}
-	o.TotalUsage.PromptTokens += usage.PromptTokens
-	o.TotalUsage.CompletionTokens += usage.CompletionTokens
-	o.TotalUsage.TotalTokens += usage.TotalTokens
-	o.TotalUsage.ReasoningTokens += usage.ReasoningTokens
-	o.TotalUsage.CachedTokens += usage.CachedTokens
+	overview.TotalUsage.PromptTokens += usage.PromptTokens
+	overview.TotalUsage.CompletionTokens += usage.CompletionTokens
+	overview.TotalUsage.TotalTokens += usage.TotalTokens
+	overview.TotalUsage.ReasoningTokens += usage.ReasoningTokens
+	overview.TotalUsage.CachedTokens += usage.CachedTokens
 }
 
-func (o *Overview) AddToolCalls(tools []ai.ToolCall) {
-	if o.ToolCallStats == nil {
-		o.ToolCallStats = make(map[string]int)
+// AddToolCalls records tool call invocations in the overview statistics.
+func (overview *Overview) AddToolCalls(tools []ai.ToolCall) {
+	if overview.ToolCallStats == nil {
+		overview.ToolCallStats = make(map[string]int)
 	}
 
 	for _, tool := range tools {
-		o.ToolCallStats[tool.Function.Name]++
+		overview.ToolCallStats[tool.Function.Name]++
 	}
 }
 
-func (o *Overview) AddRequest(request *ai.ChatRequest) {
-	o.Requests = append(o.Requests, request)
+// AddRequest appends a chat request to the overview's request history.
+func (overview *Overview) AddRequest(request *ai.ChatRequest) {
+	overview.Requests = append(overview.Requests, request)
 }
 
-func (o *Overview) AddResponse(response *ai.ChatResponse) {
-	o.Responses = append(o.Responses, response)
-	o.LastResponse = response
+// AddResponse appends a chat response to the overview's response history and
+// updates the last response reference.
+func (overview *Overview) AddResponse(response *ai.ChatResponse) {
+	overview.Responses = append(overview.Responses, response)
+	overview.LastResponse = response
 }
 
 // AddToolExecutionCost records the cost of a tool execution.
-func (o *Overview) AddToolExecutionCost(toolName string, toolMetrics *cost.ToolMetrics) {
-	if o.ToolCosts == nil {
-		o.ToolCosts = make(map[string]float64)
+func (overview *Overview) AddToolExecutionCost(toolName string, toolMetrics *cost.ToolMetrics) {
+	if overview.ToolCosts == nil {
+		overview.ToolCosts = make(map[string]float64)
 	}
 	if toolMetrics != nil {
-		o.ToolCosts[toolName] += toolMetrics.Amount
+		overview.ToolCosts[toolName] += toolMetrics.Amount
 	}
 }
 
 // SetModelCost sets the model cost configuration for this overview.
-func (o *Overview) SetModelCost(modelCost *cost.ModelCost) {
-	o.ModelCost = modelCost
+func (overview *Overview) SetModelCost(modelCost *cost.ModelCost) {
+	overview.ModelCost = modelCost
 }
 
 // SetComputeCost sets the compute/infrastructure cost configuration.
 // This is used to calculate the cost of running the execution environment.
-func (o *Overview) SetComputeCost(computeCost *cost.ComputeCost) {
-	o.ComputeCost = computeCost
+func (overview *Overview) SetComputeCost(computeCost *cost.ComputeCost) {
+	overview.ComputeCost = computeCost
 }
 
 // StartExecution marks the start of execution for compute cost tracking.
-func (o *Overview) StartExecution() {
-	o.ExecutionStartTime = time.Now()
+func (overview *Overview) StartExecution() {
+	overview.ExecutionStartTime = time.Now()
 }
 
 // EndExecution marks the end of execution for compute cost tracking.
-func (o *Overview) EndExecution() {
-	o.ExecutionEndTime = time.Now()
+func (overview *Overview) EndExecution() {
+	overview.ExecutionEndTime = time.Now()
 }
 
 // ExecutionDuration returns the total execution duration.
 // Returns 0 if execution hasn't started or ended.
-func (o *Overview) ExecutionDuration() time.Duration {
-	if o.ExecutionStartTime.IsZero() || o.ExecutionEndTime.IsZero() {
+func (overview *Overview) ExecutionDuration() time.Duration {
+	if overview.ExecutionStartTime.IsZero() || overview.ExecutionEndTime.IsZero() {
 		return 0
 	}
-	return o.ExecutionEndTime.Sub(o.ExecutionStartTime)
+	return overview.ExecutionEndTime.Sub(overview.ExecutionStartTime)
 }
 
 // TotalCost returns the total cost of the execution (tools + model).
-func (o *Overview) TotalCost() float64 {
-	summary := o.CostSummary()
+func (overview *Overview) TotalCost() float64 {
+	summary := overview.CostSummary()
 	return summary.TotalCost
 }
 
 // CostSummary returns a detailed breakdown of all costs.
-func (o *Overview) CostSummary() cost.CostSummary {
+func (overview *Overview) CostSummary() cost.CostSummary {
 	summary := cost.CostSummary{
 		ToolCosts:          make(map[string]float64),
 		ToolExecutionCount: make(map[string]int),
@@ -153,35 +164,35 @@ func (o *Overview) CostSummary() cost.CostSummary {
 
 	// Calculate tool costs
 	totalToolCost := 0.0
-	for toolName, cost := range o.ToolCosts {
+	for toolName, cost := range overview.ToolCosts {
 		summary.ToolCosts[toolName] = cost
 		totalToolCost += cost
 	}
 
 	// Calculate tool execution counts from ToolCallStats
-	for toolName, count := range o.ToolCallStats {
+	for toolName, count := range overview.ToolCallStats {
 		summary.ToolExecutionCount[toolName] = count
 	}
 
 	summary.TotalToolCost = totalToolCost
 
 	// Calculate model costs
-	if o.ModelCost != nil {
-		summary.ModelInputCost = o.ModelCost.CalculateInputCostWithTiers(o.TotalUsage.PromptTokens)
-		summary.ModelOutputCost = o.ModelCost.CalculateOutputCostWithTiers(o.TotalUsage.CompletionTokens)
+	if overview.ModelCost != nil {
+		summary.ModelInputCost = overview.ModelCost.CalculateInputCostWithTiers(overview.TotalUsage.PromptTokens)
+		summary.ModelOutputCost = overview.ModelCost.CalculateOutputCostWithTiers(overview.TotalUsage.CompletionTokens)
 
-		summary.ModelCachedCost = o.ModelCost.CalculateCachedCost(o.TotalUsage.CachedTokens)
-		summary.ModelReasoningCost = o.ModelCost.CalculateReasoningCost(o.TotalUsage.ReasoningTokens)
+		summary.ModelCachedCost = overview.ModelCost.CalculateCachedCost(overview.TotalUsage.CachedTokens)
+		summary.ModelReasoningCost = overview.ModelCost.CalculateReasoningCost(overview.TotalUsage.ReasoningTokens)
 	}
 
 	summary.TotalModelCost = summary.ModelInputCost + summary.ModelOutputCost +
 		summary.ModelCachedCost + summary.ModelReasoningCost
 
 	// Calculate compute/infrastructure costs
-	duration := o.ExecutionDuration()
-	if duration > 0 && o.ComputeCost != nil {
+	duration := overview.ExecutionDuration()
+	if duration > 0 && overview.ComputeCost != nil {
 		summary.ExecutionDurationSeconds = duration.Seconds()
-		summary.ComputeCost = o.ComputeCost.CalculateCost(duration.Seconds())
+		summary.ComputeCost = overview.ComputeCost.CalculateCost(duration.Seconds())
 	}
 
 	summary.TotalCost = summary.TotalToolCost + summary.TotalModelCost + summary.ComputeCost

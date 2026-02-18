@@ -9,9 +9,9 @@ import (
 	"strconv"
 
 	"github.com/leofalp/aigo/core/cost"
+	"github.com/leofalp/aigo/core/overview"
 	"github.com/leofalp/aigo/internal/jsonschema"
 	"github.com/leofalp/aigo/internal/utils"
-	"github.com/leofalp/aigo/patterns"
 	"github.com/leofalp/aigo/providers/ai"
 	"github.com/leofalp/aigo/providers/memory"
 	"github.com/leofalp/aigo/providers/observability"
@@ -553,7 +553,7 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 	}
 	// Start tracing span (only if observer is set)
 	span := c.observeInit(&ctx, "sending message")
-	overview := patterns.OverviewFromContext(&ctx)
+	executionOverview := overview.OverviewFromContext(&ctx)
 	timer := utils.NewTimer()
 
 	// Build messages list based on memory provider availability
@@ -620,17 +620,17 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 		return nil, err
 	}
 
-	overview.AddRequest(&request)
-	overview.AddResponse(response)
-	overview.IncludeUsage(response.Usage)
-	overview.AddToolCalls(response.ToolCalls)
+	executionOverview.AddRequest(&request)
+	executionOverview.AddResponse(response)
+	executionOverview.IncludeUsage(response.Usage)
+	executionOverview.AddToolCalls(response.ToolCalls)
 
 	// Set model cost in overview if configured
 	if c.modelCost != nil {
-		overview.SetModelCost(c.modelCost)
+		executionOverview.SetModelCost(c.modelCost)
 	}
 	if c.computeCost != nil {
-		overview.SetComputeCost(c.computeCost)
+		executionOverview.SetComputeCost(c.computeCost)
 	}
 
 	c.observeSuccess(&ctx, &span, response, timer, "sending message")
@@ -676,7 +676,7 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 
 	// Start tracing span (only if observer is set)
 	span := c.observeInit(&ctx, "continue conversation")
-	overview := patterns.OverviewFromContext(&ctx)
+	executionOverview := overview.OverviewFromContext(&ctx)
 	timer := utils.NewTimer()
 	messages := c.memoryProvider.AllMessages()
 
@@ -728,19 +728,19 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 		return nil, err
 	}
 
-	overview.AddRequest(&request)
-	overview.AddResponse(response)
-	overview.AddToolCalls(response.ToolCalls)
+	executionOverview.AddRequest(&request)
+	executionOverview.AddResponse(response)
+	executionOverview.AddToolCalls(response.ToolCalls)
 	if response.Usage != nil {
-		overview.IncludeUsage(response.Usage)
+		executionOverview.IncludeUsage(response.Usage)
 	}
 
 	// Set model cost in overview if configured
 	if c.modelCost != nil {
-		overview.SetModelCost(c.modelCost)
+		executionOverview.SetModelCost(c.modelCost)
 	}
 	if c.computeCost != nil {
-		overview.SetComputeCost(c.computeCost)
+		executionOverview.SetComputeCost(c.computeCost)
 	}
 
 	c.observeSuccess(&ctx, &span, response, timer, "continue conversation")

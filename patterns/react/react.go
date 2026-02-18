@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/leofalp/aigo/core/client"
+	"github.com/leofalp/aigo/core/overview"
 	"github.com/leofalp/aigo/core/parse"
 	"github.com/leofalp/aigo/internal/jsonschema"
 	"github.com/leofalp/aigo/internal/utils"
-	"github.com/leofalp/aigo/patterns"
 	"github.com/leofalp/aigo/providers/ai"
 	"github.com/leofalp/aigo/providers/memory"
 	"github.com/leofalp/aigo/providers/observability"
@@ -157,7 +157,7 @@ func New[T any](baseClient *client.Client, opts ...Option) (*ReAct[T], error) {
 //   - Automatic retry with explicit JSON request on parse failure
 //
 // Returns a StructuredOverview[T] containing both the parsed data and execution statistics.
-func (r *ReAct[T]) Execute(ctx context.Context, prompt string) (*patterns.StructuredOverview[T], error) {
+func (r *ReAct[T]) Execute(ctx context.Context, prompt string) (*overview.StructuredOverview[T], error) {
 	var response *ai.ChatResponse
 	var err error
 
@@ -167,11 +167,11 @@ func (r *ReAct[T]) Execute(ctx context.Context, prompt string) (*patterns.Struct
 	execTimer := utils.NewTimer()
 	reactMemory := r.client.Memory()
 	toolCatalog := r.client.ToolCatalog()
-	overview := patterns.OverviewFromContext(&ctx)
+	executionOverview := overview.OverviewFromContext(&ctx)
 
 	// Start execution timing for compute cost tracking
-	overview.StartExecution()
-	defer overview.EndExecution()
+	executionOverview.StartExecution()
+	defer executionOverview.EndExecution()
 
 	// Start top-level ReAct span
 	observer := r.client.Observer()
@@ -249,8 +249,8 @@ func (r *ReAct[T]) Execute(ctx context.Context, prompt string) (*patterns.Struct
 				// Success after retry
 				r.observeSuccess(&ctx, retryResponse, iteration)
 				// Get updated overview from context (includes all responses added by client)
-				finalOverview := patterns.OverviewFromContext(&ctx)
-				return &patterns.StructuredOverview[T]{
+				finalOverview := overview.OverviewFromContext(&ctx)
+				return &overview.StructuredOverview[T]{
 					Overview: *finalOverview,
 					Data:     &data,
 				}, nil
@@ -259,8 +259,8 @@ func (r *ReAct[T]) Execute(ctx context.Context, prompt string) (*patterns.Struct
 			// Parse succeeded on first try
 			r.observeSuccess(&ctx, response, iteration)
 			// Get updated overview from context (includes all responses added by client)
-			finalOverview := patterns.OverviewFromContext(&ctx)
-			return &patterns.StructuredOverview[T]{
+			finalOverview := overview.OverviewFromContext(&ctx)
+			return &overview.StructuredOverview[T]{
 				Overview: *finalOverview,
 				Data:     &data,
 			}, nil
@@ -312,7 +312,7 @@ func (r *ReAct[T]) executeToolCall(
 	toolCall ai.ToolCall,
 ) error {
 	// Get overview for cost tracking
-	overview := patterns.OverviewFromContext(&ctx)
+	executionOverview := overview.OverviewFromContext(&ctx)
 	var span observability.Span
 
 	if observer != nil {
@@ -415,7 +415,7 @@ func (r *ReAct[T]) executeToolCall(
 
 	// Track tool execution cost if available
 	if toolMetrics := toolInstance.GetMetrics(); toolMetrics != nil {
-		overview.AddToolExecutionCost(toolCall.Function.Name, toolMetrics)
+		executionOverview.AddToolExecutionCost(toolCall.Function.Name, toolMetrics)
 	}
 
 	// Parse and add result as structured attributes if it's JSON

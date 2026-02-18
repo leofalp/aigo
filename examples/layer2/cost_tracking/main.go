@@ -9,7 +9,7 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 	"github.com/leofalp/aigo/core/client"
 	"github.com/leofalp/aigo/core/cost"
-	"github.com/leofalp/aigo/patterns"
+	"github.com/leofalp/aigo/core/overview"
 	"github.com/leofalp/aigo/patterns/react"
 	"github.com/leofalp/aigo/providers/ai/openai"
 	"github.com/leofalp/aigo/providers/memory/inmemory"
@@ -210,7 +210,7 @@ func main() {
 }
 
 // printCostSummary prints a summary of the costs for an execution
-func printCostSummary(overview *patterns.Overview) {
+func printCostSummary(overview *overview.Overview) {
 	summary := overview.CostSummary()
 
 	fmt.Println("\n💰 Cost Summary:")
@@ -227,7 +227,7 @@ func printCostSummary(overview *patterns.Overview) {
 }
 
 // printDetailedCostBreakdown prints a detailed breakdown of all costs
-func printDetailedCostBreakdown(overview *patterns.Overview) {
+func printDetailedCostBreakdown(overview *overview.Overview) {
 	summary := overview.CostSummary()
 
 	fmt.Println("\n💰 Detailed Cost Breakdown:")
