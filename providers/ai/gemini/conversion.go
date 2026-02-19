@@ -62,11 +62,33 @@ func buildContents(messages []ai.Message) []content {
 
 			// Handle tool calls
 			if len(msg.ToolCalls) > 0 {
-				for _, tc := range msg.ToolCalls {
+				for _, toolCall := range msg.ToolCalls {
 					c.Parts = append(c.Parts, part{
 						FunctionCall: &functionCall{
-							Name: tc.Function.Name,
-							Args: json.RawMessage(tc.Function.Arguments),
+							Name: toolCall.Function.Name,
+							Args: json.RawMessage(toolCall.Function.Arguments),
+						},
+					})
+				}
+			}
+
+			// Handle code execution results (for multi-turn round-tripping).
+			// Each CodeExecution is serialized as a pair of executableCode + codeExecutionResult parts,
+			// matching the Gemini API's wire format for model responses containing code execution.
+			for _, codeExec := range msg.CodeExecutions {
+				if codeExec.Code != "" {
+					c.Parts = append(c.Parts, part{
+						ExecutableCode: &executableCode{
+							Language: codeExec.Language,
+							Code:     codeExec.Code,
+						},
+					})
+				}
+				if codeExec.Outcome != "" {
+					c.Parts = append(c.Parts, part{
+						CodeExecutionResult: &codeExecutionResult{
+							Outcome: codeExec.Outcome,
+							Output:  codeExec.Output,
 						},
 					})
 				}
@@ -367,6 +389,31 @@ func geminiToGeneric(resp generateContentResponse) *ai.ChatResponse {
 				})
 			}
 
+			// Extract code execution results (generated code + execution output).
+			// The Gemini API returns executableCode and codeExecutionResult as separate
+			// sequential parts. We pair them: executableCode creates a new entry,
+			// and the following codeExecutionResult completes it with outcome/output.
+			if p.ExecutableCode != nil {
+				result.CodeExecutions = append(result.CodeExecutions, ai.CodeExecution{
+					Language: p.ExecutableCode.Language,
+					Code:     p.ExecutableCode.Code,
+				})
+			}
+			if p.CodeExecutionResult != nil {
+				if len(result.CodeExecutions) > 0 {
+					// Pair with the most recent code execution entry
+					lastIndex := len(result.CodeExecutions) - 1
+					result.CodeExecutions[lastIndex].Outcome = p.CodeExecutionResult.Outcome
+					result.CodeExecutions[lastIndex].Output = p.CodeExecutionResult.Output
+				} else {
+					// Standalone result without preceding executableCode (defensive)
+					result.CodeExecutions = append(result.CodeExecutions, ai.CodeExecution{
+						Outcome: p.CodeExecutionResult.Outcome,
+						Output:  p.CodeExecutionResult.Output,
+					})
+				}
+			}
+
 			// Extract inline media data from response (images, audio, video)
 			if p.InlineData != nil {
 				switch {
@@ -433,6 +480,20 @@ func geminiToGeneric(resp generateContentResponse) *ai.ChatResponse {
 	// Map grounding metadata
 	if candidate.GroundingMetadata != nil {
 		result.Grounding = mapGroundingMetadata(candidate.GroundingMetadata)
+	}
+
+	// Map URL context metadata (from url_context tool)
+	if len(candidate.URLContextMetadata) > 0 {
+		if result.Grounding == nil {
+			result.Grounding = &ai.GroundingMetadata{}
+		}
+		for _, meta := range candidate.URLContextMetadata {
+			result.Grounding.URLContextSources = append(result.Grounding.URLContextSources, ai.URLContextSource{
+				URL:                    meta.URL,
+				Status:                 meta.Status,
+				RetrievedContentLength: meta.RetrievedContentLength,
+			})
+		}
 	}
 
 	return result

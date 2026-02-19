@@ -230,6 +230,11 @@ type Message struct {
 	ToolCallID string     `json:"tool_call_id,omitempty"` // For role=tool, links to the tool call being responded to
 	Name       string     `json:"name,omitempty"`         // For role=tool, name of the tool that generated this response
 
+	// Code execution results from server-side sandbox execution (Gemini code_execution tool).
+	// Present on role=assistant messages when the model generated and executed code.
+	// Used for multi-turn round-tripping: providers serialize these back to their wire format.
+	CodeExecutions []CodeExecution `json:"code_executions,omitempty"`
+
 	// Extended fields
 	Refusal   string `json:"refusal,omitempty"`   // If model refuses to respond (safety/policy)
 	Reasoning string `json:"reasoning,omitempty"` // Chain-of-thought reasoning (o1/o3/gpt-5)
@@ -292,6 +297,20 @@ type ResponseFormat struct {
 	##### PROVIDER OUTPUT #####
 */
 
+// CodeExecution represents a server-side code execution result from the model.
+// The model generates code, executes it in a sandboxed environment, and returns
+// both the code and its execution result. The code and result are always paired:
+// ExecutableCode contains the generated code, and the Outcome/Output fields
+// contain the execution result.
+//
+// Currently supported by: Gemini (code_execution tool).
+type CodeExecution struct {
+	Language string `json:"language"`          // Programming language of the generated code (e.g., "PYTHON")
+	Code     string `json:"code"`              // The code that was generated and executed
+	Outcome  string `json:"outcome,omitempty"` // Execution outcome: "OUTCOME_OK", "OUTCOME_FAILED", "OUTCOME_DEADLINE_EXCEEDED"
+	Output   string `json:"output,omitempty"`  // stdout on success, stderr or error description on failure
+}
+
 type Usage struct {
 	PromptTokens     int `json:"prompt_tokens,omitempty"`
 	CompletionTokens int `json:"completion_tokens,omitempty"`
@@ -316,6 +335,11 @@ type ChatResponse struct {
 	FinishReason string      `json:"finish_reason,omitempty"`
 	Usage        *Usage      `json:"usage,omitempty"`
 
+	// Code execution results from server-side sandbox execution.
+	// Currently supported by: Gemini (code_execution tool).
+	// Each entry pairs the generated code with its execution outcome.
+	CodeExecutions []CodeExecution `json:"code_executions,omitempty"`
+
 	// Extended fields
 	Refusal   string `json:"refusal,omitempty"`   // If model refuses to respond (safety/policy)
 	Reasoning string `json:"reasoning,omitempty"` // Chain-of-thought reasoning (o1/o3/gpt-5)
@@ -338,6 +362,11 @@ type GroundingMetadata struct {
 
 	// SearchQueries contains the search queries used (Gemini-specific).
 	SearchQueries []string `json:"search_queries,omitempty"`
+
+	// URLContextSources contains metadata about URLs retrieved by the URL context tool.
+	// Each entry describes a URL that the model fetched for grounding context.
+	// Currently supported by: Gemini (url_context tool).
+	URLContextSources []URLContextSource `json:"url_context_sources,omitempty"`
 }
 
 // GroundingSource represents a source document or URL.
@@ -354,6 +383,17 @@ type Citation struct {
 	EndIndex      int       `json:"end_index"`            // Character end (0-indexed, exclusive)
 	SourceIndices []int     `json:"source_indices"`       // References to Sources array
 	Confidence    []float64 `json:"confidence,omitempty"` // Confidence scores (optional)
+}
+
+// URLContextSource represents a URL that was retrieved by the URL context tool
+// for grounding the model's response. Contains metadata about the retrieval status
+// and the amount of content extracted from each URL.
+//
+// Currently supported by: Gemini (url_context tool).
+type URLContextSource struct {
+	URL                    string `json:"url"`                                // The URL that was retrieved
+	Status                 string `json:"status"`                             // Retrieval status (e.g., "SUCCESS", "FAILED")
+	RetrievedContentLength int    `json:"retrieved_content_length,omitempty"` // Length of content retrieved from the URL
 }
 
 // StructuredChatResponse wraps a ChatResponse with parsed structured data.

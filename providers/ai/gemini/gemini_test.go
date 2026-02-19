@@ -1787,3 +1787,1031 @@ func TestSendMessage_WithGoogleSearchReturnsGrounding(t *testing.T) {
 		t.Errorf("expected 1 search query, got %d", len(response.Grounding.SearchQueries))
 	}
 }
+
+// ========================
+// Code Execution Tests
+// ========================
+
+func TestGeminiToGeneric_WithCodeExecution(t *testing.T) {
+	resp := generateContentResponse{
+		Candidates: []candidate{{
+			Content: &content{
+				Role: "model",
+				Parts: []part{
+					{Text: "I'll calculate that for you."},
+					{ExecutableCode: &executableCode{
+						Language: "PYTHON",
+						Code:     "print(sum(range(1, 51)))",
+					}},
+					{CodeExecutionResult: &codeExecutionResult{
+						Outcome: "OUTCOME_OK",
+						Output:  "1275\n",
+					}},
+					{Text: "The sum of the first 50 numbers is 1275."},
+				},
+			},
+			FinishReason: "STOP",
+		}},
+		UsageMetadata: &usageMetadata{
+			PromptTokenCount:     15,
+			CandidatesTokenCount: 30,
+			TotalTokenCount:      45,
+		},
+	}
+
+	result := geminiToGeneric(resp)
+
+	// Verify text content (should concatenate non-code text parts)
+	expectedContent := "I'll calculate that for you.\nThe sum of the first 50 numbers is 1275."
+	if result.Content != expectedContent {
+		t.Errorf("expected content %q, got %q", expectedContent, result.Content)
+	}
+
+	// Verify code execution results
+	if len(result.CodeExecutions) != 1 {
+		t.Fatalf("expected 1 code execution, got %d", len(result.CodeExecutions))
+	}
+
+	codeExec := result.CodeExecutions[0]
+	if codeExec.Language != "PYTHON" {
+		t.Errorf("expected language 'PYTHON', got %q", codeExec.Language)
+	}
+	if codeExec.Code != "print(sum(range(1, 51)))" {
+		t.Errorf("expected code 'print(sum(range(1, 51)))', got %q", codeExec.Code)
+	}
+	if codeExec.Outcome != "OUTCOME_OK" {
+		t.Errorf("expected outcome 'OUTCOME_OK', got %q", codeExec.Outcome)
+	}
+	if codeExec.Output != "1275\n" {
+		t.Errorf("expected output '1275\\n', got %q", codeExec.Output)
+	}
+
+	// Verify finish reason
+	if result.FinishReason != "stop" {
+		t.Errorf("expected finish reason 'stop', got %q", result.FinishReason)
+	}
+}
+
+func TestGeminiToGeneric_WithMultipleCodeExecutions(t *testing.T) {
+	resp := generateContentResponse{
+		Candidates: []candidate{{
+			Content: &content{
+				Role: "model",
+				Parts: []part{
+					{Text: "Let me solve this step by step."},
+					{ExecutableCode: &executableCode{
+						Language: "PYTHON",
+						Code:     "import math\nprint(math.factorial(10))",
+					}},
+					{CodeExecutionResult: &codeExecutionResult{
+						Outcome: "OUTCOME_OK",
+						Output:  "3628800\n",
+					}},
+					{Text: "Now let me verify:"},
+					{ExecutableCode: &executableCode{
+						Language: "PYTHON",
+						Code:     "result = 1\nfor i in range(1, 11):\n    result *= i\nprint(result)",
+					}},
+					{CodeExecutionResult: &codeExecutionResult{
+						Outcome: "OUTCOME_OK",
+						Output:  "3628800\n",
+					}},
+					{Text: "Both methods confirm 10! = 3,628,800."},
+				},
+			},
+			FinishReason: "STOP",
+		}},
+	}
+
+	result := geminiToGeneric(resp)
+
+	// Verify multiple code executions are captured
+	if len(result.CodeExecutions) != 2 {
+		t.Fatalf("expected 2 code executions, got %d", len(result.CodeExecutions))
+	}
+
+	// First execution
+	if result.CodeExecutions[0].Code != "import math\nprint(math.factorial(10))" {
+		t.Errorf("unexpected first code: %q", result.CodeExecutions[0].Code)
+	}
+	if result.CodeExecutions[0].Outcome != "OUTCOME_OK" {
+		t.Errorf("expected first outcome 'OUTCOME_OK', got %q", result.CodeExecutions[0].Outcome)
+	}
+
+	// Second execution
+	if result.CodeExecutions[1].Code != "result = 1\nfor i in range(1, 11):\n    result *= i\nprint(result)" {
+		t.Errorf("unexpected second code: %q", result.CodeExecutions[1].Code)
+	}
+	if result.CodeExecutions[1].Output != "3628800\n" {
+		t.Errorf("unexpected second output: %q", result.CodeExecutions[1].Output)
+	}
+
+	// Verify all text parts are concatenated
+	expectedContent := "Let me solve this step by step.\nNow let me verify:\nBoth methods confirm 10! = 3,628,800."
+	if result.Content != expectedContent {
+		t.Errorf("expected content %q, got %q", expectedContent, result.Content)
+	}
+}
+
+func TestGeminiToGeneric_WithFailedCodeExecution(t *testing.T) {
+	resp := generateContentResponse{
+		Candidates: []candidate{{
+			Content: &content{
+				Role: "model",
+				Parts: []part{
+					{ExecutableCode: &executableCode{
+						Language: "PYTHON",
+						Code:     "print(1/0)",
+					}},
+					{CodeExecutionResult: &codeExecutionResult{
+						Outcome: "OUTCOME_FAILED",
+						Output:  "ZeroDivisionError: division by zero\n",
+					}},
+					{Text: "The code failed due to a division by zero error."},
+				},
+			},
+			FinishReason: "STOP",
+		}},
+	}
+
+	result := geminiToGeneric(resp)
+
+	if len(result.CodeExecutions) != 1 {
+		t.Fatalf("expected 1 code execution, got %d", len(result.CodeExecutions))
+	}
+
+	if result.CodeExecutions[0].Outcome != "OUTCOME_FAILED" {
+		t.Errorf("expected outcome 'OUTCOME_FAILED', got %q", result.CodeExecutions[0].Outcome)
+	}
+
+	if result.CodeExecutions[0].Output != "ZeroDivisionError: division by zero\n" {
+		t.Errorf("expected error output, got %q", result.CodeExecutions[0].Output)
+	}
+}
+
+func TestGeminiToGeneric_WithCodeExecutionResultOnly(t *testing.T) {
+	// Defensive test: codeExecutionResult without preceding executableCode
+	resp := generateContentResponse{
+		Candidates: []candidate{{
+			Content: &content{
+				Role: "model",
+				Parts: []part{
+					{CodeExecutionResult: &codeExecutionResult{
+						Outcome: "OUTCOME_OK",
+						Output:  "42\n",
+					}},
+				},
+			},
+			FinishReason: "STOP",
+		}},
+	}
+
+	result := geminiToGeneric(resp)
+
+	if len(result.CodeExecutions) != 1 {
+		t.Fatalf("expected 1 code execution, got %d", len(result.CodeExecutions))
+	}
+
+	// Standalone result should have outcome/output but no code
+	if result.CodeExecutions[0].Code != "" {
+		t.Errorf("expected empty code, got %q", result.CodeExecutions[0].Code)
+	}
+	if result.CodeExecutions[0].Outcome != "OUTCOME_OK" {
+		t.Errorf("expected outcome 'OUTCOME_OK', got %q", result.CodeExecutions[0].Outcome)
+	}
+	if result.CodeExecutions[0].Output != "42\n" {
+		t.Errorf("expected output '42\\n', got %q", result.CodeExecutions[0].Output)
+	}
+}
+
+func TestGeminiToGeneric_WithCodeExecutionAndFunctionCalls(t *testing.T) {
+	// Test response with both code execution and function calls
+	resp := generateContentResponse{
+		Candidates: []candidate{{
+			Content: &content{
+				Role: "model",
+				Parts: []part{
+					{Text: "Let me calculate and then search."},
+					{ExecutableCode: &executableCode{
+						Language: "PYTHON",
+						Code:     "print(2 ** 10)",
+					}},
+					{CodeExecutionResult: &codeExecutionResult{
+						Outcome: "OUTCOME_OK",
+						Output:  "1024\n",
+					}},
+					{FunctionCall: &functionCall{
+						Name: "search",
+						Args: json.RawMessage(`{"query":"1024"}`),
+					}},
+				},
+			},
+			FinishReason: "STOP",
+		}},
+	}
+
+	result := geminiToGeneric(resp)
+
+	// Verify code execution
+	if len(result.CodeExecutions) != 1 {
+		t.Fatalf("expected 1 code execution, got %d", len(result.CodeExecutions))
+	}
+	if result.CodeExecutions[0].Code != "print(2 ** 10)" {
+		t.Errorf("unexpected code: %q", result.CodeExecutions[0].Code)
+	}
+
+	// Verify function call
+	if len(result.ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(result.ToolCalls))
+	}
+	if result.ToolCalls[0].Function.Name != "search" {
+		t.Errorf("expected function name 'search', got %q", result.ToolCalls[0].Function.Name)
+	}
+
+	// Finish reason should be tool_calls since we have tool calls
+	if result.FinishReason != "tool_calls" {
+		t.Errorf("expected finish reason 'tool_calls', got %q", result.FinishReason)
+	}
+}
+
+// ========================
+// URL Context Tests
+// ========================
+
+func TestGeminiToGeneric_WithURLContextMetadata(t *testing.T) {
+	resp := generateContentResponse{
+		Candidates: []candidate{{
+			Content: &content{
+				Role:  "model",
+				Parts: []part{{Text: "Based on the content from those URLs, here is a comparison."}},
+			},
+			FinishReason: "STOP",
+			URLContextMetadata: []urlContextMeta{
+				{
+					URL:                    "https://example.com/recipe1",
+					Status:                 "SUCCESS",
+					RetrievedContentLength: 12345,
+				},
+				{
+					URL:                    "https://example.com/recipe2",
+					Status:                 "SUCCESS",
+					RetrievedContentLength: 6789,
+				},
+			},
+		}},
+		UsageMetadata: &usageMetadata{
+			PromptTokenCount:     100,
+			CandidatesTokenCount: 50,
+			TotalTokenCount:      150,
+		},
+	}
+
+	result := geminiToGeneric(resp)
+
+	// Verify grounding metadata is created for URL context
+	if result.Grounding == nil {
+		t.Fatal("expected grounding metadata with URL context sources")
+	}
+
+	if len(result.Grounding.URLContextSources) != 2 {
+		t.Fatalf("expected 2 URL context sources, got %d", len(result.Grounding.URLContextSources))
+	}
+
+	// Verify first URL
+	source1 := result.Grounding.URLContextSources[0]
+	if source1.URL != "https://example.com/recipe1" {
+		t.Errorf("expected URL 'https://example.com/recipe1', got %q", source1.URL)
+	}
+	if source1.Status != "SUCCESS" {
+		t.Errorf("expected status 'SUCCESS', got %q", source1.Status)
+	}
+	if source1.RetrievedContentLength != 12345 {
+		t.Errorf("expected content length 12345, got %d", source1.RetrievedContentLength)
+	}
+
+	// Verify second URL
+	source2 := result.Grounding.URLContextSources[1]
+	if source2.URL != "https://example.com/recipe2" {
+		t.Errorf("expected URL 'https://example.com/recipe2', got %q", source2.URL)
+	}
+	if source2.RetrievedContentLength != 6789 {
+		t.Errorf("expected content length 6789, got %d", source2.RetrievedContentLength)
+	}
+}
+
+func TestGeminiToGeneric_WithURLContextAndGroundingMetadata(t *testing.T) {
+	// Test that URL context metadata merges with existing grounding metadata
+	resp := generateContentResponse{
+		Candidates: []candidate{{
+			Content: &content{
+				Role:  "model",
+				Parts: []part{{Text: "Combined search and URL context response."}},
+			},
+			FinishReason: "STOP",
+			GroundingMetadata: &groundingMetadata{
+				WebSearchQueries: []string{"test query"},
+				GroundingChunks: []groundingChunk{
+					{Web: &webChunk{URI: "https://search-result.com", Title: "Search Result"}},
+				},
+			},
+			URLContextMetadata: []urlContextMeta{
+				{
+					URL:                    "https://user-provided-url.com/page",
+					Status:                 "SUCCESS",
+					RetrievedContentLength: 5000,
+				},
+			},
+		}},
+	}
+
+	result := geminiToGeneric(resp)
+
+	if result.Grounding == nil {
+		t.Fatal("expected grounding metadata")
+	}
+
+	// Verify both search grounding and URL context are present
+	if len(result.Grounding.SearchQueries) != 1 {
+		t.Errorf("expected 1 search query, got %d", len(result.Grounding.SearchQueries))
+	}
+	if len(result.Grounding.Sources) != 1 {
+		t.Errorf("expected 1 grounding source, got %d", len(result.Grounding.Sources))
+	}
+	if len(result.Grounding.URLContextSources) != 1 {
+		t.Fatalf("expected 1 URL context source, got %d", len(result.Grounding.URLContextSources))
+	}
+	if result.Grounding.URLContextSources[0].URL != "https://user-provided-url.com/page" {
+		t.Errorf("expected URL 'https://user-provided-url.com/page', got %q", result.Grounding.URLContextSources[0].URL)
+	}
+}
+
+func TestGeminiToGeneric_WithURLContextEmptyMetadata(t *testing.T) {
+	// Empty URL context metadata should not create grounding
+	resp := generateContentResponse{
+		Candidates: []candidate{{
+			Content: &content{
+				Role:  "model",
+				Parts: []part{{Text: "A plain response."}},
+			},
+			FinishReason:       "STOP",
+			URLContextMetadata: []urlContextMeta{},
+		}},
+	}
+
+	result := geminiToGeneric(resp)
+
+	if result.Grounding != nil {
+		t.Error("expected nil grounding for empty URL context metadata")
+	}
+}
+
+// ========================
+// Code Execution Multi-Turn Round-Trip Tests
+// ========================
+
+func TestBuildContents_WithCodeExecutionInAssistantMessage(t *testing.T) {
+	messages := []ai.Message{
+		{
+			Role:    ai.RoleUser,
+			Content: "What is the sum of the first 50 primes?",
+		},
+		{
+			Role:    ai.RoleAssistant,
+			Content: "The sum is 5117.",
+			CodeExecutions: []ai.CodeExecution{
+				{
+					Language: "PYTHON",
+					Code:     "primes = []\nn = 2\nwhile len(primes) < 50:\n    if all(n % p for p in primes):\n        primes.append(n)\n    n += 1\nprint(sum(primes))",
+					Outcome:  "OUTCOME_OK",
+					Output:   "5117\n",
+				},
+			},
+		},
+		{
+			Role:    ai.RoleUser,
+			Content: "Now find the 51st prime.",
+		},
+	}
+
+	contents := buildContents(messages)
+
+	if len(contents) != 3 {
+		t.Fatalf("expected 3 contents, got %d", len(contents))
+	}
+
+	// Verify assistant message has code execution parts
+	assistantContent := contents[1]
+	if assistantContent.Role != "model" {
+		t.Errorf("expected role 'model', got %q", assistantContent.Role)
+	}
+
+	// Should have: executableCode + codeExecutionResult + text = 3 parts
+	if len(assistantContent.Parts) != 3 {
+		t.Fatalf("expected 3 parts in assistant message, got %d", len(assistantContent.Parts))
+	}
+
+	// First part: executableCode
+	if assistantContent.Parts[0].ExecutableCode == nil {
+		t.Fatal("expected executableCode in first part")
+	}
+	if assistantContent.Parts[0].ExecutableCode.Language != "PYTHON" {
+		t.Errorf("expected language 'PYTHON', got %q", assistantContent.Parts[0].ExecutableCode.Language)
+	}
+	if assistantContent.Parts[0].ExecutableCode.Code != "primes = []\nn = 2\nwhile len(primes) < 50:\n    if all(n % p for p in primes):\n        primes.append(n)\n    n += 1\nprint(sum(primes))" {
+		t.Errorf("unexpected code: %q", assistantContent.Parts[0].ExecutableCode.Code)
+	}
+
+	// Second part: codeExecutionResult
+	if assistantContent.Parts[1].CodeExecutionResult == nil {
+		t.Fatal("expected codeExecutionResult in second part")
+	}
+	if assistantContent.Parts[1].CodeExecutionResult.Outcome != "OUTCOME_OK" {
+		t.Errorf("expected outcome 'OUTCOME_OK', got %q", assistantContent.Parts[1].CodeExecutionResult.Outcome)
+	}
+	if assistantContent.Parts[1].CodeExecutionResult.Output != "5117\n" {
+		t.Errorf("expected output '5117\\n', got %q", assistantContent.Parts[1].CodeExecutionResult.Output)
+	}
+
+	// Third part: text
+	if assistantContent.Parts[2].Text != "The sum is 5117." {
+		t.Errorf("expected text 'The sum is 5117.', got %q", assistantContent.Parts[2].Text)
+	}
+}
+
+func TestBuildContents_WithCodeExecutionAndToolCalls(t *testing.T) {
+	// Assistant message with both code execution and tool calls
+	messages := []ai.Message{
+		{
+			Role: ai.RoleAssistant,
+			CodeExecutions: []ai.CodeExecution{
+				{
+					Language: "PYTHON",
+					Code:     "print('calculating...')",
+					Outcome:  "OUTCOME_OK",
+					Output:   "calculating...\n",
+				},
+			},
+			ToolCalls: []ai.ToolCall{
+				{
+					ID:   "call_0",
+					Type: "function",
+					Function: ai.ToolCallFunction{
+						Name:      "search",
+						Arguments: `{"query":"test"}`,
+					},
+				},
+			},
+			Content: "Let me search for that.",
+		},
+	}
+
+	contents := buildContents(messages)
+
+	if len(contents) != 1 {
+		t.Fatalf("expected 1 content, got %d", len(contents))
+	}
+
+	// Should have: functionCall + executableCode + codeExecutionResult + text = 4 parts
+	if len(contents[0].Parts) != 4 {
+		t.Fatalf("expected 4 parts, got %d", len(contents[0].Parts))
+	}
+
+	// Tool calls come first
+	if contents[0].Parts[0].FunctionCall == nil {
+		t.Error("expected first part to be functionCall")
+	}
+	if contents[0].Parts[0].FunctionCall.Name != "search" {
+		t.Errorf("expected function name 'search', got %q", contents[0].Parts[0].FunctionCall.Name)
+	}
+
+	// Then code execution parts
+	if contents[0].Parts[1].ExecutableCode == nil {
+		t.Error("expected second part to be executableCode")
+	}
+	if contents[0].Parts[2].CodeExecutionResult == nil {
+		t.Error("expected third part to be codeExecutionResult")
+	}
+
+	// Then text
+	if contents[0].Parts[3].Text != "Let me search for that." {
+		t.Errorf("expected text part, got %q", contents[0].Parts[3].Text)
+	}
+}
+
+func TestBuildContents_WithCodeExecutionCodeOnly(t *testing.T) {
+	// Code execution with code but no outcome (edge case)
+	messages := []ai.Message{
+		{
+			Role: ai.RoleAssistant,
+			CodeExecutions: []ai.CodeExecution{
+				{
+					Language: "PYTHON",
+					Code:     "print('hello')",
+					// No Outcome or Output
+				},
+			},
+			Content: "Executing code...",
+		},
+	}
+
+	contents := buildContents(messages)
+
+	if len(contents) != 1 {
+		t.Fatalf("expected 1 content, got %d", len(contents))
+	}
+
+	// Should have: executableCode + text = 2 parts (no codeExecutionResult since Outcome is empty)
+	if len(contents[0].Parts) != 2 {
+		t.Fatalf("expected 2 parts, got %d", len(contents[0].Parts))
+	}
+
+	if contents[0].Parts[0].ExecutableCode == nil {
+		t.Error("expected executableCode in first part")
+	}
+	if contents[0].Parts[1].Text != "Executing code..." {
+		t.Errorf("expected text part, got %q", contents[0].Parts[1].Text)
+	}
+}
+
+// ========================
+// URL Context Tool Request Tests
+// ========================
+
+func TestBuildTools_WithURLContext(t *testing.T) {
+	aiTools := []ai.ToolDescription{
+		{Name: ai.ToolURLContext},
+		{Name: "custom_function", Description: "A custom function", Parameters: &jsonschema.Schema{Type: "object"}},
+	}
+
+	tools := buildTools(aiTools)
+
+	if len(tools) != 2 {
+		t.Fatalf("expected 2 tools, got %d", len(tools))
+	}
+
+	hasURLContext := false
+	hasFunctions := false
+
+	for _, builtTool := range tools {
+		if builtTool.URLContext != nil {
+			hasURLContext = true
+		}
+		if len(builtTool.FunctionDeclarations) > 0 {
+			hasFunctions = true
+		}
+	}
+
+	if !hasURLContext {
+		t.Error("expected url_context tool")
+	}
+	if !hasFunctions {
+		t.Error("expected function declarations")
+	}
+}
+
+func TestBuildTools_AllBuiltinTools(t *testing.T) {
+	aiTools := []ai.ToolDescription{
+		{Name: ai.ToolGoogleSearch},
+		{Name: ai.ToolURLContext},
+		{Name: ai.ToolCodeExecution},
+	}
+
+	tools := buildTools(aiTools)
+
+	if len(tools) != 3 {
+		t.Fatalf("expected 3 tools, got %d", len(tools))
+	}
+
+	hasGoogleSearch := false
+	hasURLContext := false
+	hasCodeExecution := false
+
+	for _, builtTool := range tools {
+		if builtTool.GoogleSearch != nil {
+			hasGoogleSearch = true
+		}
+		if builtTool.URLContext != nil {
+			hasURLContext = true
+		}
+		if builtTool.CodeExecution != nil {
+			hasCodeExecution = true
+		}
+	}
+
+	if !hasGoogleSearch {
+		t.Error("expected google_search tool")
+	}
+	if !hasURLContext {
+		t.Error("expected url_context tool")
+	}
+	if !hasCodeExecution {
+		t.Error("expected code_execution tool")
+	}
+}
+
+// ========================
+// Integration Tests (httptest)
+// ========================
+
+func TestSendMessage_WithCodeExecution(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify the request contains code_execution tool
+		var req generateContentRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		hasCodeExec := false
+		for _, requestTool := range req.Tools {
+			if requestTool.CodeExecution != nil {
+				hasCodeExec = true
+			}
+		}
+		if !hasCodeExec {
+			t.Error("expected code_execution tool in request")
+		}
+
+		// Return response with code execution results
+		resp := generateContentResponse{
+			Candidates: []candidate{{
+				Content: &content{
+					Role: "model",
+					Parts: []part{
+						{Text: "Let me calculate that."},
+						{ExecutableCode: &executableCode{
+							Language: "PYTHON",
+							Code:     "def fibonacci(n):\n    if n <= 1:\n        return n\n    return fibonacci(n-1) + fibonacci(n-2)\nprint(fibonacci(20))",
+						}},
+						{CodeExecutionResult: &codeExecutionResult{
+							Outcome: "OUTCOME_OK",
+							Output:  "6765\n",
+						}},
+						{Text: "The 20th Fibonacci number is 6765."},
+					},
+				},
+				FinishReason: "STOP",
+			}},
+			UsageMetadata: &usageMetadata{
+				PromptTokenCount:     25,
+				CandidatesTokenCount: 40,
+				TotalTokenCount:      65,
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	provider := New().
+		WithAPIKey("test-key").
+		WithBaseURL(server.URL).(*GeminiProvider)
+
+	response, err := provider.SendMessage(context.Background(), ai.ChatRequest{
+		Model:    "gemini-3-flash-preview",
+		Messages: []ai.Message{{Role: ai.RoleUser, Content: "What is the 20th Fibonacci number?"}},
+		Tools: []ai.ToolDescription{
+			{Name: ai.ToolCodeExecution},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("SendMessage failed: %v", err)
+	}
+
+	// Verify text content
+	expectedContent := "Let me calculate that.\nThe 20th Fibonacci number is 6765."
+	if response.Content != expectedContent {
+		t.Errorf("expected content %q, got %q", expectedContent, response.Content)
+	}
+
+	// Verify code execution
+	if len(response.CodeExecutions) != 1 {
+		t.Fatalf("expected 1 code execution, got %d", len(response.CodeExecutions))
+	}
+	if response.CodeExecutions[0].Language != "PYTHON" {
+		t.Errorf("expected language 'PYTHON', got %q", response.CodeExecutions[0].Language)
+	}
+	if response.CodeExecutions[0].Outcome != "OUTCOME_OK" {
+		t.Errorf("expected outcome 'OUTCOME_OK', got %q", response.CodeExecutions[0].Outcome)
+	}
+	if response.CodeExecutions[0].Output != "6765\n" {
+		t.Errorf("expected output '6765\\n', got %q", response.CodeExecutions[0].Output)
+	}
+
+	// Verify usage
+	if response.Usage == nil {
+		t.Fatal("expected usage metadata")
+	}
+	if response.Usage.TotalTokens != 65 {
+		t.Errorf("expected 65 total tokens, got %d", response.Usage.TotalTokens)
+	}
+
+	// Verify finish reason is stop (no tool calls, just code execution)
+	if response.FinishReason != "stop" {
+		t.Errorf("expected finish reason 'stop', got %q", response.FinishReason)
+	}
+}
+
+func TestSendMessage_WithURLContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify the request contains url_context tool
+		var req generateContentRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		hasURLCtx := false
+		for _, requestTool := range req.Tools {
+			if requestTool.URLContext != nil {
+				hasURLCtx = true
+			}
+		}
+		if !hasURLCtx {
+			t.Error("expected url_context tool in request")
+		}
+
+		// Return response with URL context metadata
+		resp := generateContentResponse{
+			Candidates: []candidate{{
+				Content: &content{
+					Role:  "model",
+					Parts: []part{{Text: "Based on the article at that URL, the main topic is..."}},
+				},
+				FinishReason: "STOP",
+				URLContextMetadata: []urlContextMeta{
+					{
+						URL:                    "https://example.com/article",
+						Status:                 "SUCCESS",
+						RetrievedContentLength: 8500,
+					},
+				},
+			}},
+			UsageMetadata: &usageMetadata{
+				PromptTokenCount:     30,
+				CandidatesTokenCount: 25,
+				TotalTokenCount:      55,
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	provider := New().
+		WithAPIKey("test-key").
+		WithBaseURL(server.URL).(*GeminiProvider)
+
+	response, err := provider.SendMessage(context.Background(), ai.ChatRequest{
+		Model:    "gemini-3-flash-preview",
+		Messages: []ai.Message{{Role: ai.RoleUser, Content: "Summarize https://example.com/article"}},
+		Tools: []ai.ToolDescription{
+			{Name: ai.ToolURLContext},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("SendMessage failed: %v", err)
+	}
+
+	// Verify text content
+	if response.Content != "Based on the article at that URL, the main topic is..." {
+		t.Errorf("unexpected content: %q", response.Content)
+	}
+
+	// Verify URL context metadata
+	if response.Grounding == nil {
+		t.Fatal("expected grounding metadata with URL context")
+	}
+	if len(response.Grounding.URLContextSources) != 1 {
+		t.Fatalf("expected 1 URL context source, got %d", len(response.Grounding.URLContextSources))
+	}
+
+	urlSource := response.Grounding.URLContextSources[0]
+	if urlSource.URL != "https://example.com/article" {
+		t.Errorf("expected URL 'https://example.com/article', got %q", urlSource.URL)
+	}
+	if urlSource.Status != "SUCCESS" {
+		t.Errorf("expected status 'SUCCESS', got %q", urlSource.Status)
+	}
+	if urlSource.RetrievedContentLength != 8500 {
+		t.Errorf("expected content length 8500, got %d", urlSource.RetrievedContentLength)
+	}
+}
+
+func TestSendMessage_WithCodeExecutionMultiTurn(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		var req generateContentRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		if callCount == 2 {
+			// Second call: verify the assistant's code execution parts are sent back
+			if len(req.Contents) < 2 {
+				t.Fatalf("expected at least 2 contents in multi-turn, got %d", len(req.Contents))
+			}
+
+			modelContent := req.Contents[1]
+			if modelContent.Role != "model" {
+				t.Errorf("expected role 'model' for second content, got %q", modelContent.Role)
+			}
+
+			// Verify code execution parts are present
+			hasExecCode := false
+			hasExecResult := false
+			for _, messagePart := range modelContent.Parts {
+				if messagePart.ExecutableCode != nil {
+					hasExecCode = true
+					if messagePart.ExecutableCode.Language != "PYTHON" {
+						t.Errorf("expected language 'PYTHON', got %q", messagePart.ExecutableCode.Language)
+					}
+				}
+				if messagePart.CodeExecutionResult != nil {
+					hasExecResult = true
+					if messagePart.CodeExecutionResult.Outcome != "OUTCOME_OK" {
+						t.Errorf("expected outcome 'OUTCOME_OK', got %q", messagePart.CodeExecutionResult.Outcome)
+					}
+				}
+			}
+			if !hasExecCode {
+				t.Error("expected executableCode part in multi-turn model message")
+			}
+			if !hasExecResult {
+				t.Error("expected codeExecutionResult part in multi-turn model message")
+			}
+		}
+
+		// Return a simple response
+		resp := generateContentResponse{
+			Candidates: []candidate{{
+				Content: &content{
+					Role:  "model",
+					Parts: []part{{Text: "Response for call " + string(rune('0'+callCount))}},
+				},
+				FinishReason: "STOP",
+			}},
+			UsageMetadata: &usageMetadata{TotalTokenCount: 10},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	provider := New().
+		WithAPIKey("test-key").
+		WithBaseURL(server.URL).(*GeminiProvider)
+
+	// Second call includes the previous model response with code execution
+	_, err := provider.SendMessage(context.Background(), ai.ChatRequest{
+		Model: "gemini-3-flash-preview",
+		Messages: []ai.Message{
+			{Role: ai.RoleUser, Content: "Calculate fibonacci(10)"},
+			{
+				Role:    ai.RoleAssistant,
+				Content: "The answer is 55.",
+				CodeExecutions: []ai.CodeExecution{
+					{
+						Language: "PYTHON",
+						Code:     "def fib(n): return n if n<2 else fib(n-1)+fib(n-2)\nprint(fib(10))",
+						Outcome:  "OUTCOME_OK",
+						Output:   "55\n",
+					},
+				},
+			},
+			{Role: ai.RoleUser, Content: "Now calculate fibonacci(20)"},
+		},
+		Tools: []ai.ToolDescription{
+			{Name: ai.ToolCodeExecution},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("SendMessage failed: %v", err)
+	}
+
+	if callCount != 1 {
+		t.Errorf("expected 1 call, got %d", callCount)
+	}
+}
+
+func TestSendMessage_WithAllBuiltinTools(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req generateContentRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		// Verify all three built-in tools are present
+		hasGoogleSearch := false
+		hasURLContext := false
+		hasCodeExecution := false
+
+		for _, requestTool := range req.Tools {
+			if requestTool.GoogleSearch != nil {
+				hasGoogleSearch = true
+			}
+			if requestTool.URLContext != nil {
+				hasURLContext = true
+			}
+			if requestTool.CodeExecution != nil {
+				hasCodeExecution = true
+			}
+		}
+
+		if !hasGoogleSearch {
+			t.Error("expected google_search tool in request")
+		}
+		if !hasURLContext {
+			t.Error("expected url_context tool in request")
+		}
+		if !hasCodeExecution {
+			t.Error("expected code_execution tool in request")
+		}
+
+		// Return response with both code execution and URL context metadata
+		resp := generateContentResponse{
+			Candidates: []candidate{{
+				Content: &content{
+					Role: "model",
+					Parts: []part{
+						{Text: "After searching and analyzing the URL:"},
+						{ExecutableCode: &executableCode{
+							Language: "PYTHON",
+							Code:     "print('analysis complete')",
+						}},
+						{CodeExecutionResult: &codeExecutionResult{
+							Outcome: "OUTCOME_OK",
+							Output:  "analysis complete\n",
+						}},
+						{Text: "Here are the results."},
+					},
+				},
+				FinishReason: "STOP",
+				GroundingMetadata: &groundingMetadata{
+					WebSearchQueries: []string{"test query"},
+					GroundingChunks: []groundingChunk{
+						{Web: &webChunk{URI: "https://source.com", Title: "Source"}},
+					},
+				},
+				URLContextMetadata: []urlContextMeta{
+					{URL: "https://analyzed-url.com", Status: "SUCCESS", RetrievedContentLength: 3000},
+				},
+			}},
+			UsageMetadata: &usageMetadata{TotalTokenCount: 100},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	provider := New().
+		WithAPIKey("test-key").
+		WithBaseURL(server.URL).(*GeminiProvider)
+
+	response, err := provider.SendMessage(context.Background(), ai.ChatRequest{
+		Model:    "gemini-3-flash-preview",
+		Messages: []ai.Message{{Role: ai.RoleUser, Content: "Search, analyze URL, and compute"}},
+		Tools: []ai.ToolDescription{
+			{Name: ai.ToolGoogleSearch},
+			{Name: ai.ToolURLContext},
+			{Name: ai.ToolCodeExecution},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("SendMessage failed: %v", err)
+	}
+
+	// Verify code execution
+	if len(response.CodeExecutions) != 1 {
+		t.Fatalf("expected 1 code execution, got %d", len(response.CodeExecutions))
+	}
+	if response.CodeExecutions[0].Outcome != "OUTCOME_OK" {
+		t.Errorf("expected outcome 'OUTCOME_OK', got %q", response.CodeExecutions[0].Outcome)
+	}
+
+	// Verify grounding has both search results and URL context
+	if response.Grounding == nil {
+		t.Fatal("expected grounding metadata")
+	}
+	if len(response.Grounding.SearchQueries) != 1 {
+		t.Errorf("expected 1 search query, got %d", len(response.Grounding.SearchQueries))
+	}
+	if len(response.Grounding.Sources) != 1 {
+		t.Errorf("expected 1 grounding source, got %d", len(response.Grounding.Sources))
+	}
+	if len(response.Grounding.URLContextSources) != 1 {
+		t.Fatalf("expected 1 URL context source, got %d", len(response.Grounding.URLContextSources))
+	}
+	if response.Grounding.URLContextSources[0].URL != "https://analyzed-url.com" {
+		t.Errorf("unexpected URL context URL: %q", response.Grounding.URLContextSources[0].URL)
+	}
+
+	// Verify text content
+	expectedContent := "After searching and analyzing the URL:\nHere are the results."
+	if response.Content != expectedContent {
+		t.Errorf("expected content %q, got %q", expectedContent, response.Content)
+	}
+}
