@@ -1,0 +1,1410 @@
+# aigo
+
+> A lightweight, modular Go framework for building AI applications with LLMs — supporting multi-turn conversations, tool calling, structured output, observability, cost tracking, and agentic patterns (ReAct, DAG graphs).
+
+Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architecture: **Layer 1** (`providers/`) exposes raw LLM/tool/memory/observability I/O; **Layer 2** (`core/`) orchestrates stateful/stateless conversations, cost tracking, and JSON parsing; **Layer 3** (`patterns/`) provides type-safe agentic workflows. AI providers: OpenAI, Gemini (and any OpenAI-compatible API). Install: `go get github.com/leofalp/aigo`. Key env vars: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `AIGO_DEFAULT_LLM_MODEL`.
+
+## Docs
+
+- [README](README.md)
+- [Architecture](ARCHITECTURE.md)
+- [Cost Tracking](core/cost/README.md)
+- [Observability](providers/observability/README.md)
+- [Slog Observer](providers/observability/slogobs/README.md)
+- [Examples: ReAct](examples/layer3/react/README.md)
+- [Examples: Cost Tracking](examples/layer2/cost_tracking/README.md)
+
+## API Reference
+
+See [llms.txt](llms.txt) for a full API reference index.
+
+## Examples
+
+- [Layer 1](examples/layer1/)
+- [Layer 2](examples/layer2/)
+- [Layer 3](examples/layer3/)
+
+---
+
+# README
+
+[![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+A lightweight, modular, and extensible Go framework for building AI applications. AIGO provides a flexible 3-layer architecture that lets you choose the right level of abstraction for your needs—from low-level provider control to high-level agentic patterns. Built with minimal dependencies, it integrates seamlessly into existing Go projects while offering powerful features like type-safe structured outputs, automatic cost tracking, and comprehensive observability.
+
+## Features
+
+- **3-Layer Architecture** - Independent layers for providers, core orchestration, and high-level patterns
+- **Type-Safe Structured Output** - Generic-based responses with automatic JSON parsing and schema generation
+- **Agentic Patterns** - ReAct, RAG, and chain-based workflows with tool execution loops
+- **Cost Tracking** - Track and optimize spending across models, tools, and infrastructure
+- **Observability** - Built-in tracing, metrics, and logging with zero overhead when disabled
+- **Provider Flexibility** - Support for any OpenAI-compatible API
+- **Extensible Tools** - Built-in tools for calculations, web search, and scraping, with easy custom tool creation
+- **Memory Management** - Thread-safe conversation history with pluggable storage backends
+
+## Installation
+
+```bash
+go get github.com/leofalp/aigo
+```
+
+## Configuration
+
+Minimum required environment variables:
+
+```bash
+OPENAI_API_KEY=your-api-key-here
+AIGO_DEFAULT_LLM_MODEL=your-model-name
+```
+
+See `.env.example` for all available configuration options.
+
+## Basic Usage (Layer 2)
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/leofalp/aigo/core/client"
+    "github.com/leofalp/aigo/providers/ai/openai"
+    "github.com/leofalp/aigo/providers/memory/inmemory"
+)
+
+func main() {
+    aiClient, err := client.New(
+        openai.New(),
+        client.WithMemory(inmemory.New()),
+        client.WithSystemPrompt("You are a helpful assistant."),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    ctx := context.Background()
+    resp, err := aiClient.SendMessage(ctx, "What is the capital of France?")
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(resp.Content)
+}
+```
+
+## Structured Output (Layer 2)
+
+```go
+type ProductReview struct {
+    ProductName string `json:"product_name" jsonschema:"required"`
+    Rating      int    `json:"rating" jsonschema:"required"`
+    Summary     string `json:"summary" jsonschema:"required"`
+}
+
+reviewClient, _ := client.NewStructured[ProductReview](
+    openai.New(),
+    client.WithMemory(inmemory.New()),
+)
+
+resp, _ := reviewClient.SendMessage(ctx, "Analyze this review: ...")
+fmt.Printf("Product: %s, Rating: %d/5\n", resp.Data.ProductName, resp.Data.Rating)
+```
+
+## ReAct Agent with Tools (Layer 3)
+
+```go
+import (
+    "github.com/leofalp/aigo/patterns/react"
+    "github.com/leofalp/aigo/providers/tool/calculator"
+)
+
+baseClient, _ := client.New(
+    openai.New(),
+    client.WithMemory(inmemory.New()),
+    client.WithTools(calculator.NewCalculatorTool()),
+)
+
+agent, _ := react.New[string](baseClient)
+result, _ := agent.Execute(ctx, "What is 42 * 17?")
+fmt.Println(*result.Data)
+```
+
+---
+
+# Architecture
+
+`aigo` is structured in three independent layers, each providing increasing levels of abstraction. **You can use any layer directly without depending on the layers above it**.
+
+```
+┌─────────────────────────────────────────────────┐
+│  Layer 3: patterns/                             │
+│  High-level AI patterns (ReAct, RAG, Chain)     │
+│  Uses: Layer 1 OR Layer 2                       │
+└─────────────────────────────────────────────────┘
+                    ↓ optional
+┌─────────────────────────────────────────────────┐
+│  Layer 2: core/                                 │
+│  Shared business logic (Session, Tools, etc.)   │
+│  Uses: Layer 1                                  │
+└─────────────────────────────────────────────────┘
+                    ↓ required
+┌─────────────────────────────────────────────────┐
+│  Layer 1: providers/                            │
+│  Protocol implementations (OpenAI, Redis, etc.) │
+│  Uses: Nothing (pure I/O)                       │
+└─────────────────────────────────────────────────┘
+```
+
+## Layer 1: Providers (Primitives)
+
+Pure I/O implementations and protocol adapters. Handle communication with external services with zero business logic.
+
+- `providers/ai/` — LLM providers (OpenAI, Gemini)
+- `providers/memory/` — Storage backends (in-memory)
+- `providers/tool/` — Tool interface and implementations
+- `providers/observability/` — Monitoring and logging
+
+## Layer 2: Core (Shared Business Logic)
+
+Reusable components with domain logic that orchestrate multiple providers.
+
+- `core/client/` — Main orchestrator (stateful/stateless, tool execution, cost tracking)
+- `core/cost/` — Cost tracking (model, tool, compute costs)
+- `core/parse/` — JSON extraction and type-safe parsing
+- `core/overview/` — Execution statistics and cost aggregation
+
+**What Layer 2 provides over Layer 1:**
+
+| Feature | Layer 1 | Layer 2 |
+|---------|---------|---------|
+| API call | ✅ | ✅ Wrapped |
+| Conversation history | ❌ | ✅ Auto-managed |
+| Tool calling | ❌ | ✅ Full orchestration |
+| Cost tracking | ❌ | ✅ Automatic |
+| Observability | ❌ | ✅ Built-in |
+
+## Layer 3: Patterns (High-Level Abstractions)
+
+Ready-to-use implementations of common AI patterns.
+
+- `patterns/react/` — ReAct (Reasoning + Acting) agent with type-safe structured output
+- `patterns/graph/` — DAG-based parallel workflow execution
+
+## Type-Safe ReAct Pattern
+
+### Key Concepts
+
+```go
+// Structured output with custom type
+type MathResult struct {
+    Answer      int    `json:"answer" jsonschema:"required"`
+    Explanation string `json:"explanation" jsonschema:"required"`
+}
+
+agent, _ := react.New[MathResult](baseClient)
+result, _ := agent.Execute(ctx, "What is 2+2?")
+answer := result.Data.Answer // Type-safe access
+```
+
+**Default Untyped**: Use `string` for unstructured text output.
+
+```go
+agent, _ := react.New[string](baseClient)
+result, _ := agent.Execute(ctx, prompt)
+text := *result.Data // Direct string access
+```
+
+### Execution Flow
+
+```
+Schema injected at construction time
+    ↓
+User Prompt → ReAct Loop (tools + reasoning)
+    ↓
+No more tool calls detected
+    ↓
+Parse final answer into type T
+    ↓
+Success? → Return StructuredOverview[T]
+    ↓
+Parse failed? → Request JSON explicitly → Retry
+    ↓
+Success? → Return StructuredOverview[T]
+```
+
+### ParseStringAs Behavior
+
+- `string` type: Returns input directly (no JSON parsing)
+- Primitive types: Direct conversion (int, bool, float)
+- Structs/Complex: JSON unmarshaling with automatic repair if needed
+
+## Design Principles
+
+1. **No Lock-in**: Each layer is optional (except Layer 1)
+2. **Composable**: Mix and match components freely
+3. **Zero Duplication**: Shared logic lives in Layer 2, not in every pattern
+4. **Testable**: Mock at any layer
+5. **Go Idioms**: Simple interfaces, explicit dependencies, no magic
+
+---
+
+# Cost Tracking
+
+Comprehensive cost tracking for model API usage, tool executions, and infrastructure.
+
+## Quick Start
+
+### 1. Configure Model Costs
+
+```go
+client, _ := client.New(
+    provider,
+    client.WithModelCost(cost.ModelCost{
+        InputCostPerMillion:  2.50,  // $2.50 per 1M input tokens
+        OutputCostPerMillion: 10.00, // $10.00 per 1M output tokens
+    }),
+)
+```
+
+Or via environment variables:
+
+```bash
+AIGO_MODEL_INPUT_COST_PER_MILLION=2.50
+AIGO_MODEL_OUTPUT_COST_PER_MILLION=10.00
+AIGO_MODEL_CACHED_COST_PER_MILLION=1.25      # Optional
+AIGO_MODEL_REASONING_COST_PER_MILLION=5.00   # Optional
+AIGO_COMPUTE_COST_PER_SECOND=0.00167         # Optional
+```
+
+### 2. Define Tool Metrics
+
+```go
+calcTool := tool.NewTool("calculator", calcFunc,
+    tool.WithMetrics(cost.ToolMetrics{
+        Amount:                  0.001,
+        Currency:                "USD",
+        CostDescription:         "per calculation",
+        Accuracy:                0.99,
+        AverageDurationInMillis: 100,
+    }),
+)
+```
+
+### 3. Enable LLM Optimization (Optional)
+
+```go
+client.WithEnrichSystemPromptWithToolsCosts(cost.OptimizeForCost)
+```
+
+### 4. Access Cost Information
+
+```go
+overview, _ := pattern.Execute(ctx, "Calculate 42 * 17")
+summary := overview.CostSummary()
+fmt.Printf("Tools:   $%.6f\n", summary.TotalToolCost)
+fmt.Printf("Model:   $%.6f\n", summary.TotalModelCost)
+fmt.Printf("Compute: $%.6f (%.2fs)\n", summary.ComputeCost, summary.ExecutionDurationSeconds)
+fmt.Printf("Total:   $%.6f\n", summary.TotalCost)
+```
+
+## Core Types
+
+### ModelCost
+
+```go
+type ModelCost struct {
+    InputCostPerMillion       float64 // Input tokens
+    OutputCostPerMillion      float64 // Output tokens
+    CachedInputCostPerMillion float64 // Cached tokens (optional)
+    ReasoningCostPerMillion   float64 // Reasoning tokens (optional)
+}
+```
+
+### ToolMetrics
+
+```go
+type ToolMetrics struct {
+    Amount                  float64 // Cost per execution
+    Currency                string  // Currency (default: "USD")
+    CostDescription         string  // Optional: context about the cost
+    Accuracy                float64 // Accuracy score (0.0 - 1.0)
+    AverageDurationInMillis int64   // Average execution time in milliseconds
+}
+```
+
+Methods: `String()`, `MetricsString()`, `CostEffectivenessScore()`
+
+### ComputeCost
+
+```go
+type ComputeCost struct {
+    CostPerSecond float64 // e.g., 0.00167 for ~$0.10/minute
+}
+```
+
+### CostSummary
+
+```go
+type CostSummary struct {
+    ToolCosts                map[string]float64
+    ToolExecutionCount       map[string]int
+    TotalToolCost            float64
+    ModelInputCost           float64
+    ModelOutputCost          float64
+    ModelCachedCost          float64
+    ModelReasoningCost       float64
+    TotalModelCost           float64
+    ComputeCost              float64
+    ExecutionDurationSeconds float64
+    TotalCost                float64
+    Currency                 string // Always "USD"
+}
+```
+
+## Optimization Strategies
+
+| Strategy | Priority |
+|----------|----------|
+| `OptimizeForCost` | Minimize costs |
+| `OptimizeForAccuracy` | Maximize accuracy |
+| `OptimizeForSpeed` | Minimize execution time |
+| `OptimizeBalanced` | Balance all metrics |
+| `OptimizeCostEffective` | Best quality/cost ratio |
+| `OptimizeForQuality` | Maximize overall quality |
+
+---
+
+# Exported API Reference
+
+## package client (`core/client`)
+
+```go
+// New creates a new immutable Client instance.
+func New(llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client, error)
+
+// NewStructured creates a type-safe structured client that auto-parses responses into T.
+func NewStructured[T any](llmProvider ai.Provider, opts ...func(*ClientOptions)) (*StructuredClient[T], error)
+
+// Client options
+func WithDefaultModel(model string) func(*ClientOptions)
+func WithMemory(memProvider memory.Provider) func(*ClientOptions)
+func WithObserver(observer observability.Provider) func(*ClientOptions)
+func WithSystemPrompt(prompt string) func(*ClientOptions)
+func WithTools(tools ...tool.GenericTool) func(*ClientOptions)
+func WithRequiredTools(tools ...tool.GenericTool) func(*ClientOptions)
+func WithDefaultOutputSchema(schema *jsonschema.Schema) func(*ClientOptions)
+func WithEnrichSystemPromptWithToolsDescriptions() func(*ClientOptions)
+func WithEnrichSystemPromptWithToolsCosts(strategy cost.OptimizationStrategy) func(*ClientOptions)
+func WithModelCost(modelCost cost.ModelCost) func(*ClientOptions)
+func WithComputeCost(computeCost cost.ComputeCost) func(*ClientOptions)
+
+// Per-request options
+func WithOutputSchema(schema *jsonschema.Schema) SendMessageOption
+func WithEphemeralSystemPrompt(prompt string) SendMessageOption
+
+// Client methods
+func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMessageOption) (*ai.ChatResponse, error)
+func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOption) (*ai.ChatResponse, error)
+func (c *Client) Memory() memory.Provider
+func (c *Client) Observer() observability.Provider
+func (c *Client) ToolCatalog() *tool.Catalog
+func (c *Client) AppendToSystemPrompt(appendix string)
+func (c *Client) SetDefaultOutputSchema(schema *jsonschema.Schema)
+```
+
+## package overview (`core/overview`)
+
+```go
+// Overview aggregates execution statistics, token usage, cost tracking,
+// and request/response history for a single execution lifecycle.
+type Overview struct {
+    LastResponse       *ai.ChatResponse
+    Requests           []*ai.ChatRequest
+    Responses          []*ai.ChatResponse
+    TotalUsage         ai.Usage
+    ToolCallStats      map[string]int
+    ToolCosts          map[string]float64
+    ModelCost          *cost.ModelCost
+    ExecutionStartTime time.Time
+    ExecutionEndTime   time.Time
+    ComputeCost        *cost.ComputeCost
+}
+
+// StructuredOverview extends Overview with parsed structured data.
+type StructuredOverview[T any] struct {
+    Overview
+    Data *T
+}
+
+// OverviewFromContext retrieves or creates an Overview from context.
+func OverviewFromContext(ctx *context.Context) *Overview
+
+// Overview methods
+func (o *Overview) CostSummary() cost.CostSummary
+func (o *Overview) TotalCost() float64
+func (o *Overview) ExecutionDuration() time.Duration
+func (o *Overview) IncludeUsage(usage *ai.Usage)
+func (o *Overview) AddToolCalls(tools []ai.ToolCall)
+func (o *Overview) AddRequest(request *ai.ChatRequest)
+func (o *Overview) AddResponse(response *ai.ChatResponse)
+func (o *Overview) AddToolExecutionCost(toolName string, toolMetrics *cost.ToolMetrics)
+func (o *Overview) SetModelCost(modelCost *cost.ModelCost)
+func (o *Overview) SetComputeCost(computeCost *cost.ComputeCost)
+func (o *Overview) StartExecution()
+func (o *Overview) EndExecution()
+func (o *Overview) ToContext(ctx context.Context) context.Context
+```
+
+## package parse (`core/parse`)
+
+```go
+// ParseStringAs parses a string (typically LLM output) into type T.
+// For string T, returns the input directly. For structs, unmarshals from JSON
+// with automatic repair via jsonrepair if needed.
+func ParseStringAs[T any](content string) (T, error)
+```
+
+## package cost (`core/cost`)
+
+```go
+type ModelCost struct {
+    InputCostPerMillion       float64
+    OutputCostPerMillion      float64
+    CachedInputCostPerMillion float64
+    ReasoningCostPerMillion   float64
+}
+func (mc ModelCost) CalculateInputCost(tokens int) float64
+func (mc ModelCost) CalculateOutputCost(tokens int) float64
+func (mc ModelCost) CalculateCachedCost(tokens int) float64
+func (mc ModelCost) CalculateReasoningCost(tokens int) float64
+func (mc ModelCost) CalculateTotalCost(input, output, cached, reasoning int) float64
+func (mc ModelCost) CalculateInputCostWithTiers(tokens int) float64
+func (mc ModelCost) CalculateOutputCostWithTiers(tokens int) float64
+
+type ToolMetrics struct {
+    Amount                  float64
+    Currency                string
+    CostDescription         string
+    Accuracy                float64
+    AverageDurationInMillis int64
+}
+func (tm ToolMetrics) String() string
+func (tm ToolMetrics) MetricsString() string
+func (tm ToolMetrics) CostEffectivenessScore() float64
+
+type ComputeCost struct {
+    CostPerSecond float64
+}
+func (cc ComputeCost) CalculateCost(durationSeconds float64) float64
+
+type CostSummary struct {
+    ToolCosts                map[string]float64
+    ToolExecutionCount       map[string]int
+    TotalToolCost            float64
+    ModelInputCost           float64
+    ModelOutputCost          float64
+    ModelCachedCost          float64
+    ModelReasoningCost       float64
+    TotalModelCost           float64
+    ComputeCost              float64
+    ExecutionDurationSeconds float64
+    TotalCost                float64
+    Currency                 string
+}
+
+type OptimizationStrategy string
+const (
+    OptimizeForCost        OptimizationStrategy = "cost"
+    OptimizeForAccuracy    OptimizationStrategy = "accuracy"
+    OptimizeForSpeed       OptimizationStrategy = "speed"
+    OptimizeBalanced       OptimizationStrategy = "balanced"
+    OptimizeCostEffective  OptimizationStrategy = "cost_effective"
+    OptimizeForQuality     OptimizationStrategy = "quality"
+)
+```
+
+## package react (`patterns/react`)
+
+```go
+// ReAct is a type-safe ReAct (Reasoning + Acting) pattern implementation.
+// T defines the expected structure of the final answer.
+type ReAct[T any] struct { ... }
+
+// New creates a new type-safe ReAct pattern that wraps a base client.
+// Requires client to have memory configured. Injects JSON schema for T into system prompt.
+func New[T any](baseClient *client.Client, opts ...Option) (*ReAct[T], error)
+
+// Execute runs the ReAct tool loop and parses the final answer into T.
+func (r *ReAct[T]) Execute(ctx context.Context, prompt string) (*overview.StructuredOverview[T], error)
+
+// Options
+func WithMaxIterations(max int) Option   // default: 10
+func WithStopOnError(stop bool) Option   // default: false
+func WithSysPromptAnnotation(bool) Option // enable/disable ReAct hints in system prompt
+```
+
+## package graph (`patterns/graph`)
+
+```go
+// New creates a new DAG-based graph workflow.
+func New[T any](outputNodeID string, opts ...Option) (*Graph[T], error)
+
+// Graph methods
+func (g *Graph[T]) AddNode(nodeID string, executor NodeExecutor, opts ...NodeOption) error
+func (g *Graph[T]) AddEdge(from, to string, opts ...EdgeOption) error
+func (g *Graph[T]) Execute(ctx context.Context, initialState map[string]any) (*overview.StructuredOverview[T], error)
+func (g *Graph[T]) Reset(ctx context.Context, initialState map[string]any) error
+
+// Graph options
+func WithDefaultClient(c *client.Client) Option
+func WithStateProvider(sp StateProvider) Option
+func WithErrorStrategy(strategy ErrorStrategy) Option
+func WithMaxConcurrency(n int) Option
+func WithExecutionTimeout(d time.Duration) Option
+
+// Node options
+func WithNodeClient(c *client.Client) NodeOption
+func WithNodeTimeout(d time.Duration) NodeOption
+func WithNodeParams(params map[string]any) NodeOption
+
+// Edge options
+func WithCondition(condition EdgeCondition) EdgeOption
+
+// Types
+type NodeExecutor interface {
+    Execute(ctx context.Context, input *NodeInput) (*NodeResult, error)
+}
+type NodeInput struct {
+    UpstreamResults map[string]*NodeResult
+    SharedState     StateProvider
+    Params          map[string]any
+    Client          *client.Client
+}
+type NodeResult struct {
+    Output   any
+    Error    error
+    Duration time.Duration
+    Metadata map[string]any
+}
+type StateProvider interface {
+    Get(ctx context.Context, key string) (any, error)
+    Set(ctx context.Context, key string, value any) error
+    GetNodeStatus(ctx context.Context, nodeID string) (NodeStatus, error)
+    SetNodeStatus(ctx context.Context, nodeID string, status NodeStatus) error
+    GetNodeResult(ctx context.Context, nodeID string) (*NodeResult, error)
+    SetNodeResult(ctx context.Context, nodeID string, result *NodeResult) error
+}
+
+type ErrorStrategy string
+const (
+    ErrorStrategyFailFast        ErrorStrategy = "fail_fast"
+    ErrorStrategyContinueOnError ErrorStrategy = "continue_on_error"
+)
+
+type NodeStatus string
+const (
+    NodePending   NodeStatus = "pending"
+    NodeRunning   NodeStatus = "running"
+    NodeCompleted NodeStatus = "completed"
+    NodeFailed    NodeStatus = "failed"
+    NodeSkipped   NodeStatus = "skipped"
+)
+```
+
+## package ai (`providers/ai`)
+
+```go
+// Provider is the interface for LLM providers.
+type Provider interface {
+    SendMessage(ctx context.Context, request ChatRequest) (*ChatResponse, error)
+    IsStopMessage(message *ChatResponse) bool
+}
+
+type ChatRequest struct {
+    Model        string
+    Messages     []Message
+    SystemPrompt string
+    Tools        []ToolDescription
+    ResponseFormat *ResponseFormat
+}
+
+type ChatResponse struct {
+    Id           string
+    Content      string
+    Reasoning    string
+    Refusal      string
+    FinishReason string
+    ToolCalls    []ToolCall
+    Usage        *Usage
+    Model        string
+    Images       []string
+    Audio        []byte
+    Videos       []string
+    Sources      []Source
+}
+
+type Message struct {
+    Role       string
+    Content    string
+    ToolCallID string
+    Name       string
+    ToolCalls  []ToolCall
+    Reasoning  string
+    Refusal    string
+}
+
+const (
+    RoleUser      = "user"
+    RoleAssistant = "assistant"
+    RoleTool      = "tool"
+    RoleSystem    = "system"
+)
+
+type Usage struct {
+    PromptTokens     int
+    CompletionTokens int
+    TotalTokens      int
+    ReasoningTokens  int
+    CachedTokens     int
+}
+
+type ToolDescription struct {
+    Name        string
+    Description string
+    Parameters  *jsonschema.Schema
+    Metrics     *cost.ToolMetrics
+}
+
+type ToolCall struct {
+    ID       string
+    Type     string
+    Function ToolCallFunction
+}
+
+type ToolCallFunction struct {
+    Name      string
+    Arguments string
+}
+
+// ToolResult provides structured tool execution result for LLM consumption.
+func NewToolResultError(code, message string) *ToolResult
+func NewToolResultSuccess(data any) *ToolResult
+func (tr *ToolResult) ToJSON() (string, error)
+```
+
+## package openai (`providers/ai/openai`)
+
+```go
+// New creates a new OpenAI provider. Reads OPENAI_API_KEY and OPENAI_API_BASE_URL from env.
+func New() *OpenAIProvider
+
+// Fluent configuration methods
+func (p *OpenAIProvider) WithAPIKey(apiKey string) ai.Provider
+func (p *OpenAIProvider) WithBaseURL(baseURL string) ai.Provider
+func (p *OpenAIProvider) WithHttpClient(httpClient *http.Client) ai.Provider
+```
+
+## package gemini (`providers/ai/gemini`)
+
+```go
+// New creates a new Gemini provider. Reads GEMINI_API_KEY and GEMINI_API_BASE_URL from env.
+func New() *GeminiProvider
+
+// Fluent configuration methods
+func (p *GeminiProvider) WithAPIKey(apiKey string) ai.Provider
+func (p *GeminiProvider) WithBaseURL(baseURL string) ai.Provider
+func (p *GeminiProvider) WithHttpClient(httpClient *http.Client) ai.Provider
+
+// Model constants
+const (
+    Model25Flash     = "gemini-2.5-flash-preview-04-17"
+    Model25FlashLite = "gemini-2.5-flash-lite-preview-06-17"
+    Model25Pro       = "gemini-2.5-pro-preview-06-05"
+    Model20Flash     = "gemini-2.0-flash"
+    Model20FlashLite = "gemini-2.0-flash-lite"
+    Model15Flash     = "gemini-1.5-flash"
+    Model15Pro       = "gemini-1.5-pro"
+    // ...and more
+)
+```
+
+## package memory (`providers/memory`)
+
+```go
+// Provider is the interface for conversation memory storage.
+type Provider interface {
+    AppendMessage(ctx context.Context, message *ai.Message)
+    AllMessages() []ai.Message
+    Clear(ctx context.Context)
+}
+```
+
+## package inmemory (`providers/memory/inmemory`)
+
+```go
+// New creates a new thread-safe in-memory conversation history provider.
+func New() memory.Provider
+```
+
+## package tool (`providers/tool`)
+
+```go
+// GenericTool is the interface for all tools.
+type GenericTool interface {
+    ToolInfo() ai.ToolDescription
+    Execute(ctx context.Context, args json.RawMessage) (any, error)
+    Call(ctx context.Context, args string) (string, error)
+    GetMetrics() *cost.ToolMetrics
+}
+
+// Tool is a generic typed tool implementation.
+type Tool[I, O any] struct { ... }
+
+// NewTool creates a typed tool with automatic JSON schema generation from I.
+func NewTool[I, O any](name string, fn func(ctx context.Context, input I) (O, error), opts ...ToolOption) *Tool[I, O]
+
+// Tool options
+func WithDescription(desc string) ToolOption
+func WithMetrics(metrics cost.ToolMetrics) ToolOption
+
+// Catalog manages a collection of tools.
+type Catalog struct { ... }
+func NewCatalogWithTools(tools ...GenericTool) *Catalog
+func (c *Catalog) Get(name string) (GenericTool, bool)
+func (c *Catalog) Tools() map[string]GenericTool
+func (c *Catalog) Size() int
+func (c *Catalog) Clone() *Catalog
+```
+
+## package calculator (`providers/tool/calculator`)
+
+```go
+// NewCalculatorTool creates a free local arithmetic tool.
+// Supports add, subtract, multiply, divide operations.
+func NewCalculatorTool() *tool.Tool[Input, Output]
+
+type Input struct {
+    Operation string  `json:"operation"` // "add", "subtract", "multiply", "divide"
+    A         float64 `json:"a"`
+    B         float64 `json:"b"`
+}
+
+type Output struct {
+    Result float64 `json:"result"`
+}
+```
+
+## package bravesearch (`providers/tool/bravesearch`)
+
+```go
+// NewBraveSearchTool creates a basic web search tool using the Brave Search API.
+// Requires BRAVE_SEARCH_API_KEY env var or explicit apiKey parameter.
+func NewBraveSearchTool(apiKey string) *tool.Tool[Input, Output]
+
+// NewBraveSearchAdvancedTool creates an advanced web search tool with full results.
+func NewBraveSearchAdvancedTool(apiKey string) *tool.Tool[Input, AdvancedOutput]
+
+type Input struct {
+    Query       string `json:"query"`
+    Count       int    `json:"count,omitempty"`       // Max results (1-20, default: 5)
+    Offset      int    `json:"offset,omitempty"`      // Pagination offset
+    CountryCode string `json:"country_code,omitempty"` // e.g., "US", "GB"
+    SearchLang  string `json:"search_lang,omitempty"`  // e.g., "en", "fr"
+    Freshness   string `json:"freshness,omitempty"`    // "pd", "pw", "pm", "py", or date range
+    SafeSearch  string `json:"safe_search,omitempty"`  // "strict", "moderate", "off"
+}
+
+type Output struct {
+    Query   string         `json:"query"`
+    Results []SearchResult `json:"results"`
+}
+
+type SearchResult struct {
+    Title       string `json:"title"`
+    URL         string `json:"url"`
+    Description string `json:"description"`
+    Score       float64 `json:"score,omitempty"`
+}
+
+type AdvancedOutput struct {
+    Query   string      `json:"query"`
+    Web     *WebResults  `json:"web,omitempty"`
+    News    *NewsResults `json:"news,omitempty"`
+}
+```
+
+## package duckduckgo (`providers/tool/duckduckgo`)
+
+```go
+// NewDuckDuckGoSearchTool creates a free web search tool (no API key required).
+func NewDuckDuckGoSearchTool() *tool.Tool[Input, Output]
+
+// NewDuckDuckGoSearchAdvancedTool creates an advanced search tool with related topics.
+func NewDuckDuckGoSearchAdvancedTool() *tool.Tool[Input, AdvancedOutput]
+
+type Input struct {
+    Query      string `json:"query"`
+    MaxResults int    `json:"max_results,omitempty"`
+    Region     string `json:"region,omitempty"` // e.g., "wt-wt", "us-en"
+    SafeSearch string `json:"safe_search,omitempty"` // "strict", "moderate", "off"
+}
+
+type Output struct {
+    Query   string   `json:"query"`
+    Results []Result `json:"results"`
+}
+
+type Result struct {
+    Title   string `json:"title"`
+    URL     string `json:"url"`
+    Snippet string `json:"snippet"`
+}
+```
+
+## package exa (`providers/tool/exa`)
+
+```go
+// NewExaSearchTool creates a semantic web search tool.
+// Requires EXA_API_KEY env var or explicit apiKey parameter.
+func NewExaSearchTool(apiKey string) *tool.Tool[SearchInput, SearchOutput]
+
+// NewExaSearchAdvancedTool creates an advanced search tool with highlights and summaries.
+func NewExaSearchAdvancedTool(apiKey string) *tool.Tool[SearchInput, SearchAdvancedOutput]
+
+type SearchInput struct {
+    Query         string   `json:"query"`
+    NumResults    int      `json:"num_results,omitempty"`
+    Type          string   `json:"type,omitempty"`    // "neural", "keyword", "auto"
+    Category      string   `json:"category,omitempty"`
+    IncludeDomains []string `json:"include_domains,omitempty"`
+    ExcludeDomains []string `json:"exclude_domains,omitempty"`
+    StartPublishedDate string `json:"start_published_date,omitempty"` // YYYY-MM-DD
+    EndPublishedDate   string `json:"end_published_date,omitempty"`
+    StartCrawlDate     string `json:"start_crawl_date,omitempty"`
+    EndCrawlDate       string `json:"end_crawl_date,omitempty"`
+}
+
+type SearchOutput struct {
+    Results []SearchResult `json:"results"`
+}
+
+type SearchResult struct {
+    Title      string  `json:"title"`
+    URL        string  `json:"url"`
+    PublishedDate string `json:"published_date,omitempty"`
+    Author     string  `json:"author,omitempty"`
+    Score      float64 `json:"score,omitempty"`
+    ID         string  `json:"id"`
+}
+```
+
+## package tavily (`providers/tool/tavily`)
+
+```go
+// NewTavilySearchTool creates an AI-optimized web search tool.
+// Requires TAVILY_API_KEY env var or explicit apiKey parameter.
+func NewTavilySearchTool(apiKey string) *tool.Tool[SearchInput, SearchOutput]
+
+// NewTavilySearchAdvancedTool creates an advanced search tool with raw content.
+func NewTavilySearchAdvancedTool(apiKey string) *tool.Tool[SearchInput, SearchAdvancedOutput]
+
+type SearchInput struct {
+    Query             string   `json:"query"`
+    MaxResults        int      `json:"max_results,omitempty"`
+    SearchDepth       string   `json:"search_depth,omitempty"`       // "basic", "advanced"
+    IncredeAnswers    bool     `json:"include_answer,omitempty"`
+    IncludeImages     bool     `json:"include_images,omitempty"`
+    IncludeRawContent bool     `json:"include_raw_content,omitempty"`
+    IncludeDomains    []string `json:"include_domains,omitempty"`
+    ExcludeDomains    []string `json:"exclude_domains,omitempty"`
+    Topic             string   `json:"topic,omitempty"` // "general", "news"
+    Days              int      `json:"days,omitempty"`
+}
+
+type SearchOutput struct {
+    Query   string         `json:"query"`
+    Answer  string         `json:"answer,omitempty"`
+    Results []SearchResult `json:"results"`
+}
+
+type SearchResult struct {
+    Title   string  `json:"title"`
+    URL     string  `json:"url"`
+    Content string  `json:"content"`
+    Score   float64 `json:"score"`
+}
+```
+
+## package webfetch (`providers/tool/webfetch`)
+
+```go
+// NewWebFetchTool creates a tool that fetches URL content and converts HTML to Markdown.
+func NewWebFetchTool() *tool.Tool[Input, Output]
+
+type Input struct {
+    URL            string `json:"url"`
+    TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+    UserAgent      string `json:"user_agent,omitempty"`
+    IncludeHTML    bool   `json:"include_html,omitempty"`
+}
+
+type Output struct {
+    URL      string `json:"url"`
+    Markdown string `json:"markdown"`
+    HTML     string `json:"html,omitempty"`
+}
+```
+
+## package urlextractor (`providers/tool/urlextractor`)
+
+```go
+// NewURLExtractorTool creates a tool that extracts and validates URLs from text.
+// SSRF-safe: blocks private/loopback/reserved IP ranges by default.
+func NewURLExtractorTool() *tool.Tool[Input, Output]
+
+// Constants
+const (
+    DefaultTimeout = 30 * time.Second
+    DefaultMaxURLs = 100
+    MaxURLsLimit   = 500
+)
+```
+
+## package sitedataextractor (`providers/tool/sitedataextractor`)
+
+```go
+// NewSiteDataExtractorTool creates a tool that extracts structured company/site data.
+// Fetches and parses multiple pages (home, about, contact, team, etc.).
+func NewSiteDataExtractorTool() *tool.Tool[Input, Output]
+
+type Input struct {
+    SiteStructure []string `json:"site_structure"` // URLs to fetch
+    Pages         []string `json:"pages,omitempty"` // Specific page types to prioritize
+}
+```
+
+## package observability (`providers/observability`)
+
+```go
+// Provider is the full observability interface (tracing + metrics + logging).
+type Provider interface {
+    StartSpan(ctx context.Context, name string, attrs ...Attribute) (context.Context, Span)
+    Counter(name string) Counter
+    Histogram(name string) Histogram
+    Trace(ctx context.Context, msg string, attrs ...Attribute)
+    Debug(ctx context.Context, msg string, attrs ...Attribute)
+    Info(ctx context.Context, msg string, attrs ...Attribute)
+    Warn(ctx context.Context, msg string, attrs ...Attribute)
+    Error(ctx context.Context, msg string, attrs ...Attribute)
+}
+
+// Span represents an active trace span.
+type Span interface {
+    SetAttributes(attrs ...Attribute)
+    AddEvent(name string, attrs ...Attribute)
+    RecordError(err error)
+    SetStatus(code StatusCode, msg string)
+    End()
+}
+
+// Context helpers
+func ContextWithObserver(ctx context.Context, observer Provider) context.Context
+func ObserverFromContext(ctx context.Context) Provider
+func ContextWithSpan(ctx context.Context, span Span) context.Context
+func SpanFromContext(ctx context.Context) Span
+
+// Attribute constructors
+func String(key, value string) Attribute
+func Int(key string, value int) Attribute
+func Bool(key string, value bool) Attribute
+func Float(key string, value float64) Attribute
+func Duration(key string, d time.Duration) Attribute
+func StringSlice(key string, values []string) Attribute
+func Error(err error) Attribute
+```
+
+## package slogobs (`providers/observability/slogobs`)
+
+```go
+// New creates a slog-based observability provider.
+// Reads AIGO_LOG_FORMAT and AIGO_LOG_LEVEL from environment if not explicitly set.
+func New(opts ...Option) *Observer
+
+// Log formats
+const (
+    FormatCompact = "compact" // Single-line, minimal output (default)
+    FormatPretty  = "pretty"  // Human-readable multi-line with colors
+    FormatJSON    = "json"    // Structured JSON for machine parsing
+)
+
+// Options
+func WithFormat(format string) Option        // "compact", "pretty", "json"
+func WithLevel(level slog.Level) Option      // slog.LevelDebug/Info/Warn/Error
+func WithOutput(w io.Writer) Option          // default: os.Stderr
+func WithColors(enabled bool) Option         // default: true for pretty
+func WithLogger(logger *slog.Logger) Option  // use existing slog.Logger
+
+// Environment variables
+// AIGO_LOG_FORMAT: "compact" | "pretty" | "json"
+// AIGO_LOG_LEVEL:  "debug" | "info" | "warn" | "error"
+```
+
+---
+
+# Example: Layer 1 — Raw Provider (examples/layer1/simple_openai_provider/main.go)
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log/slog"
+    "os"
+
+    "github.com/leofalp/aigo/internal/jsonschema"
+    "github.com/leofalp/aigo/providers/ai"
+    "github.com/leofalp/aigo/providers/ai/openai"
+
+    _ "github.com/joho/godotenv/autoload"
+)
+
+func main() {
+    testProvider := openai.New()
+    ctx := context.Background()
+
+    // Simple message without tools
+    response, err := testProvider.SendMessage(ctx, ai.ChatRequest{
+        Model:        os.Getenv("AIGO_DEFAULT_LLM_MODEL"),
+        SystemPrompt: "You are a helpful assistant.",
+        Messages: []ai.Message{
+            {Role: "user", Content: "What is the capital of France?"},
+        },
+    })
+    if err != nil {
+        slog.Error("Error sending message", "error", err)
+        os.Exit(1)
+    }
+    fmt.Printf("Response: %s\n", response.Content)
+
+    // Message with tools
+    tools := []ai.ToolDescription{
+        {
+            Name:        "get_weather",
+            Description: "Get the current weather for a location",
+            Parameters: &jsonschema.Schema{
+                Type: "object",
+                Properties: map[string]*jsonschema.Schema{
+                    "location": {Type: "string", Description: "City and state"},
+                    "unit":     {Type: "string", Enum: []any{"celsius", "fahrenheit"}},
+                },
+                Required: []string{"location"},
+            },
+        },
+    }
+
+    response2, err := testProvider.SendMessage(ctx, ai.ChatRequest{
+        Model:        os.Getenv("AIGO_DEFAULT_LLM_MODEL"),
+        SystemPrompt: "You are a helpful assistant.",
+        Messages:     []ai.Message{{Role: "user", Content: "What's the weather like in Paris?"}},
+        Tools:        tools,
+    })
+    if err != nil {
+        slog.Error("Error sending message with tools", "error", err)
+        os.Exit(1)
+    }
+    fmt.Printf("Response with tools: %s\n", response2.Content)
+    if len(response2.ToolCalls) > 0 {
+        fmt.Printf("Tool calls requested: %d\n", len(response2.ToolCalls))
+        for _, tc := range response2.ToolCalls {
+            fmt.Printf("  - %s: %s\n", tc.Function.Name, tc.Function.Arguments)
+        }
+    }
+}
+```
+
+---
+
+# Example: Layer 2 — Manual Tool Loop (examples/layer2/manual_tool/main.go)
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/leofalp/aigo/core/client"
+    "github.com/leofalp/aigo/providers/ai"
+    "github.com/leofalp/aigo/providers/ai/openai"
+    "github.com/leofalp/aigo/providers/memory/inmemory"
+    "github.com/leofalp/aigo/providers/tool"
+    "github.com/leofalp/aigo/providers/tool/calculator"
+
+    _ "github.com/joho/godotenv/autoload"
+)
+
+func main() {
+    memory := inmemory.New()
+
+    c, err := client.New(
+        openai.New(),
+        client.WithMemory(memory),
+        client.WithTools(calculator.NewCalculatorTool()),
+        client.WithSystemPrompt("You are a helpful math assistant. Use the calculator tool when needed."),
+    )
+    if err != nil {
+        log.Fatalf("Failed to create client: %v", err)
+    }
+
+    ctx := context.Background()
+    userPrompt := "What is 42 multiplied by 17?"
+
+    // Step 1: Send message
+    resp, err := c.SendMessage(ctx, userPrompt)
+    if err != nil {
+        log.Fatalf("Failed to send message: %v", err)
+    }
+
+    if len(resp.ToolCalls) == 0 {
+        fmt.Printf("Assistant: %s\n", resp.Content)
+        return
+    }
+
+    // Step 2: Save assistant message with tool calls
+    memory.AppendMessage(ctx, &ai.Message{
+        Role:      ai.RoleAssistant,
+        Content:   resp.Content,
+        ToolCalls: resp.ToolCalls,
+    })
+
+    // Step 3: Execute tools and add results
+    toolCatalog := tool.NewCatalogWithTools(calculator.NewCalculatorTool())
+
+    for _, toolCall := range resp.ToolCalls {
+        toolInstance, exists := toolCatalog.Get(toolCall.Function.Name)
+        if !exists {
+            continue
+        }
+        result, err := toolInstance.Call(ctx, toolCall.Function.Arguments)
+        if err != nil {
+            continue
+        }
+        memory.AppendMessage(ctx, &ai.Message{
+            Role:       ai.RoleTool,
+            Content:    result,
+            ToolCallID: toolCall.ID,
+            Name:       toolCall.Function.Name,
+        })
+    }
+
+    // Step 4: Continue conversation to get final answer
+    finalResp, err := c.ContinueConversation(ctx)
+    if err != nil {
+        log.Fatalf("Failed to get final response: %v", err)
+    }
+    fmt.Printf("Assistant: %s\n", finalResp.Content)
+}
+```
+
+---
+
+# Example: Layer 3 — Type-Safe ReAct (examples/layer3/react/main.go)
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/leofalp/aigo/core/client"
+    "github.com/leofalp/aigo/patterns/react"
+    "github.com/leofalp/aigo/providers/ai/openai"
+    "github.com/leofalp/aigo/providers/memory/inmemory"
+    "github.com/leofalp/aigo/providers/observability/slogobs"
+    "github.com/leofalp/aigo/providers/tool/calculator"
+    "github.com/leofalp/aigo/providers/tool/duckduckgo"
+
+    _ "github.com/joho/godotenv/autoload"
+)
+
+// MathResult represents a structured math calculation result.
+type MathResult struct {
+    Answer      int    `json:"answer" jsonschema:"required,description=The numerical answer"`
+    Explanation string `json:"explanation" jsonschema:"required,description=Step-by-step explanation"`
+    Confidence  string `json:"confidence" jsonschema:"required,enum=high|medium|low"`
+}
+
+// ResearchResult represents a structured research result.
+type ResearchResult struct {
+    Topic       string   `json:"topic" jsonschema:"required"`
+    Summary     string   `json:"summary" jsonschema:"required"`
+    KeyPoints   []string `json:"key_points" jsonschema:"required"`
+    Sources     int      `json:"sources" jsonschema:"required"`
+    Reliability string   `json:"reliability" jsonschema:"required,enum=high|medium|low"`
+}
+
+func main() {
+    ctx := context.Background()
+
+    // Example 1: Typed math agent
+    baseClient, _ := client.New(
+        openai.New(),
+        client.WithMemory(inmemory.New()),
+        client.WithObserver(slogobs.New()),
+        client.WithTools(calculator.NewCalculatorTool()),
+        client.WithSystemPrompt("You are a helpful math assistant."),
+        client.WithEnrichSystemPromptWithToolsDescriptions(),
+    )
+
+    agent, _ := react.New[MathResult](
+        baseClient,
+        react.WithMaxIterations(10),
+        react.WithStopOnError(true),
+    )
+
+    result, err := agent.Execute(ctx, "What is the sum of the first 5 prime numbers?")
+    if err != nil {
+        log.Fatalf("Execution failed: %v", err)
+    }
+
+    fmt.Printf("Answer: %d\n", result.Data.Answer)
+    fmt.Printf("Explanation: %s\n", result.Data.Explanation)
+    fmt.Printf("Confidence: %s\n", result.Data.Confidence)
+    fmt.Printf("Total Tokens: %d\n", result.TotalUsage.TotalTokens)
+
+    // Example 2: Typed research agent
+    searchClient, _ := client.New(
+        openai.New(),
+        client.WithMemory(inmemory.New()),
+        client.WithTools(duckduckgo.NewDuckDuckGoSearchTool()),
+        client.WithSystemPrompt("You are a research assistant."),
+    )
+
+    researchAgent, _ := react.New[ResearchResult](searchClient, react.WithMaxIterations(5))
+    research, _ := researchAgent.Execute(ctx, "Research the latest developments in quantum computing")
+    fmt.Printf("Topic: %s, Sources: %d\n", research.Data.Topic, research.Data.Sources)
+
+    // Example 3: Untyped (string) output
+    untypedClient, _ := client.New(
+        openai.New(),
+        client.WithMemory(inmemory.New()),
+        client.WithTools(calculator.NewCalculatorTool()),
+    )
+
+    untypedAgent, _ := react.New[string](untypedClient, react.WithMaxIterations(10))
+    untypedResult, _ := untypedAgent.Execute(ctx, "What is 42 * 17?")
+    fmt.Printf("Result: %s\n", *untypedResult.Data)
+}
+```
+
+---
+
+# Example: Layer 2 — Cost Tracking (examples/layer2/cost_tracking/main.go)
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    _ "github.com/joho/godotenv/autoload"
+    "github.com/leofalp/aigo/core/client"
+    "github.com/leofalp/aigo/core/cost"
+    "github.com/leofalp/aigo/core/overview"
+    "github.com/leofalp/aigo/patterns/react"
+    "github.com/leofalp/aigo/providers/ai/openai"
+    "github.com/leofalp/aigo/providers/memory/inmemory"
+    "github.com/leofalp/aigo/providers/tool"
+)
+
+type CalculatorInput struct {
+    Operation string  `json:"operation" jsonschema:"required,enum=add|subtract|multiply|divide"`
+    A         float64 `json:"a" jsonschema:"required"`
+    B         float64 `json:"b" jsonschema:"required"`
+}
+
+type CalculatorOutput struct {
+    Result float64 `json:"result" jsonschema:"required"`
+}
+
+func main() {
+    ctx := context.Background()
+
+    calculatorTool := tool.NewTool(
+        "calculator",
+        func(ctx context.Context, input CalculatorInput) (CalculatorOutput, error) {
+            var result float64
+            switch input.Operation {
+            case "add":
+                result = input.A + input.B
+            case "subtract":
+                result = input.A - input.B
+            case "multiply":
+                result = input.A * input.B
+            case "divide":
+                if input.B == 0 {
+                    return CalculatorOutput{}, fmt.Errorf("division by zero")
+                }
+                result = input.A / input.B
+            }
+            return CalculatorOutput{Result: result}, nil
+        },
+        tool.WithDescription("Performs basic arithmetic operations"),
+        tool.WithMetrics(cost.ToolMetrics{
+            Amount:                  0.001,
+            Currency:                "USD",
+            CostDescription:         "per calculation",
+            Accuracy:                0.99,
+            AverageDurationInMillis: 100,
+        }),
+    )
+
+    aiClient, err := client.New(
+        openai.New(),
+        client.WithSystemPrompt("You are a helpful assistant with access to tools."),
+        client.WithMemory(inmemory.New()),
+        client.WithTools(calculatorTool),
+        client.WithModelCost(cost.ModelCost{
+            InputCostPerMillion:  2.50,
+            OutputCostPerMillion: 10.00,
+        }),
+        client.WithComputeCost(cost.ComputeCost{
+            CostPerSecond: 0.00167,
+        }),
+        client.WithEnrichSystemPromptWithToolsCosts(cost.OptimizeForCost),
+    )
+    if err != nil {
+        log.Fatalf("Failed to create client: %v", err)
+    }
+
+    reactPattern, _ := react.New[string](aiClient, react.WithMaxIterations(5))
+    result, _ := reactPattern.Execute(ctx, "What is 42 multiplied by 17?")
+
+    fmt.Printf("Answer: %s\n", *result.Data)
+    printCostSummary(&result.Overview)
+}
+
+func printCostSummary(o *overview.Overview) {
+    summary := o.CostSummary()
+    fmt.Printf("\nCost Summary:\n")
+    fmt.Printf("  Total:   $%.6f USD\n", summary.TotalCost)
+    fmt.Printf("  Tools:   $%.6f USD\n", summary.TotalToolCost)
+    fmt.Printf("  Model:   $%.6f USD\n", summary.TotalModelCost)
+    if summary.ComputeCost > 0 {
+        fmt.Printf("  Compute: $%.6f USD (%.2f seconds)\n", summary.ComputeCost, summary.ExecutionDurationSeconds)
+    }
+    fmt.Printf("\n  Token Usage:\n")
+    fmt.Printf("    Input:  %d tokens\n", o.TotalUsage.PromptTokens)
+    fmt.Printf("    Output: %d tokens\n", o.TotalUsage.CompletionTokens)
+    fmt.Printf("    Total:  %d tokens\n", o.TotalUsage.TotalTokens)
+}
+```
