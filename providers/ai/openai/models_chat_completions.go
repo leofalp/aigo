@@ -57,19 +57,20 @@ func mimeTypeToAudioFormat(mimeType string) string {
 
 // chatCompletionRequest represents the /v1/chat/completions request format
 type chatCompletionRequest struct {
-	Model               string        `json:"model"`
-	Models              []string      `json:"models,omitempty"` // for model fallback // TODO: implement model fallback logic
-	Messages            []chatMessage `json:"messages"`
-	Temperature         *float64      `json:"temperature,omitempty"`
-	TopP                *float64      `json:"top_p,omitempty"`
-	MaxTokens           *int          `json:"max_tokens,omitempty"`            // Legacy, still accepted
-	MaxCompletionTokens *int          `json:"max_completion_tokens,omitempty"` // Preferred
-	FrequencyPenalty    *float64      `json:"frequency_penalty,omitempty"`
-	PresencePenalty     *float64      `json:"presence_penalty,omitempty"`
-	Stop                interface{}   `json:"stop,omitempty"` // string or []string
-	Stream              *bool         `json:"stream,omitempty"`
-	Seed                *int          `json:"seed,omitempty"`
-	User                string        `json:"user,omitempty"`
+	Model               string         `json:"model"`
+	Models              []string       `json:"models,omitempty"` // for model fallback // TODO: implement model fallback logic
+	Messages            []chatMessage  `json:"messages"`
+	Temperature         *float64       `json:"temperature,omitempty"`
+	TopP                *float64       `json:"top_p,omitempty"`
+	MaxTokens           *int           `json:"max_tokens,omitempty"`            // Legacy, still accepted
+	MaxCompletionTokens *int           `json:"max_completion_tokens,omitempty"` // Preferred
+	FrequencyPenalty    *float64       `json:"frequency_penalty,omitempty"`
+	PresencePenalty     *float64       `json:"presence_penalty,omitempty"`
+	Stop                interface{}    `json:"stop,omitempty"` // string or []string
+	Stream              *bool          `json:"stream,omitempty"`
+	StreamOptions       *streamOptions `json:"stream_options,omitempty"` // Controls streaming behavior (e.g., include_usage in final chunk)
+	Seed                *int           `json:"seed,omitempty"`
+	User                string         `json:"user,omitempty"`
 
 	// Tool calling - new format
 	Tools             []chatTool  `json:"tools,omitempty"`

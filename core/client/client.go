@@ -638,6 +638,142 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 	return response, nil
 }
 
+// StreamMessage sends a user message and returns a ChatStream for real-time token delivery.
+// If the underlying provider implements ai.StreamProvider, it uses native streaming.
+// Otherwise, it falls back to a synchronous SendMessage wrapped in a single-event stream.
+//
+// The prompt parameter must be non-empty. Use StreamContinueConversation to continue
+// a conversation without adding a new user message.
+//
+// Example:
+//
+//	stream, err := client.StreamMessage(ctx, "Explain quantum computing")
+//	for event, err := range stream.Iter() {
+//	    if err != nil { log.Fatal(err) }
+//	    fmt.Print(event.Content) // print tokens as they arrive
+//	}
+func (c *Client) StreamMessage(ctx context.Context, prompt string, opts ...SendMessageOption) (*ai.ChatStream, error) {
+	// Validate prompt is non-empty
+	if prompt == "" {
+		return nil, errors.New("prompt cannot be empty; use StreamContinueConversation() to continue without adding a user message")
+	}
+
+	// Apply options
+	options := &SendMessageOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	// Build messages list based on memory provider availability
+	var messages []ai.Message
+	if c.memoryProvider != nil {
+		c.memoryProvider.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: prompt})
+		messages = c.memoryProvider.AllMessages()
+	} else {
+		messages = []ai.Message{
+			{Role: ai.RoleUser, Content: prompt},
+		}
+	}
+
+	// Determine which system prompt to use
+	systemPrompt := c.systemPrompt
+	if options.SystemPrompt != "" {
+		systemPrompt = options.SystemPrompt
+	}
+
+	// Build complete request
+	request := ai.ChatRequest{
+		Model:        c.defaultModel,
+		Messages:     messages,
+		SystemPrompt: systemPrompt,
+		Tools:        c.toolDescriptions,
+	}
+
+	// Add response format if output schema is provided
+	schema := options.OutputSchema
+	if schema == nil {
+		schema = c.defaultOutputSchema
+	}
+	if schema != nil {
+		request.ResponseFormat = &ai.ResponseFormat{
+			Type:         "json_schema",
+			OutputSchema: schema,
+		}
+	}
+
+	// Try native streaming if provider supports it
+	if streamProvider, ok := c.llmProvider.(ai.StreamProvider); ok {
+		return streamProvider.StreamMessage(ctx, request)
+	}
+
+	// Fallback: synchronous call wrapped in a single-event stream
+	response, err := c.llmProvider.SendMessage(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+
+	return ai.NewSingleEventStream(response), nil
+}
+
+// StreamContinueConversation continues the conversation via streaming without adding a new user message.
+// This is useful after tool execution to let the LLM process tool results with streaming delivery.
+//
+// This method only works in stateful mode (when a memory provider is configured).
+// If the provider doesn't implement StreamProvider, it falls back to synchronous ContinueConversation.
+func (c *Client) StreamContinueConversation(ctx context.Context, opts ...SendMessageOption) (*ai.ChatStream, error) {
+	// Validate that memory provider is configured
+	if c.memoryProvider == nil {
+		return nil, errors.New("StreamContinueConversation requires a memory provider; create client with WithMemory() option")
+	}
+
+	// Apply options
+	options := &SendMessageOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	messages := c.memoryProvider.AllMessages()
+
+	// Determine which system prompt to use
+	systemPrompt := c.systemPrompt
+	if options.SystemPrompt != "" {
+		systemPrompt = options.SystemPrompt
+	}
+
+	// Build complete request
+	request := ai.ChatRequest{
+		Model:        c.defaultModel,
+		Messages:     messages,
+		SystemPrompt: systemPrompt,
+		Tools:        c.toolDescriptions,
+	}
+
+	// Add response format if output schema is provided
+	schema := options.OutputSchema
+	if schema == nil {
+		schema = c.defaultOutputSchema
+	}
+	if schema != nil {
+		request.ResponseFormat = &ai.ResponseFormat{
+			Type:         "json_schema",
+			OutputSchema: schema,
+		}
+	}
+
+	// Try native streaming if provider supports it
+	if streamProvider, ok := c.llmProvider.(ai.StreamProvider); ok {
+		return streamProvider.StreamMessage(ctx, request)
+	}
+
+	// Fallback: synchronous call wrapped in a single-event stream
+	response, err := c.llmProvider.SendMessage(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+
+	return ai.NewSingleEventStream(response), nil
+}
+
 // ContinueConversation continues the conversation without adding a new user message.
 // This is useful after tool execution to let the LLM process tool results that are
 // already in memory.
