@@ -5,7 +5,7 @@ package exa
 // SearchInput represents the input parameters for Exa Search
 type SearchInput struct {
 	Query              string   `json:"query" jsonschema:"description=The search query to perform,required"`
-	Type               string   `json:"type,omitempty" jsonschema:"description=Search type: neural (embedding-based) auto (default) fast (optimized for speed) or deep (comprehensive),enum=neural,enum=auto,enum=fast,enum=deep"`
+	Type               string   `json:"type,omitempty" jsonschema:"description=Search type: neural (embedding-based) keyword (keyword-based) or auto (default - automatically selects best type),enum=neural,enum=keyword,enum=auto"`
 	NumResults         int      `json:"num_results,omitempty" jsonschema:"description=Number of results to return (default: 10 max: 100),minimum=1,maximum=100"`
 	IncludeDomains     []string `json:"include_domains,omitempty" jsonschema:"description=List of domains to include in search results"`
 	ExcludeDomains     []string `json:"exclude_domains,omitempty" jsonschema:"description=List of domains to exclude from search results"`
@@ -72,9 +72,9 @@ type SimilarInput struct {
 
 // SimilarOutput represents the FindSimilar result
 type SimilarOutput struct {
-	SourceURL string         `json:"source_url,omitempty" jsonschema:"description=The source URL used for similarity search"`
-	Summary   string         `json:"summary" jsonschema:"description=Formatted summary of similar results"`
-	Results   []SearchResult `json:"results" jsonschema:"description=List of similar content results"`
+	Source  string         `json:"source" jsonschema:"description=The source used for similarity search (URL or text-based input indicator)"`
+	Summary string         `json:"summary" jsonschema:"description=Formatted summary of similar results"`
+	Results []SearchResult `json:"results" jsonschema:"description=List of similar content results"`
 }
 
 // === ANSWER INPUT/OUTPUT ===
@@ -139,8 +139,9 @@ type exaCost struct {
 	Total float64 `json:"total"`
 }
 
-// exaAPIError represents an error response from Exa API
+// exaAPIError represents an error response from Exa API.
+// ErrorMessage is named to avoid shadowing Go's built-in error interface.
 type exaAPIError struct {
-	Error   string `json:"error,omitempty"`
-	Message string `json:"message,omitempty"`
+	ErrorMessage string `json:"error,omitempty"`
+	Message      string `json:"message,omitempty"`
 }

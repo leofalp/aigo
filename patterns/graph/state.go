@@ -2,7 +2,6 @@ package graph
 
 import (
 	"context"
-	"fmt"
 	"sync"
 )
 
@@ -174,16 +173,16 @@ func (provider *InMemoryStateProvider) SetNodeResult(_ context.Context, nodeID s
 	return nil
 }
 
-// initializeNodes registers all node IDs with NodePending status.
-// This is called during graph execution initialization.
+// initializeNodes resets all node IDs to NodePending status and clears their results.
+// This is called during graph execution initialization to ensure a clean state,
+// including when re-executing a graph without an explicit Reset().
 func (provider *InMemoryStateProvider) initializeNodes(nodeIDs []string) {
 	provider.mu.Lock()
 	defer provider.mu.Unlock()
 
 	for _, nodeID := range nodeIDs {
-		if _, exists := provider.nodeStatus[nodeID]; !exists {
-			provider.nodeStatus[nodeID] = NodePending
-		}
+		provider.nodeStatus[nodeID] = NodePending
+		delete(provider.nodeResults, nodeID)
 	}
 }
 
@@ -208,31 +207,4 @@ func (provider *InMemoryStateProvider) getAllNodeStatuses() map[string]NodeStatu
 		statusCopy[nodeID] = status
 	}
 	return statusCopy
-}
-
-// validateStateProvider checks that the state provider is operational
-// by performing a basic write/read cycle. Returns an error if the
-// provider is not functional.
-func validateStateProvider(ctx context.Context, provider StateProvider) error {
-	testKey := "__aigo_graph_state_validation__"
-	testValue := "ok"
-
-	if err := provider.Set(ctx, testKey, testValue); err != nil {
-		return fmt.Errorf("state provider validation failed on Set: %w", err)
-	}
-
-	retrieved, exists, err := provider.Get(ctx, testKey)
-	if err != nil {
-		return fmt.Errorf("state provider validation failed on Get: %w", err)
-	}
-
-	if !exists {
-		return fmt.Errorf("state provider validation failed: key not found after Set")
-	}
-
-	if retrieved != testValue {
-		return fmt.Errorf("state provider validation failed: expected %q, got %v", testValue, retrieved)
-	}
-
-	return nil
 }

@@ -118,9 +118,9 @@ func fetchTavilyExtract(ctx context.Context, input ExtractInput) (*tavilyExtract
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error making request: %w", err)
 	}
@@ -132,9 +132,9 @@ func fetchTavilyExtract(ctx context.Context, input ExtractInput) (*tavilyExtract
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		var apiErr tavilyAPIError
-		if err := json.Unmarshal(body, &apiErr); err == nil && apiErr.Detail.Error != "" {
-			return nil, fmt.Errorf("tavily API error (status %d): %s", resp.StatusCode, apiErr.Detail.Error)
+		errMsg := parseTavilyError(body)
+		if errMsg != "" {
+			return nil, fmt.Errorf("tavily API error (status %d): %s", resp.StatusCode, errMsg)
 		}
 		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
 	}

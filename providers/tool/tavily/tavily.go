@@ -9,17 +9,26 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/leofalp/aigo/core/cost"
 	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/providers/tool"
 )
 
+// baseURL is the Tavily API base URL. It is a var (not const) to allow
+// overriding in unit tests with httptest.NewServer.
+var baseURL = "https://api.tavily.com" //nolint:gochecknoglobals // overridable for tests
+
 const (
-	baseURL    = "https://api.tavily.com"
 	envAPIKey  = "TAVILY_API_KEY" //nolint:gosec // Environment variable name, not a credential
 	maxResults = 20
+	// maxSummaryResults caps the number of results included in the text summary.
+	maxSummaryResults = 10
 )
+
+// httpClient is a shared HTTP client with a default timeout for connection reuse.
+var httpClient = &http.Client{Timeout: 30 * time.Second} //nolint:gochecknoglobals // shared for connection reuse
 
 // NewTavilySearchTool creates a new Tavily Search tool for web search.
 // Returns summarized results optimized for LLM consumption.
@@ -70,21 +79,21 @@ func Search(ctx context.Context, input SearchInput) (SearchOutput, error) {
 		summaryParts = append(summaryParts, fmt.Sprintf("Found %d results:", len(apiResponse.Results)))
 	}
 
-	for i, r := range apiResponse.Results {
-		if i >= 10 { // Limit summary to top 10
+	for index, apiResult := range apiResponse.Results {
+		if index >= maxSummaryResults {
 			break
 		}
 
-		result := SearchResult{
-			Title:   r.Title,
-			URL:     r.URL,
-			Content: r.Content,
-			Score:   r.Score,
+		searchResult := SearchResult{
+			Title:   apiResult.Title,
+			URL:     apiResult.URL,
+			Content: apiResult.Content,
+			Score:   apiResult.Score,
 		}
-		results = append(results, result)
+		results = append(results, searchResult)
 
 		summaryParts = append(summaryParts, fmt.Sprintf("\n%d. %s\n   URL: %s\n   %s",
-			i+1, r.Title, r.URL, truncate(r.Content, 200)))
+			index+1, apiResult.Title, apiResult.URL, utils.TruncateString(apiResult.Content, 200)))
 	}
 
 	summary := strings.Join(summaryParts, "\n")
@@ -185,9 +194,9 @@ func fetchTavilySearch(ctx context.Context, input SearchInput) (*tavilySearchAPI
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error making request: %w", err)
 	}
@@ -199,9 +208,9 @@ func fetchTavilySearch(ctx context.Context, input SearchInput) (*tavilySearchAPI
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		var apiErr tavilyAPIError
-		if err := json.Unmarshal(body, &apiErr); err == nil && apiErr.Detail.Error != "" {
-			return nil, fmt.Errorf("tavily API error (status %d): %s", resp.StatusCode, apiErr.Detail.Error)
+		errMsg := parseTavilyError(body)
+		if errMsg != "" {
+			return nil, fmt.Errorf("tavily API error (status %d): %s", resp.StatusCode, errMsg)
 		}
 		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
 	}
@@ -214,10 +223,23 @@ func fetchTavilySearch(ctx context.Context, input SearchInput) (*tavilySearchAPI
 	return &apiResponse, nil
 }
 
-// truncate truncates a string to a maximum length
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
+// parseTavilyError attempts to extract an error message from a Tavily API error response.
+// The Tavily API can return "detail" as either an object ({"error": "..."}) or a plain
+// string. This function handles both cases. Returns empty string if parsing fails.
+func parseTavilyError(body []byte) string {
+	// Try structured error first: {"detail": {"error": "message"}}
+	var structuredErr tavilyAPIError
+	if err := json.Unmarshal(body, &structuredErr); err == nil && structuredErr.Detail.Error != "" {
+		return structuredErr.Detail.Error
 	}
-	return s[:maxLen] + "..."
+
+	// Try plain string detail: {"detail": "message"}
+	var plainErr struct {
+		Detail string `json:"detail"`
+	}
+	if err := json.Unmarshal(body, &plainErr); err == nil && plainErr.Detail != "" {
+		return plainErr.Detail
+	}
+
+	return ""
 }

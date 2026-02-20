@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 
@@ -178,7 +179,7 @@ func (builder *GraphBuilder[T]) AddEdge(from, to string, opts ...EdgeOption) *Gr
 func (builder *GraphBuilder[T]) Build() (*Graph[T], error) {
 	// Report any errors accumulated during AddNode/AddEdge.
 	if len(builder.buildErrors) > 0 {
-		return nil, fmt.Errorf("graph build errors: %v", builder.buildErrors)
+		return nil, fmt.Errorf("graph build errors: %w", errors.Join(builder.buildErrors...))
 	}
 
 	if len(builder.nodes) == 0 {

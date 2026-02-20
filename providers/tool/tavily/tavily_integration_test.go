@@ -7,6 +7,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/leofalp/aigo/internal/utils"
 )
 
 func TestTavilySearch_Integration(t *testing.T) {
@@ -92,7 +94,7 @@ func TestTavilySearchAdvanced_Integration(t *testing.T) {
 
 	t.Logf("SearchAdvanced returned %d results", len(output.Results))
 	if output.Answer != "" {
-		t.Logf("Answer: %s", truncate(output.Answer, 200))
+		t.Logf("Answer: %s", utils.TruncateString(output.Answer, 200))
 	}
 }
 

@@ -10,7 +10,7 @@ import (
 	"os"
 
 	"github.com/leofalp/aigo/core/cost"
-	"github.com/leofalp/aigo/internal/utils"
+	"github.com/leofalp/aigo/internal/utils" //nolint:staticcheck // used for CloseWithLog
 	"github.com/leofalp/aigo/providers/tool"
 )
 
@@ -47,8 +47,12 @@ func Answer(ctx context.Context, input AnswerInput) (AnswerOutput, error) {
 		"query": input.Query,
 	}
 
+	// Include text content from citation sources when requested.
+	// The Exa Answer API expects text inclusion inside a "contents" object.
 	if input.IncludeText {
-		reqBody["text"] = true
+		reqBody["contents"] = map[string]interface{}{
+			"text": true,
+		}
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -65,8 +69,7 @@ func Answer(ctx context.Context, input AnswerInput) (AnswerOutput, error) {
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("x-api-key", apiKey)
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return AnswerOutput{}, fmt.Errorf("error making request: %w", err)
 	}
@@ -80,7 +83,7 @@ func Answer(ctx context.Context, input AnswerInput) (AnswerOutput, error) {
 	if resp.StatusCode != http.StatusOK {
 		var apiErr exaAPIError
 		if err := json.Unmarshal(body, &apiErr); err == nil {
-			errMsg := apiErr.Error
+			errMsg := apiErr.ErrorMessage
 			if errMsg == "" {
 				errMsg = apiErr.Message
 			}

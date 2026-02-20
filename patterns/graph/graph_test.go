@@ -1144,8 +1144,8 @@ func TestExecute_ConditionalEdge_Satisfied(testCase *testing.T) {
 			return &NodeResult{Output: "checked"}, nil
 		})).
 		AddNode("premium", successExecutor("premium_output")).
-		AddEdge("check", "premium", WithEdgeCondition(func(result *NodeResult, state StateProvider) bool {
-			value, _, _ := state.Get(context.Background(), "quality")
+		AddEdge("check", "premium", WithEdgeCondition(func(ctx context.Context, result *NodeResult, state StateProvider) bool {
+			value, _, _ := state.Get(ctx, "quality")
 			return value.(float64) > 0.8
 		})).
 		Build()
@@ -1174,8 +1174,8 @@ func TestExecute_ConditionalEdge_NotSatisfied(testCase *testing.T) {
 			return &NodeResult{Output: "checked"}, nil
 		})).
 		AddNode("premium", successExecutor("premium_output")).
-		AddEdge("check", "premium", WithEdgeCondition(func(result *NodeResult, state StateProvider) bool {
-			value, _, _ := state.Get(context.Background(), "quality")
+		AddEdge("check", "premium", WithEdgeCondition(func(ctx context.Context, result *NodeResult, state StateProvider) bool {
+			value, _, _ := state.Get(ctx, "quality")
 			return value.(float64) > 0.8
 		})).
 		Build()
@@ -1216,12 +1216,12 @@ func TestExecute_ConditionalEdge_MultiplePaths(testCase *testing.T) {
 			pathBTaken.Store(true)
 			return &NodeResult{Output: "path_b"}, nil
 		})).
-		AddEdge("router", "pathA", WithEdgeCondition(func(_ *NodeResult, state StateProvider) bool {
-			value, _, _ := state.Get(context.Background(), "route")
+		AddEdge("router", "pathA", WithEdgeCondition(func(ctx context.Context, _ *NodeResult, state StateProvider) bool {
+			value, _, _ := state.Get(ctx, "route")
 			return value.(string) == "A"
 		})).
-		AddEdge("router", "pathB", WithEdgeCondition(func(_ *NodeResult, state StateProvider) bool {
-			value, _, _ := state.Get(context.Background(), "route")
+		AddEdge("router", "pathB", WithEdgeCondition(func(ctx context.Context, _ *NodeResult, state StateProvider) bool {
+			value, _, _ := state.Get(ctx, "route")
 			return value.(string) == "B"
 		})).
 		Build()
@@ -1497,14 +1497,6 @@ func TestInMemoryStateProvider_InitializeAndReset(testCase *testing.T) {
 	result, _ := provider.GetNodeResult(ctx, "a")
 	if result != nil {
 		testCase.Error("expected nil result after reset")
-	}
-}
-
-func TestValidateStateProvider(testCase *testing.T) {
-	provider := NewInMemoryStateProvider(nil)
-	err := validateStateProvider(context.Background(), provider)
-	if err != nil {
-		testCase.Errorf("expected valid state provider, got error: %v", err)
 	}
 }
 

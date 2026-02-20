@@ -164,12 +164,15 @@ func (executorFunc NodeExecutorFunc) Execute(ctx context.Context, input *NodeInp
 }
 
 // EdgeCondition is a function that determines whether an edge should be traversed
-// during execution. It receives the result of the source node and the current
-// shared state. If the condition returns false, the target node may be skipped
-// (if all its incoming edges have false conditions).
+// during execution. It receives the execution context, the result of the source node,
+// and the current shared state. If the condition returns false, the target node may
+// be skipped (if all its incoming edges have false conditions).
+//
+// The context carries cancellation signals and deadlines from the graph execution,
+// and should be passed to any StateProvider calls within the condition.
 //
 // A nil EdgeCondition means the edge is always traversed.
-type EdgeCondition func(result *NodeResult, state StateProvider) bool
+type EdgeCondition func(ctx context.Context, result *NodeResult, state StateProvider) bool
 
 // node represents a single processing step in the graph.
 // It is created internally by the GraphBuilder and is not directly instantiated by users.

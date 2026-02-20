@@ -7,6 +7,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/leofalp/aigo/internal/utils"
 )
 
 func TestExaSearch_Integration(t *testing.T) {
@@ -210,7 +212,7 @@ func TestExaAnswer_Integration(t *testing.T) {
 		t.Error("expected non-empty answer")
 	}
 
-	t.Logf("Answer: %s", truncate(output.Answer, 500))
+	t.Logf("Answer: %s", utils.TruncateString(output.Answer, 500))
 	t.Logf("Citations: %d", len(output.Citations))
 
 	for i, citation := range output.Citations {

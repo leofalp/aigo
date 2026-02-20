@@ -200,8 +200,8 @@ func WithNodeTimeout(timeout time.Duration) NodeOption {
 // Example:
 //
 //	builder.AddEdge("check", "premium_analysis",
-//	    graph.WithEdgeCondition(func(result *graph.NodeResult, state graph.StateProvider) bool {
-//	        score, _, _ := state.Get(context.Background(), "quality_score")
+//	    graph.WithEdgeCondition(func(ctx context.Context, result *graph.NodeResult, state graph.StateProvider) bool {
+//	        score, _, _ := state.Get(ctx, "quality_score")
 //	        return score.(float64) > 0.8
 //	    }),
 //	)

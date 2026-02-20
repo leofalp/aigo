@@ -41,7 +41,7 @@ type Overview struct {
 // execution statistics and the parsed final result.
 type StructuredOverview[T any] struct {
 	Overview
-	Data *T // Parsed final response data
+	Data *T `json:"data,omitempty"` // Parsed final response data
 }
 
 // OverviewFromContext retrieves the Overview from the context, creating one if

@@ -237,7 +237,7 @@ func (graph *Graph[T]) evaluateEdgeConditions(ctx context.Context, nodeID string
 		if getErr != nil {
 			continue
 		}
-		if graphEdge.condition(sourceResult, stateProvider) {
+		if graphEdge.condition(ctx, sourceResult, stateProvider) {
 			return true
 		}
 	}

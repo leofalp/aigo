@@ -2,91 +2,94 @@ package exa
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 )
 
 func TestNewExaSearchTool(t *testing.T) {
-	tool := NewExaSearchTool()
+	exaTool := NewExaSearchTool()
 
-	if tool.Name != "ExaSearch" {
-		t.Errorf("expected tool name 'ExaSearch', got '%s'", tool.Name)
+	if exaTool.Name != "ExaSearch" {
+		t.Errorf("expected tool name 'ExaSearch', got '%s'", exaTool.Name)
 	}
 
-	if tool.Description == "" {
+	if exaTool.Description == "" {
 		t.Error("expected non-empty description")
 	}
 
-	if tool.Metrics == nil {
+	if exaTool.Metrics == nil {
 		t.Error("expected metrics to be set")
 	}
 
-	if tool.Metrics.Amount <= 0 {
+	if exaTool.Metrics.Amount <= 0 {
 		t.Error("expected positive cost amount")
 	}
 
-	if tool.Metrics.Accuracy <= 0 || tool.Metrics.Accuracy > 1 {
-		t.Errorf("expected accuracy between 0 and 1, got %f", tool.Metrics.Accuracy)
+	if exaTool.Metrics.Accuracy <= 0 || exaTool.Metrics.Accuracy > 1 {
+		t.Errorf("expected accuracy between 0 and 1, got %f", exaTool.Metrics.Accuracy)
 	}
 }
 
 func TestNewExaSearchAdvancedTool(t *testing.T) {
-	tool := NewExaSearchAdvancedTool()
+	advancedTool := NewExaSearchAdvancedTool()
 
-	if tool.Name != "ExaSearchAdvanced" {
-		t.Errorf("expected tool name 'ExaSearchAdvanced', got '%s'", tool.Name)
+	if advancedTool.Name != "ExaSearchAdvanced" {
+		t.Errorf("expected tool name 'ExaSearchAdvanced', got '%s'", advancedTool.Name)
 	}
 
-	if tool.Description == "" {
+	if advancedTool.Description == "" {
 		t.Error("expected non-empty description")
 	}
 
-	if tool.Metrics == nil {
+	if advancedTool.Metrics == nil {
 		t.Error("expected metrics to be set")
 	}
 
 	// Advanced should have higher cost
 	basicTool := NewExaSearchTool()
-	if tool.Metrics.Amount <= basicTool.Metrics.Amount {
+	if advancedTool.Metrics.Amount <= basicTool.Metrics.Amount {
 		t.Error("expected advanced tool to have higher cost than basic")
 	}
 }
 
 func TestNewExaFindSimilarTool(t *testing.T) {
-	tool := NewExaFindSimilarTool()
+	similarTool := NewExaFindSimilarTool()
 
-	if tool.Name != "ExaFindSimilar" {
-		t.Errorf("expected tool name 'ExaFindSimilar', got '%s'", tool.Name)
+	if similarTool.Name != "ExaFindSimilar" {
+		t.Errorf("expected tool name 'ExaFindSimilar', got '%s'", similarTool.Name)
 	}
 
-	if tool.Description == "" {
+	if similarTool.Description == "" {
 		t.Error("expected non-empty description")
 	}
 
-	if tool.Metrics == nil {
+	if similarTool.Metrics == nil {
 		t.Error("expected metrics to be set")
 	}
 }
 
 func TestNewExaAnswerTool(t *testing.T) {
-	tool := NewExaAnswerTool()
+	answerTool := NewExaAnswerTool()
 
-	if tool.Name != "ExaAnswer" {
-		t.Errorf("expected tool name 'ExaAnswer', got '%s'", tool.Name)
+	if answerTool.Name != "ExaAnswer" {
+		t.Errorf("expected tool name 'ExaAnswer', got '%s'", answerTool.Name)
 	}
 
-	if tool.Description == "" {
+	if answerTool.Description == "" {
 		t.Error("expected non-empty description")
 	}
 
-	if tool.Metrics == nil {
+	if answerTool.Metrics == nil {
 		t.Error("expected metrics to be set")
 	}
 
 	// Answer should have higher cost due to LLM processing
 	searchTool := NewExaSearchTool()
-	if tool.Metrics.Amount <= searchTool.Metrics.Amount {
+	if answerTool.Metrics.Amount <= searchTool.Metrics.Amount {
 		t.Error("expected answer tool to have higher cost than search")
 	}
 }
@@ -112,6 +115,43 @@ func TestSearch_MissingAPIKey(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "EXA_API_KEY") {
 		t.Errorf("expected error message to mention EXA_API_KEY, got: %s", err.Error())
+	}
+}
+
+// TestSearch_EmptyQuery verifies that Search returns an error for empty queries
+// before making any API calls.
+func TestSearch_EmptyQuery(t *testing.T) {
+	os.Setenv("EXA_API_KEY", "test-api-key")
+	defer os.Unsetenv("EXA_API_KEY")
+
+	ctx := context.Background()
+	input := SearchInput{Query: ""}
+
+	_, err := Search(ctx, input)
+	if err == nil {
+		t.Error("expected error when query is empty")
+	}
+
+	if !strings.Contains(err.Error(), "query") {
+		t.Errorf("expected error about query, got: %s", err.Error())
+	}
+}
+
+// TestSearchAdvanced_EmptyQuery verifies that SearchAdvanced returns an error for empty queries.
+func TestSearchAdvanced_EmptyQuery(t *testing.T) {
+	os.Setenv("EXA_API_KEY", "test-api-key")
+	defer os.Unsetenv("EXA_API_KEY")
+
+	ctx := context.Background()
+	input := SearchInput{Query: ""}
+
+	_, err := SearchAdvanced(ctx, input)
+	if err == nil {
+		t.Error("expected error when query is empty")
+	}
+
+	if !strings.Contains(err.Error(), "query") {
+		t.Errorf("expected error about query, got: %s", err.Error())
 	}
 }
 
@@ -201,104 +241,167 @@ func TestAnswer_EmptyQuery(t *testing.T) {
 	}
 }
 
-func TestTruncate(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		maxLen   int
-		expected string
-	}{
-		{
-			name:     "short string",
-			input:    "hello",
-			maxLen:   10,
-			expected: "hello",
+// TestSearch_Success verifies that Search correctly parses API responses
+// and builds a summary from the results.
+func TestSearch_Success(t *testing.T) {
+	mockResponse := exaSearchAPIResponse{
+		Results: []exaSearchResultItem{
+			{
+				ID:            "1",
+				Title:         "Test Result 1",
+				URL:           "https://example.com/1",
+				Score:         0.95,
+				PublishedDate: "2024-01-15",
+				Author:        "Author One",
+				Text:          "This is the content of test result 1",
+			},
+			{
+				ID:    "2",
+				Title: "Test Result 2",
+				URL:   "https://example.com/2",
+				Score: 0.90,
+				Text:  "This is the content of test result 2",
+			},
 		},
-		{
-			name:     "exact length",
-			input:    "hello",
-			maxLen:   5,
-			expected: "hello",
-		},
-		{
-			name:     "truncated",
-			input:    "hello world",
-			maxLen:   5,
-			expected: "hello...",
-		},
+		ResolvedSearchType: "neural",
+		RequestID:          "test-request-id",
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := truncate(tt.input, tt.maxLen)
-			if result != tt.expected {
-				t.Errorf("truncate(%q, %d) = %q, expected %q", tt.input, tt.maxLen, result, tt.expected)
-			}
-		})
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != "POST" {
+			t.Errorf("expected POST request, got %s", request.Method)
+		}
+		if request.URL.Path != "/search" {
+			t.Errorf("expected /search path, got %s", request.URL.Path)
+		}
+		if request.Header.Get("x-api-key") != "test-api-key" {
+			t.Errorf("expected x-api-key header, got %s", request.Header.Get("x-api-key"))
+		}
+
+		// Verify request body
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(request.Body).Decode(&reqBody); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
+		}
+		if reqBody["query"] != "test query" {
+			t.Errorf("expected query 'test query', got %v", reqBody["query"])
+		}
+
+		writer.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(writer).Encode(mockResponse) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	// Override baseURL for testing
+	originalBaseURL := baseURL
+	baseURL = server.URL
+	defer func() { baseURL = originalBaseURL }()
+
+	os.Setenv("EXA_API_KEY", "test-api-key")
+	defer os.Unsetenv("EXA_API_KEY")
+
+	ctx := context.Background()
+	output, err := Search(ctx, SearchInput{Query: "test query", NumResults: 5})
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+
+	if output.Query != "test query" {
+		t.Errorf("expected query 'test query', got '%s'", output.Query)
+	}
+
+	if len(output.Results) != 2 {
+		t.Errorf("expected 2 results, got %d", len(output.Results))
+	}
+
+	if output.Results[0].Title != "Test Result 1" {
+		t.Errorf("expected first result title 'Test Result 1', got '%s'", output.Results[0].Title)
+	}
+
+	if output.Summary == "" {
+		t.Error("expected non-empty summary")
+	}
+
+	if !strings.Contains(output.Summary, "Test Result 1") {
+		t.Error("expected summary to contain result title")
+	}
+
+	if !strings.Contains(output.Summary, "Author One") {
+		t.Error("expected summary to contain author")
 	}
 }
 
-func TestSearchInput_Validation(t *testing.T) {
-	input := SearchInput{
-		Query:              "test query",
-		Type:               "neural",
-		NumResults:         10,
-		IncludeDomains:     []string{"example.com"},
-		ExcludeDomains:     []string{"spam.com"},
-		StartPublishedDate: "2024-01-01",
-		EndPublishedDate:   "2024-12-31",
-		Category:           "research paper",
-		IncludeText:        true,
-		IncludeHighlights:  true,
+// TestSearch_APIError verifies that Search correctly handles non-200 API responses.
+func TestSearch_APIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(writer).Encode(map[string]string{"error": "invalid api key"}) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	originalBaseURL := baseURL
+	baseURL = server.URL
+	defer func() { baseURL = originalBaseURL }()
+
+	os.Setenv("EXA_API_KEY", "bad-key")
+	defer os.Unsetenv("EXA_API_KEY")
+
+	ctx := context.Background()
+	_, err := Search(ctx, SearchInput{Query: "test"})
+	if err == nil {
+		t.Error("expected error for 401 response")
 	}
 
-	if input.Query == "" {
-		t.Error("query should not be empty")
-	}
-
-	if input.Type != "neural" {
-		t.Errorf("expected type 'neural', got %s", input.Type)
-	}
-
-	if input.Category != "research paper" {
-		t.Errorf("expected category 'research paper', got %s", input.Category)
-	}
-}
-
-func TestSimilarInput_Validation(t *testing.T) {
-	// Test with URL
-	inputURL := SimilarInput{
-		URL:        "https://example.com/article",
-		NumResults: 5,
-	}
-
-	if inputURL.URL == "" {
-		t.Error("URL should not be empty")
-	}
-
-	// Test with Text
-	inputText := SimilarInput{
-		Text:       "This is some sample text to find similar content for.",
-		NumResults: 5,
-	}
-
-	if inputText.Text == "" {
-		t.Error("Text should not be empty")
+	if !strings.Contains(err.Error(), "invalid api key") {
+		t.Errorf("expected error to contain API error message, got: %s", err.Error())
 	}
 }
 
-func TestAnswerInput_Validation(t *testing.T) {
-	input := AnswerInput{
-		Query:       "What is the meaning of life?",
-		IncludeText: true,
+// TestAnswer_Success verifies that Answer correctly parses API responses.
+func TestAnswer_Success(t *testing.T) {
+	mockResponse := exaAnswerAPIResponse{
+		Answer: "Go was created by Robert Griesemer, Rob Pike, and Ken Thompson at Google.",
+		Citations: []exaSearchResultItem{
+			{
+				Title: "Go Programming Language",
+				URL:   "https://go.dev",
+			},
+		},
+		RequestID: "answer-123",
 	}
 
-	if input.Query == "" {
-		t.Error("query should not be empty")
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/answer" {
+			t.Errorf("expected /answer path, got %s", request.URL.Path)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(writer).Encode(mockResponse) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	originalBaseURL := baseURL
+	baseURL = server.URL
+	defer func() { baseURL = originalBaseURL }()
+
+	os.Setenv("EXA_API_KEY", "test-api-key")
+	defer os.Unsetenv("EXA_API_KEY")
+
+	ctx := context.Background()
+	output, err := Answer(ctx, AnswerInput{Query: "Who created Go?"})
+	if err != nil {
+		t.Fatalf("Answer failed: %v", err)
 	}
 
-	if !input.IncludeText {
-		t.Error("include_text should be true")
+	if output.Answer == "" {
+		t.Error("expected non-empty answer")
+	}
+
+	if len(output.Citations) != 1 {
+		t.Errorf("expected 1 citation, got %d", len(output.Citations))
+	}
+
+	if output.Citations[0].URL != "https://go.dev" {
+		t.Errorf("expected citation URL 'https://go.dev', got '%s'", output.Citations[0].URL)
 	}
 }
 
@@ -309,21 +412,7 @@ func TestToolMetrics_Consistency(t *testing.T) {
 	answerTool := NewExaAnswerTool()
 
 	// All tools should have metrics
-	if searchTool.Metrics == nil {
-		t.Error("ExaSearch: expected metrics to be set")
-	}
-	if advancedTool.Metrics == nil {
-		t.Error("ExaSearchAdvanced: expected metrics to be set")
-	}
-	if similarTool.Metrics == nil {
-		t.Error("ExaFindSimilar: expected metrics to be set")
-	}
-	if answerTool.Metrics == nil {
-		t.Error("ExaAnswer: expected metrics to be set")
-	}
-
-	// Verify accuracy is within valid range for all tools
-	allMetrics := []struct {
+	allTools := []struct {
 		name     string
 		accuracy float64
 	}{
@@ -333,9 +422,9 @@ func TestToolMetrics_Consistency(t *testing.T) {
 		{"ExaAnswer", answerTool.Metrics.Accuracy},
 	}
 
-	for _, m := range allMetrics {
-		if m.accuracy <= 0 || m.accuracy > 1 {
-			t.Errorf("%s: accuracy %f should be between 0 and 1", m.name, m.accuracy)
+	for _, toolInfo := range allTools {
+		if toolInfo.accuracy <= 0 || toolInfo.accuracy > 1 {
+			t.Errorf("%s: accuracy %f should be between 0 and 1", toolInfo.name, toolInfo.accuracy)
 		}
 	}
 }

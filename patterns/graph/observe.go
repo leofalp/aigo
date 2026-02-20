@@ -66,19 +66,27 @@ type observerState struct {
 // observeGraphStart initializes observability for the graph execution.
 // Creates the root span and logs the graph configuration.
 // Returns the updated context with the span attached.
+//
+// The observer provider is resolved lazily (not at Build time) because the
+// client's observer may be configured after graph construction.
+// The rootSpan is stored in the graph's observer state for later use.
 func (graph *Graph[T]) observeGraphStart(ctx *context.Context) {
-	graph.observer.provider = graph.defaultClient.Observer()
-	if graph.observer.provider == nil {
-		// Try to get observer from context as a fallback.
-		graph.observer.provider = observability.ObserverFromContext(*ctx)
+	// Resolve the observer provider from the client or context.
+	provider := graph.defaultClient.Observer()
+	if provider == nil {
+		provider = observability.ObserverFromContext(*ctx)
 	}
 
-	if graph.observer.provider == nil {
+	if provider == nil {
+		graph.observer.provider = nil
+		graph.observer.rootSpan = nil
 		return
 	}
 
+	graph.observer.provider = provider
+
 	var rootSpan observability.Span
-	*ctx, rootSpan = graph.observer.provider.StartSpan(*ctx, spanGraphExecute,
+	*ctx, rootSpan = provider.StartSpan(*ctx, spanGraphExecute,
 		observability.Int(attrGraphTotalNodes, len(graph.nodes)),
 		observability.Int(attrGraphTotalLevels, len(graph.levels)),
 		observability.String(attrGraphErrorStrategy, string(graph.config.errorStrategy)),
@@ -88,9 +96,9 @@ func (graph *Graph[T]) observeGraphStart(ctx *context.Context) {
 
 	// Attach span and observer to context for downstream propagation.
 	*ctx = observability.ContextWithSpan(*ctx, rootSpan)
-	*ctx = observability.ContextWithObserver(*ctx, graph.observer.provider)
+	*ctx = observability.ContextWithObserver(*ctx, provider)
 
-	graph.observer.provider.Info(*ctx, "graph execution started",
+	provider.Info(*ctx, "graph execution started",
 		observability.Int(attrGraphTotalNodes, len(graph.nodes)),
 		observability.Int(attrGraphTotalLevels, len(graph.levels)),
 		observability.String(attrGraphErrorStrategy, string(graph.config.errorStrategy)),

@@ -11,63 +11,68 @@ import (
 )
 
 func TestNewTavilySearchTool(t *testing.T) {
-	tool := NewTavilySearchTool()
+	searchTool := NewTavilySearchTool()
 
-	if tool.Name != "TavilySearch" {
-		t.Errorf("expected tool name 'TavilySearch', got '%s'", tool.Name)
+	if searchTool.Name != "TavilySearch" {
+		t.Errorf("expected tool name 'TavilySearch', got '%s'", searchTool.Name)
 	}
 
-	if tool.Description == "" {
+	if searchTool.Description == "" {
 		t.Error("expected non-empty description")
 	}
 
-	if tool.Metrics == nil {
+	if searchTool.Metrics == nil {
 		t.Error("expected metrics to be set")
 	}
 
-	if tool.Metrics.Amount <= 0 {
+	if searchTool.Metrics.Amount <= 0 {
 		t.Error("expected positive cost amount")
 	}
 
-	if tool.Metrics.Accuracy <= 0 || tool.Metrics.Accuracy > 1 {
-		t.Errorf("expected accuracy between 0 and 1, got %f", tool.Metrics.Accuracy)
+	if searchTool.Metrics.Accuracy <= 0 || searchTool.Metrics.Accuracy > 1 {
+		t.Errorf("expected accuracy between 0 and 1, got %f", searchTool.Metrics.Accuracy)
 	}
 }
 
 func TestNewTavilySearchAdvancedTool(t *testing.T) {
-	tool := NewTavilySearchAdvancedTool()
+	advancedTool := NewTavilySearchAdvancedTool()
 
-	if tool.Name != "TavilySearchAdvanced" {
-		t.Errorf("expected tool name 'TavilySearchAdvanced', got '%s'", tool.Name)
+	if advancedTool.Name != "TavilySearchAdvanced" {
+		t.Errorf("expected tool name 'TavilySearchAdvanced', got '%s'", advancedTool.Name)
 	}
 
-	if tool.Description == "" {
+	if advancedTool.Description == "" {
 		t.Error("expected non-empty description")
 	}
 
-	if tool.Metrics == nil {
+	if advancedTool.Metrics == nil {
 		t.Error("expected metrics to be set")
+	}
+
+	// Advanced should have higher cost
+	basicTool := NewTavilySearchTool()
+	if advancedTool.Metrics.Amount <= basicTool.Metrics.Amount {
+		t.Error("expected advanced tool to have higher cost than basic")
 	}
 }
 
 func TestNewTavilyExtractTool(t *testing.T) {
-	tool := NewTavilyExtractTool()
+	extractTool := NewTavilyExtractTool()
 
-	if tool.Name != "TavilyExtract" {
-		t.Errorf("expected tool name 'TavilyExtract', got '%s'", tool.Name)
+	if extractTool.Name != "TavilyExtract" {
+		t.Errorf("expected tool name 'TavilyExtract', got '%s'", extractTool.Name)
 	}
 
-	if tool.Description == "" {
+	if extractTool.Description == "" {
 		t.Error("expected non-empty description")
 	}
 
-	if tool.Metrics == nil {
+	if extractTool.Metrics == nil {
 		t.Error("expected metrics to be set")
 	}
 }
 
 func TestSearch_MissingAPIKey(t *testing.T) {
-	// Ensure API key is not set
 	originalKey := os.Getenv("TAVILY_API_KEY")
 	os.Unsetenv("TAVILY_API_KEY")
 	defer func() {
@@ -91,8 +96,9 @@ func TestSearch_MissingAPIKey(t *testing.T) {
 	}
 }
 
+// TestSearch_Success verifies that Search correctly parses API responses
+// and builds a summary from the results.
 func TestSearch_Success(t *testing.T) {
-	// Create mock server
 	mockResponse := tavilySearchAPIResponse{
 		Query:  "test query",
 		Answer: "This is a test answer",
@@ -114,21 +120,23 @@ func TestSearch_Success(t *testing.T) {
 		RequestID:    "test-request-id",
 	}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify request
-		if r.Method != "POST" {
-			t.Errorf("expected POST request, got %s", r.Method)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != "POST" {
+			t.Errorf("expected POST request, got %s", request.Method)
 		}
-		if r.URL.Path != "/search" {
-			t.Errorf("expected /search path, got %s", r.URL.Path)
+		if request.URL.Path != "/search" {
+			t.Errorf("expected /search path, got %s", request.URL.Path)
 		}
-		if r.Header.Get("Content-Type") != "application/json" {
-			t.Errorf("expected Content-Type application/json, got %s", r.Header.Get("Content-Type"))
+		if request.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("expected Content-Type application/json, got %s", request.Header.Get("Content-Type"))
+		}
+		if request.Header.Get("Accept") != "application/json" {
+			t.Errorf("expected Accept application/json, got %s", request.Header.Get("Accept"))
 		}
 
 		// Verify request body contains api_key and query
 		var reqBody map[string]interface{}
-		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+		if err := json.NewDecoder(request.Body).Decode(&reqBody); err != nil {
 			t.Errorf("failed to decode request body: %v", err)
 		}
 		if reqBody["api_key"] == nil {
@@ -138,41 +146,157 @@ func TestSearch_Success(t *testing.T) {
 			t.Errorf("expected query 'test query', got %v", reqBody["query"])
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(mockResponse)
+		writer.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(writer).Encode(mockResponse) //nolint:errcheck
 	}))
 	defer server.Close()
 
-	// Override base URL for testing
+	// Override baseURL for testing
 	originalBaseURL := baseURL
-	// We need to modify the package-level variable for testing
-	// Since it's a const, we'll test with the real function but mock at HTTP level
-	// For this test, we'll skip the actual HTTP call verification and focus on logic
+	baseURL = server.URL
+	defer func() { baseURL = originalBaseURL }()
 
-	// Set API key
 	os.Setenv("TAVILY_API_KEY", "test-api-key")
 	defer os.Unsetenv("TAVILY_API_KEY")
 
-	_ = originalBaseURL // Acknowledge we can't easily override const
-	_ = server          // Server created but const baseURL prevents direct testing
+	ctx := context.Background()
+	output, err := Search(ctx, SearchInput{Query: "test query"})
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
 
-	// Test the tool creation and basic properties instead
-	tool := NewTavilySearchTool()
-	if tool.Function == nil {
-		t.Error("expected Function to be set")
+	if output.Query != "test query" {
+		t.Errorf("expected query 'test query', got '%s'", output.Query)
+	}
+
+	if output.Answer != "This is a test answer" {
+		t.Errorf("expected answer 'This is a test answer', got '%s'", output.Answer)
+	}
+
+	if len(output.Results) != 2 {
+		t.Errorf("expected 2 results, got %d", len(output.Results))
+	}
+
+	if output.Results[0].Title != "Test Result 1" {
+		t.Errorf("expected first result title 'Test Result 1', got '%s'", output.Results[0].Title)
+	}
+
+	if output.Summary == "" {
+		t.Error("expected non-empty summary")
 	}
 }
 
+// TestSearchAdvanced_Success verifies that SearchAdvanced returns all metadata.
 func TestSearchAdvanced_Success(t *testing.T) {
-	tool := NewTavilySearchAdvancedTool()
-	if tool.Function == nil {
-		t.Error("expected Function to be set")
+	mockResponse := tavilySearchAPIResponse{
+		Query: "test query",
+		Results: []tavilySearchResultItem{
+			{
+				Title:      "Advanced Result",
+				URL:        "https://example.com/1",
+				Content:    "Content here",
+				RawContent: "Full raw content",
+				Score:      0.98,
+			},
+		},
+		Images: []tavilyImageItem{
+			{URL: "https://example.com/img.png", Description: "An image"},
+		},
+		ResponseTime: 1.2,
+		RequestID:    "adv-123",
 	}
 
-	// Verify metrics are higher for advanced
-	basicTool := NewTavilySearchTool()
-	if tool.Metrics.Amount <= basicTool.Metrics.Amount {
-		t.Error("expected advanced tool to have higher cost than basic")
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(writer).Encode(mockResponse) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	originalBaseURL := baseURL
+	baseURL = server.URL
+	defer func() { baseURL = originalBaseURL }()
+
+	os.Setenv("TAVILY_API_KEY", "test-api-key")
+	defer os.Unsetenv("TAVILY_API_KEY")
+
+	ctx := context.Background()
+	output, err := SearchAdvanced(ctx, SearchInput{Query: "test query"})
+	if err != nil {
+		t.Fatalf("SearchAdvanced failed: %v", err)
+	}
+
+	if len(output.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(output.Results))
+	}
+
+	if output.Results[0].RawContent != "Full raw content" {
+		t.Errorf("expected raw content, got '%s'", output.Results[0].RawContent)
+	}
+
+	if len(output.Images) != 1 {
+		t.Errorf("expected 1 image, got %d", len(output.Images))
+	}
+
+	if output.ResponseTime != 1.2 {
+		t.Errorf("expected response time 1.2, got %f", output.ResponseTime)
+	}
+}
+
+// TestSearch_APIError verifies that Search correctly handles non-200 API responses.
+func TestSearch_APIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusUnauthorized)
+		// Tavily returns "detail" as an object or plain string
+		json.NewEncoder(writer).Encode(map[string]interface{}{
+			"detail": map[string]string{"error": "invalid api key"},
+		}) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	originalBaseURL := baseURL
+	baseURL = server.URL
+	defer func() { baseURL = originalBaseURL }()
+
+	os.Setenv("TAVILY_API_KEY", "bad-key")
+	defer os.Unsetenv("TAVILY_API_KEY")
+
+	ctx := context.Background()
+	_, err := Search(ctx, SearchInput{Query: "test"})
+	if err == nil {
+		t.Error("expected error for 401 response")
+	}
+
+	if !strings.Contains(err.Error(), "invalid api key") {
+		t.Errorf("expected error to contain API error message, got: %s", err.Error())
+	}
+}
+
+// TestSearch_APIErrorPlainDetail verifies that plain string detail is handled correctly.
+func TestSearch_APIErrorPlainDetail(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusForbidden)
+		// Tavily sometimes returns "detail" as a plain string
+		json.NewEncoder(writer).Encode(map[string]string{
+			"detail": "access denied",
+		}) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	originalBaseURL := baseURL
+	baseURL = server.URL
+	defer func() { baseURL = originalBaseURL }()
+
+	os.Setenv("TAVILY_API_KEY", "bad-key")
+	defer os.Unsetenv("TAVILY_API_KEY")
+
+	ctx := context.Background()
+	_, err := Search(ctx, SearchInput{Query: "test"})
+	if err == nil {
+		t.Error("expected error for 403 response")
+	}
+
+	if !strings.Contains(err.Error(), "access denied") {
+		t.Errorf("expected error to contain 'access denied', got: %s", err.Error())
 	}
 }
 
@@ -203,8 +327,8 @@ func TestExtract_TooManyURLs(t *testing.T) {
 
 	// Create 21 URLs (exceeds limit of 20)
 	urls := make([]string, 21)
-	for i := range urls {
-		urls[i] = "https://example.com/" + string(rune('a'+i))
+	for index := range urls {
+		urls[index] = "https://example.com/" + string(rune('a'+index))
 	}
 
 	input := ExtractInput{
@@ -245,43 +369,7 @@ func TestExtract_MissingAPIKey(t *testing.T) {
 	}
 }
 
-func TestTruncate(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		maxLen   int
-		expected string
-	}{
-		{
-			name:     "short string",
-			input:    "hello",
-			maxLen:   10,
-			expected: "hello",
-		},
-		{
-			name:     "exact length",
-			input:    "hello",
-			maxLen:   5,
-			expected: "hello",
-		},
-		{
-			name:     "truncated",
-			input:    "hello world",
-			maxLen:   5,
-			expected: "hello...",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := truncate(tt.input, tt.maxLen)
-			if result != tt.expected {
-				t.Errorf("truncate(%q, %d) = %q, expected %q", tt.input, tt.maxLen, result, tt.expected)
-			}
-		})
-	}
-}
-
+// TestTruncateContent verifies that truncateContent preserves word boundaries.
 func TestTruncateContent(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -290,7 +378,7 @@ func TestTruncateContent(t *testing.T) {
 		contains string
 	}{
 		{
-			name:     "short string",
+			name:     "short string unchanged",
 			input:    "hello world",
 			maxLen:   100,
 			contains: "hello world",
@@ -301,51 +389,59 @@ func TestTruncateContent(t *testing.T) {
 			maxLen:   15,
 			contains: "...",
 		},
+		{
+			name:     "truncated with no space in second half",
+			input:    "abcdefghijklmnopqrstuvwxyz",
+			maxLen:   10,
+			contains: "...",
+		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := truncateContent(tt.input, tt.maxLen)
-			if !strings.Contains(result, tt.contains) {
-				t.Errorf("truncateContent(%q, %d) = %q, expected to contain %q", tt.input, tt.maxLen, result, tt.contains)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := truncateContent(testCase.input, testCase.maxLen)
+			if !strings.Contains(result, testCase.contains) {
+				t.Errorf("truncateContent(%q, %d) = %q, expected to contain %q", testCase.input, testCase.maxLen, result, testCase.contains)
 			}
 		})
 	}
 }
 
-func TestSearchInput_Validation(t *testing.T) {
-	// Test that search input with various options creates valid request
-	input := SearchInput{
-		Query:          "test query",
-		SearchDepth:    "advanced",
-		MaxResults:     5,
-		IncludeDomains: []string{"example.com"},
-		ExcludeDomains: []string{"spam.com"},
-		IncludeAnswer:  true,
-		IncludeImages:  true,
-		Topic:          "news",
+// TestParseTavilyError verifies both error formats are handled.
+func TestParseTavilyError(t *testing.T) {
+	tests := []struct {
+		name     string
+		body     string
+		expected string
+	}{
+		{
+			name:     "structured error",
+			body:     `{"detail": {"error": "invalid key"}}`,
+			expected: "invalid key",
+		},
+		{
+			name:     "plain string detail",
+			body:     `{"detail": "not found"}`,
+			expected: "not found",
+		},
+		{
+			name:     "unparseable body",
+			body:     `<html>error</html>`,
+			expected: "",
+		},
+		{
+			name:     "empty detail",
+			body:     `{"detail": {}}`,
+			expected: "",
+		},
 	}
 
-	if input.Query == "" {
-		t.Error("query should not be empty")
-	}
-
-	if input.SearchDepth != "advanced" {
-		t.Errorf("expected search_depth 'advanced', got %s", input.SearchDepth)
-	}
-}
-
-func TestExtractInput_Validation(t *testing.T) {
-	input := ExtractInput{
-		URLs:         []string{"https://example.com", "https://test.com"},
-		ExtractDepth: "advanced",
-	}
-
-	if len(input.URLs) != 2 {
-		t.Errorf("expected 2 URLs, got %d", len(input.URLs))
-	}
-
-	if input.ExtractDepth != "advanced" {
-		t.Errorf("expected extract_depth 'advanced', got %s", input.ExtractDepth)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := parseTavilyError([]byte(testCase.body))
+			if result != testCase.expected {
+				t.Errorf("parseTavilyError(%q) = %q, expected %q", testCase.body, result, testCase.expected)
+			}
+		})
 	}
 }

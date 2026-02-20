@@ -9,18 +9,28 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/leofalp/aigo/core/cost"
 	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/providers/tool"
 )
 
+// baseURL is the Exa API base URL. It is a var (not const) to allow
+// overriding in unit tests with httptest.NewServer.
+var baseURL = "https://api.exa.ai" //nolint:gochecknoglobals // overridable for tests
+
 const (
-	baseURL        = "https://api.exa.ai"
 	envAPIKey      = "EXA_API_KEY" //nolint:gosec // Environment variable name, not a credential
 	maxResults     = 100
 	defaultResults = 10
+	// maxSummaryResults caps the number of results included in the text summary,
+	// regardless of how many results were actually returned by the API.
+	maxSummaryResults = 10
 )
+
+// httpClient is a shared HTTP client with a default timeout for connection reuse.
+var httpClient = &http.Client{Timeout: 30 * time.Second} //nolint:gochecknoglobals // shared for connection reuse
 
 // NewExaSearchTool creates a new Exa Search tool for semantic web search.
 // Returns summarized results optimized for LLM consumption.
@@ -56,8 +66,15 @@ func NewExaSearchAdvancedTool() *tool.Tool[SearchInput, SearchAdvancedOutput] {
 	)
 }
 
-// Search performs a semantic web search and returns a summarized result optimized for LLMs
+// Search performs a semantic web search using the Exa API and returns a summarized
+// result optimized for LLM consumption. Requires the EXA_API_KEY environment variable.
+// If NumResults is 0 or negative, defaults to 10. Returns an error if the query is
+// empty, the API key is missing, or the API returns a non-200 status.
 func Search(ctx context.Context, input SearchInput) (SearchOutput, error) {
+	if input.Query == "" {
+		return SearchOutput{}, fmt.Errorf("query is required")
+	}
+
 	apiResponse, err := fetchExaSearch(ctx, input)
 	if err != nil {
 		return SearchOutput{}, err
@@ -71,38 +88,38 @@ func Search(ctx context.Context, input SearchInput) (SearchOutput, error) {
 		summaryParts = append(summaryParts, fmt.Sprintf("Found %d results:", len(apiResponse.Results)))
 	}
 
-	for i, r := range apiResponse.Results {
-		if i >= 10 { // Limit summary to top 10
+	for index, result := range apiResponse.Results {
+		if index >= maxSummaryResults {
 			break
 		}
 
-		result := SearchResult{
-			Title:         r.Title,
-			URL:           r.URL,
-			PublishedDate: r.PublishedDate,
-			Author:        r.Author,
-			Text:          r.Text,
-			Highlights:    r.Highlights,
+		searchResult := SearchResult{
+			Title:         result.Title,
+			URL:           result.URL,
+			PublishedDate: result.PublishedDate,
+			Author:        result.Author,
+			Text:          result.Text,
+			Highlights:    result.Highlights,
 		}
-		results = append(results, result)
+		results = append(results, searchResult)
 
 		// Build summary entry
 		var entryParts []string
-		entryParts = append(entryParts, fmt.Sprintf("\n%d. %s", i+1, r.Title))
-		entryParts = append(entryParts, fmt.Sprintf("   URL: %s", r.URL))
+		entryParts = append(entryParts, fmt.Sprintf("\n%d. %s", index+1, result.Title))
+		entryParts = append(entryParts, fmt.Sprintf("   URL: %s", result.URL))
 
-		if r.Author != "" {
-			entryParts = append(entryParts, fmt.Sprintf("   Author: %s", r.Author))
+		if result.Author != "" {
+			entryParts = append(entryParts, fmt.Sprintf("   Author: %s", result.Author))
 		}
-		if r.PublishedDate != "" {
-			entryParts = append(entryParts, fmt.Sprintf("   Published: %s", r.PublishedDate))
+		if result.PublishedDate != "" {
+			entryParts = append(entryParts, fmt.Sprintf("   Published: %s", result.PublishedDate))
 		}
 
 		// Add text preview or highlights
-		if len(r.Highlights) > 0 {
-			entryParts = append(entryParts, fmt.Sprintf("   Highlight: %s", truncate(r.Highlights[0], 200)))
-		} else if r.Text != "" {
-			entryParts = append(entryParts, fmt.Sprintf("   Preview: %s", truncate(r.Text, 200)))
+		if len(result.Highlights) > 0 {
+			entryParts = append(entryParts, fmt.Sprintf("   Highlight: %s", utils.TruncateString(result.Highlights[0], 200)))
+		} else if result.Text != "" {
+			entryParts = append(entryParts, fmt.Sprintf("   Preview: %s", utils.TruncateString(result.Text, 200)))
 		}
 
 		summaryParts = append(summaryParts, strings.Join(entryParts, "\n"))
@@ -120,8 +137,14 @@ func Search(ctx context.Context, input SearchInput) (SearchOutput, error) {
 	}, nil
 }
 
-// SearchAdvanced performs a semantic web search and returns complete structured results
+// SearchAdvanced performs a semantic web search using the Exa API and returns
+// complete structured results with all metadata. Requires the EXA_API_KEY
+// environment variable.
 func SearchAdvanced(ctx context.Context, input SearchInput) (SearchAdvancedOutput, error) {
+	if input.Query == "" {
+		return SearchAdvancedOutput{}, fmt.Errorf("query is required")
+	}
+
 	apiResponse, err := fetchExaSearch(ctx, input)
 	if err != nil {
 		return SearchAdvancedOutput{}, err
@@ -222,8 +245,7 @@ func fetchExaSearch(ctx context.Context, input SearchInput) (*exaSearchAPIRespon
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("x-api-key", apiKey)
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error making request: %w", err)
 	}
@@ -237,7 +259,7 @@ func fetchExaSearch(ctx context.Context, input SearchInput) (*exaSearchAPIRespon
 	if resp.StatusCode != http.StatusOK {
 		var apiErr exaAPIError
 		if err := json.Unmarshal(body, &apiErr); err == nil {
-			errMsg := apiErr.Error
+			errMsg := apiErr.ErrorMessage
 			if errMsg == "" {
 				errMsg = apiErr.Message
 			}
@@ -254,12 +276,4 @@ func fetchExaSearch(ctx context.Context, input SearchInput) (*exaSearchAPIRespon
 	}
 
 	return &apiResponse, nil
-}
-
-// truncate truncates a string to a maximum length
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }

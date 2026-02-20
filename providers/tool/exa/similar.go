@@ -101,8 +101,7 @@ func FindSimilar(ctx context.Context, input SimilarInput) (SimilarOutput, error)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("x-api-key", apiKey)
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return SimilarOutput{}, fmt.Errorf("error making request: %w", err)
 	}
@@ -116,7 +115,7 @@ func FindSimilar(ctx context.Context, input SimilarInput) (SimilarOutput, error)
 	if resp.StatusCode != http.StatusOK {
 		var apiErr exaAPIError
 		if err := json.Unmarshal(body, &apiErr); err == nil {
-			errMsg := apiErr.Error
+			errMsg := apiErr.ErrorMessage
 			if errMsg == "" {
 				errMsg = apiErr.Message
 			}
@@ -145,35 +144,35 @@ func FindSimilar(ctx context.Context, input SimilarInput) (SimilarOutput, error)
 		summaryParts = append(summaryParts, fmt.Sprintf("Found %d pages similar to %s:", len(apiResponse.Results), sourceDesc))
 	}
 
-	for i, r := range apiResponse.Results {
-		if i >= 10 { // Limit summary to top 10
+	for index, apiResult := range apiResponse.Results {
+		if index >= maxSummaryResults {
 			break
 		}
 
-		result := SearchResult{
-			Title:         r.Title,
-			URL:           r.URL,
-			PublishedDate: r.PublishedDate,
-			Author:        r.Author,
-			Text:          r.Text,
-			Highlights:    r.Highlights,
+		searchResult := SearchResult{
+			Title:         apiResult.Title,
+			URL:           apiResult.URL,
+			PublishedDate: apiResult.PublishedDate,
+			Author:        apiResult.Author,
+			Text:          apiResult.Text,
+			Highlights:    apiResult.Highlights,
 		}
-		results = append(results, result)
+		results = append(results, searchResult)
 
 		// Build summary entry
 		var entryParts []string
-		entryParts = append(entryParts, fmt.Sprintf("\n%d. %s", i+1, r.Title))
-		entryParts = append(entryParts, fmt.Sprintf("   URL: %s", r.URL))
+		entryParts = append(entryParts, fmt.Sprintf("\n%d. %s", index+1, apiResult.Title))
+		entryParts = append(entryParts, fmt.Sprintf("   URL: %s", apiResult.URL))
 
-		if r.Author != "" {
-			entryParts = append(entryParts, fmt.Sprintf("   Author: %s", r.Author))
+		if apiResult.Author != "" {
+			entryParts = append(entryParts, fmt.Sprintf("   Author: %s", apiResult.Author))
 		}
 
 		// Add text preview or highlights
-		if len(r.Highlights) > 0 {
-			entryParts = append(entryParts, fmt.Sprintf("   Highlight: %s", truncate(r.Highlights[0], 200)))
-		} else if r.Text != "" {
-			entryParts = append(entryParts, fmt.Sprintf("   Preview: %s", truncate(r.Text, 200)))
+		if len(apiResult.Highlights) > 0 {
+			entryParts = append(entryParts, fmt.Sprintf("   Highlight: %s", utils.TruncateString(apiResult.Highlights[0], 200)))
+		} else if apiResult.Text != "" {
+			entryParts = append(entryParts, fmt.Sprintf("   Preview: %s", utils.TruncateString(apiResult.Text, 200)))
 		}
 
 		summaryParts = append(summaryParts, strings.Join(entryParts, "\n"))
@@ -184,9 +183,15 @@ func FindSimilar(ctx context.Context, input SimilarInput) (SimilarOutput, error)
 		summary = fmt.Sprintf("No similar content found for %s.", sourceDesc)
 	}
 
+	// Use URL as source when available, otherwise indicate that text-based search was used.
+	source := input.URL
+	if source == "" {
+		source = "text-based input"
+	}
+
 	return SimilarOutput{
-		SourceURL: input.URL,
-		Summary:   summary,
-		Results:   results,
+		Source:  source,
+		Summary: summary,
+		Results: results,
 	}, nil
 }
