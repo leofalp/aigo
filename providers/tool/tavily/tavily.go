@@ -31,8 +31,8 @@ const (
 var httpClient = &http.Client{Timeout: 30 * time.Second} //nolint:gochecknoglobals // shared for connection reuse
 
 // NewTavilySearchTool returns a [tool.Tool] that performs web searches via the
-// Tavily API and returns a concise, LLM-optimised summary of the top results.
-// Use [tool.WithDescription] and [tool.WithMetrics] to customise the tool
+// Tavily API and returns a concise, LLM-optimized summary of the top results.
+// Use [tool.WithDescription] and [tool.WithMetrics] to customize the tool
 // after construction if needed.
 func NewTavilySearchTool() *tool.Tool[SearchInput, SearchOutput] {
 	return tool.NewTool[SearchInput, SearchOutput](
@@ -69,7 +69,7 @@ func NewTavilySearchAdvancedTool() *tool.Tool[SearchInput, SearchAdvancedOutput]
 }
 
 // Search performs a Tavily web search for the given [SearchInput] and returns
-// a summarised [SearchOutput] optimised for LLM consumption.
+// a summarized [SearchOutput] optimized for LLM consumption.
 // It truncates per-result content to 200 characters and caps the summary at
 // 10 results regardless of how many the API returns.
 // Returns an error if the TAVILY_API_KEY environment variable is not set, the

@@ -28,7 +28,7 @@ type OpenAIProvider struct {
 	capabilities Capabilities
 }
 
-// New returns an [OpenAIProvider] initialised from environment variables.
+// New returns an [OpenAIProvider] initialized from environment variables.
 // It reads OPENAI_API_KEY for authentication and OPENAI_API_BASE_URL for the
 // endpoint base (defaulting to https://api.openai.com/v1 when unset). Provider
 // capabilities are derived automatically by inspecting the base URL.
@@ -74,7 +74,7 @@ func (p *OpenAIProvider) WithHttpClient(httpClient *http.Client) ai.Provider {
 
 // WithCapabilities replaces the auto-detected [Capabilities] with a caller-supplied
 // value. This is useful when connecting to a provider whose base URL is not
-// recognised by the built-in heuristic, or when testing specific feature flags.
+// recognized by the built-in heuristic, or when testing specific feature flags.
 // It returns *OpenAIProvider (not ai.Provider) to keep the Capabilities type
 // accessible without an interface cast.
 func (p *OpenAIProvider) WithCapabilities(capabilities Capabilities) *OpenAIProvider {

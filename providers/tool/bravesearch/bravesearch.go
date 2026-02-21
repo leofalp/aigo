@@ -20,7 +20,7 @@ const (
 )
 
 // NewBraveSearchTool returns a tool that searches the web via the Brave Search
-// API and produces summarized results optimised for LLM consumption.
+// API and produces summarized results optimized for LLM consumption.
 // Use [NewBraveSearchAdvancedTool] when the full structured response is needed.
 func NewBraveSearchTool() *tool.Tool[Input, Output] {
 	return tool.NewTool[Input, Output](
@@ -256,7 +256,7 @@ type DeepLink struct {
 	Buttons []Button `json:"buttons,omitempty"`
 }
 
-// Button represents a single labelled navigational action within a [DeepLink],
+// Button represents a single labeled navigational action within a [DeepLink],
 // carrying a type discriminator, a human-readable title, and a target URL.
 type Button struct {
 	Type  string `json:"type"`
@@ -432,7 +432,7 @@ func fetchBraveSearchResults(ctx context.Context, input Input) (*BraveAPIRespons
 // containing a plain-text summary and up to ten [SearchResult] entries. The
 // summary also includes the infobox label and up to three news headlines when
 // the API returns them. Returns an error if BRAVE_SEARCH_API_KEY is unset, the
-// context is cancelled, or the API responds with a non-200 status.
+// context is canceled, or the API responds with a non-200 status.
 func Search(ctx context.Context, input Input) (Output, error) {
 	apiResponse, err := fetchBraveSearchResults(ctx, input)
 	if err != nil {
@@ -502,7 +502,7 @@ func Search(ctx context.Context, input Input) (Output, error) {
 // full [AdvancedOutput] without any summarisation. All result categories (web,
 // news, video, infobox, locations, mixed) are included as typed structs with
 // nil values for categories the API did not return. Returns an error if
-// BRAVE_SEARCH_API_KEY is unset, the context is cancelled, or the API responds
+// BRAVE_SEARCH_API_KEY is unset, the context is canceled, or the API responds
 // with a non-200 status.
 func SearchAdvanced(ctx context.Context, input Input) (AdvancedOutput, error) {
 	apiResponse, err := fetchBraveSearchResults(ctx, input)

@@ -112,10 +112,10 @@ func (t *Tool[I, O]) ToolInfo() ai.ToolDescription {
 }
 
 // Call invokes the tool's underlying function with the given JSON-encoded input.
-// It deserialises inputJson into the tool's input type I, executes the function,
-// and returns the result serialised as JSON. Observability span events are emitted
+// It deserializes inputJson into the tool's input type I, executes the function,
+// and returns the result serialized as JSON. Observability span events are emitted
 // at the start and end of execution when a span is present in ctx.
-// Returns an error if JSON parsing, function execution, or output marshalling fails.
+// Returns an error if JSON parsing, function execution, or output marshaling fails.
 func (t *Tool[I, O]) Call(ctx context.Context, inputJson string) (string, error) {
 	// Extract span from context for observability.
 	span := observability.SpanFromContext(ctx)

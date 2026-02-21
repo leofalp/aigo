@@ -10,9 +10,9 @@ const (
 	DefaultMaxStringLength = 500
 )
 
-// JSONToString serialises object to its JSON representation and returns it as a
+// JSONToString serializes object to its JSON representation and returns it as a
 // string. When the optional indent argument is true the output is
-// pretty-printed with two-space indentation. On marshalling failure it returns
+// pretty-printed with two-space indentation. On marshaling failure it returns
 // a JSON-formatted error string rather than panicking, so the result is always
 // safe to use in log output.
 func JSONToString(object interface{}, indent ...bool) string {

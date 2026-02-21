@@ -31,7 +31,7 @@ func NewCalculatorTool() *tool.Tool[Input, Output] {
 // req.A and req.B. Supported operations are "add"/"+", "sub"/"-",
 // "mul"/"*", and "div"/"/". Division by zero returns positive or negative
 // infinity consistent with IEEE 754 floating-point semantics; no explicit
-// error is returned for that case. An unrecognised Op value silently returns
+// error is returned for that case. An unrecognized Op value silently returns
 // a result of 0.0.
 //
 // Example:

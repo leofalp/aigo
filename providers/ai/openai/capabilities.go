@@ -35,7 +35,7 @@ const (
 	ToolCallModeTools ToolCallMode = "tools"
 
 	// ToolCallModeFunctions selects the legacy functions/function_call request format.
-	// Use this for older provider deployments that do not recognise the tools field.
+	// Use this for older provider deployments that do not recognize the tools field.
 	ToolCallModeFunctions ToolCallMode = "functions"
 
 	// ToolCallModeBoth indicates the provider accepts either format.

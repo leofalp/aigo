@@ -50,6 +50,13 @@ type StreamEvent struct {
 // of deltas into a final ChatResponse. It supports both range-based iteration
 // for real-time token processing and a convenience Collect() method for callers
 // who want the complete response.
+//
+// Important: callers must consume the stream, either by iterating with Iter()
+// (including breaking out of the loop early) or by calling Collect(). The
+// underlying provider may hold open resources (such as an HTTP response body)
+// that are only released when the iterator completes or is abandoned via a
+// loop break. Constructing a ChatStream and never iterating it will leak those
+// resources.
 type ChatStream struct {
 	iterator iter.Seq2[StreamEvent, error]
 }
@@ -57,6 +64,8 @@ type ChatStream struct {
 // NewChatStream creates a ChatStream from a raw streaming iterator.
 // The iterator is expected to yield StreamEvent values (with nil error) for
 // normal deltas, and may yield a non-nil error to signal a mid-stream failure.
+// The caller is responsible for consuming the returned ChatStream (see ChatStream
+// documentation for resource management details).
 func NewChatStream(iterator iter.Seq2[StreamEvent, error]) *ChatStream {
 	return &ChatStream{iterator: iterator}
 }

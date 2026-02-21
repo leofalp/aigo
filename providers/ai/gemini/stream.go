@@ -141,13 +141,13 @@ func geminiChunkToStreamEvents(
 		return events
 	}
 
-	candidate := response.Candidates[0]
-	if candidate.Content == nil {
+	firstCandidate := response.Candidates[0]
+	if firstCandidate.Content == nil {
 		// Check for finish reason even without content
-		if candidate.FinishReason != "" {
+		if firstCandidate.FinishReason != "" {
 			events = append(events, ai.StreamEvent{
 				Type:         ai.StreamEventDone,
-				FinishReason: mapFinishReason(candidate.FinishReason),
+				FinishReason: mapFinishReason(firstCandidate.FinishReason),
 			})
 		}
 		return events
@@ -158,7 +158,7 @@ func geminiChunkToStreamEvents(
 	var reasoningParts []string
 	toolCallIndex := 0
 
-	for _, part := range candidate.Content.Parts {
+	for _, part := range firstCandidate.Content.Parts {
 		if part.Text != "" {
 			if part.Thought {
 				reasoningParts = append(reasoningParts, part.Text)
@@ -224,10 +224,10 @@ func geminiChunkToStreamEvents(
 	}
 
 	// Finish reason
-	if candidate.FinishReason != "" {
+	if firstCandidate.FinishReason != "" {
 		events = append(events, ai.StreamEvent{
 			Type:         ai.StreamEventDone,
-			FinishReason: mapFinishReason(candidate.FinishReason),
+			FinishReason: mapFinishReason(firstCandidate.FinishReason),
 		})
 	}
 

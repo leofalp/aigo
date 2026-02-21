@@ -22,7 +22,7 @@ const (
 // NewTavilyExtractTool returns a [tool.Tool] that extracts and parses web page
 // content into clean markdown via the Tavily Extract API.
 // Supports up to 20 URLs per request. Use [tool.WithDescription] and
-// [tool.WithMetrics] to customise the tool after construction if needed.
+// [tool.WithMetrics] to customize the tool after construction if needed.
 func NewTavilyExtractTool() *tool.Tool[ExtractInput, ExtractOutput] {
 	return tool.NewTool[ExtractInput, ExtractOutput](
 		"TavilyExtract",

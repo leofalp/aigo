@@ -144,7 +144,7 @@ func New[T any](baseClient *client.Client, opts ...Option) (*ReAct[T], error) {
 // giving up. The loop is capped at the configured maximum number of iterations
 // (default 10).
 //
-// Returns an error if the provider call fails, the context is cancelled, tool
+// Returns an error if the provider call fails, the context is canceled, tool
 // execution fails with stopOnError enabled, or the maximum iteration count is
 // reached without a parseable final answer.
 //

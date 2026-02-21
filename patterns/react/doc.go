@@ -5,5 +5,5 @@
 //
 // The main entry point is [New], which wraps a configured [client.Client] and
 // returns a type-safe [ReAct] agent. Use [Execute] to run the loop for a given
-// prompt. Behaviour can be tuned with [WithMaxIterations] and [WithStopOnError].
+// prompt. Behavior can be tuned with [WithMaxIterations] and [WithStopOnError].
 package react

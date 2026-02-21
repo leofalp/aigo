@@ -25,7 +25,7 @@ type StreamProvider interface {
 type Provider interface {
 	// SendMessage sends a chat request to the provider and returns the
 	// completed response. Returns an error if the provider call fails,
-	// the context is cancelled, or the response cannot be decoded.
+	// the context is canceled, or the response cannot be decoded.
 	SendMessage(ctx context.Context, request ChatRequest) (*ChatResponse, error)
 
 	// IsStopMessage reports whether the response represents a terminal

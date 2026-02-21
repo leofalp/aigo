@@ -42,7 +42,7 @@ type Schema struct {
 // GenerateJSONSchema derives a JSON Schema from the Go type T using reflection.
 // T can be any Go type; pointer, slice, map, and recursive struct types are all
 // supported. Recursive types are represented with $ref/$defs to avoid infinite
-// loops. The returned Schema is ready to be serialised and passed to an LLM or
+// loops. The returned Schema is ready to be serialized and passed to an LLM or
 // tool-calling API.
 //
 // Example:
@@ -261,7 +261,7 @@ func generateDefName(t reflect.Type) string {
 }
 
 // parseJSONSchemaTag reads the "jsonschema" struct tag from tag and applies any
-// recognised directives to schema in-place. It returns true when the tag
+// recognized directives to schema in-place. It returns true when the tag
 // explicitly marks the field as required.
 //
 // Supported directives (comma-separated key=value pairs):
@@ -478,7 +478,7 @@ func handleStructType(t reflect.Type, ctx *schemaContext) *Schema {
 
 // JsonString returns the JSON encoding of the schema. When indent is true the
 // output is formatted with two-space indentation; when omitted or false the
-// output is compact. It returns an error if marshalling fails.
+// output is compact. It returns an error if marshaling fails.
 func (s *Schema) JsonString(indent ...bool) (string, error) {
 	shouldIndent := false // default: compact
 	if len(indent) > 0 {
@@ -501,7 +501,7 @@ func (s *Schema) JsonString(indent ...bool) (string, error) {
 }
 
 // String returns the compact JSON encoding of the schema, satisfying the
-// fmt.Stringer interface. If marshalling fails it returns an error description
+// fmt.Stringer interface. If marshaling fails it returns an error description
 // instead of panicking, so the value is always safe to log or print.
 func (s *Schema) String() string {
 	jsonStr, err := s.JsonString()

@@ -320,7 +320,7 @@ func (o *Observer) Debug(ctx context.Context, msg string, attrs ...observability
 }
 
 // Info logs a message at INFO level with optional structured attributes.
-// Use this for general operational events that confirm normal behaviour.
+// Use this for general operational events that confirm normal behavior.
 func (o *Observer) Info(ctx context.Context, msg string, attrs ...observability.Attribute) {
 	o.log(ctx, slog.LevelInfo, msg, attrs...)
 }

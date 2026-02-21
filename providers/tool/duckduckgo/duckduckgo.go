@@ -141,7 +141,7 @@ func fetchDDGResponse(ctx context.Context, query string) (*DDGResponse, error) {
 // Search executes a DuckDuckGo Instant Answer query for the given [Input] and
 // returns a compact [Output] containing a plain-text summary built from the
 // abstract, answer, definition, and up to five related topics.
-// Returns an error if the HTTP request fails, the context is cancelled, or
+// Returns an error if the HTTP request fails, the context is canceled, or
 // the API response cannot be parsed.
 func Search(ctx context.Context, req Input) (Output, error) {
 	ddgResponse, err := fetchDDGResponse(ctx, req.Query)
@@ -197,7 +197,7 @@ func Search(ctx context.Context, req Input) (Output, error) {
 // SearchAdvanced executes a DuckDuckGo Instant Answer query for the given
 // [Input] and returns a fully structured [AdvancedOutput] with all available
 // metadata fields and absolute image and icon URLs.
-// Returns an error if the HTTP request fails, the context is cancelled, or
+// Returns an error if the HTTP request fails, the context is canceled, or
 // the API response cannot be parsed.
 func SearchAdvanced(ctx context.Context, req Input) (AdvancedOutput, error) {
 	ddgResponse, err := fetchDDGResponse(ctx, req.Query)

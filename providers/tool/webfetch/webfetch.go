@@ -67,11 +67,11 @@ func NewWebFetchTool() *tool.Tool[Input, Output] {
 // URL after all redirects is returned in [Output.URL].
 //
 // The response body is capped at [MaxBodySize] bytes. Reading is performed in
-// a goroutine so that context cancellation is honoured even during slow reads.
+// a goroutine so that context cancellation is honored even during slow reads.
 //
 // Fetch returns an error when the URL is empty, the HTTP status code is not
 // 200 OK, the body exceeds [MaxBodySize], HTML-to-Markdown conversion fails,
-// or the context is cancelled or times out.
+// or the context is canceled or times out.
 //
 // Example:
 //
