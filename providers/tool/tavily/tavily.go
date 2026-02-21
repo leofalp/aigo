@@ -30,8 +30,10 @@ const (
 // httpClient is a shared HTTP client with a default timeout for connection reuse.
 var httpClient = &http.Client{Timeout: 30 * time.Second} //nolint:gochecknoglobals // shared for connection reuse
 
-// NewTavilySearchTool creates a new Tavily Search tool for web search.
-// Returns summarized results optimized for LLM consumption.
+// NewTavilySearchTool returns a [tool.Tool] that performs web searches via the
+// Tavily API and returns a concise, LLM-optimised summary of the top results.
+// Use [tool.WithDescription] and [tool.WithMetrics] to customise the tool
+// after construction if needed.
 func NewTavilySearchTool() *tool.Tool[SearchInput, SearchOutput] {
 	return tool.NewTool[SearchInput, SearchOutput](
 		"TavilySearch",
@@ -47,8 +49,10 @@ func NewTavilySearchTool() *tool.Tool[SearchInput, SearchOutput] {
 	)
 }
 
-// NewTavilySearchAdvancedTool creates a new Tavily Search tool with detailed results.
-// Returns complete structured data including all metadata.
+// NewTavilySearchAdvancedTool returns a [tool.Tool] that performs web searches
+// via the Tavily API and exposes the full structured response, including
+// relevance scores, raw page content, images, and API metadata.
+// Use search_depth "advanced" in [SearchInput] for more thorough results.
 func NewTavilySearchAdvancedTool() *tool.Tool[SearchInput, SearchAdvancedOutput] {
 	return tool.NewTool[SearchInput, SearchAdvancedOutput](
 		"TavilySearchAdvanced",
@@ -64,7 +68,12 @@ func NewTavilySearchAdvancedTool() *tool.Tool[SearchInput, SearchAdvancedOutput]
 	)
 }
 
-// Search performs a web search and returns a summarized result optimized for LLMs
+// Search performs a Tavily web search for the given [SearchInput] and returns
+// a summarised [SearchOutput] optimised for LLM consumption.
+// It truncates per-result content to 200 characters and caps the summary at
+// 10 results regardless of how many the API returns.
+// Returns an error if the TAVILY_API_KEY environment variable is not set, the
+// HTTP request fails, or the response cannot be decoded.
 func Search(ctx context.Context, input SearchInput) (SearchOutput, error) {
 	apiResponse, err := fetchTavilySearch(ctx, input)
 	if err != nil {
@@ -109,7 +118,11 @@ func Search(ctx context.Context, input SearchInput) (SearchOutput, error) {
 	}, nil
 }
 
-// SearchAdvanced performs a web search and returns complete structured results
+// SearchAdvanced performs a Tavily web search for the given [SearchInput] and
+// returns the complete [SearchAdvancedOutput], preserving all metadata fields
+// returned by the API including images, response time, and request ID.
+// Returns an error if the TAVILY_API_KEY environment variable is not set, the
+// HTTP request fails, or the response cannot be decoded.
 func SearchAdvanced(ctx context.Context, input SearchInput) (SearchAdvancedOutput, error) {
 	apiResponse, err := fetchTavilySearch(ctx, input)
 	if err != nil {

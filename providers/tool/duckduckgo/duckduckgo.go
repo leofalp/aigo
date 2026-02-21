@@ -56,6 +56,10 @@ func makeAbsoluteURL(urlPath string) string {
 	return urlPath
 }
 
+// NewDuckDuckGoSearchTool returns a [tool.Tool] that performs a DuckDuckGo web
+// search and returns a concise plain-text summary of the top results.
+// The underlying API is free and requires no authentication.
+// Use [NewDuckDuckGoSearchAdvancedTool] when full structured metadata is needed.
 func NewDuckDuckGoSearchTool() *tool.Tool[Input, Output] {
 	return tool.NewTool[Input, Output](
 		"DuckDuckGoSearch",
@@ -71,6 +75,10 @@ func NewDuckDuckGoSearchTool() *tool.Tool[Input, Output] {
 	)
 }
 
+// NewDuckDuckGoSearchAdvancedTool returns a [tool.Tool] that performs a
+// DuckDuckGo web search and returns a fully structured [AdvancedOutput] with
+// abstracts, answers, definitions, related topics, and image metadata.
+// All URLs in the output are guaranteed to be absolute.
 func NewDuckDuckGoSearchAdvancedTool() *tool.Tool[Input, AdvancedOutput] {
 	return tool.NewTool[Input, AdvancedOutput](
 		"DuckDuckGoSearchAdvanced",
@@ -127,6 +135,11 @@ func fetchDDGResponse(ctx context.Context, query string) (*DDGResponse, error) {
 	return &ddgResponse, nil
 }
 
+// Search executes a DuckDuckGo Instant Answer query for the given [Input] and
+// returns a compact [Output] containing a plain-text summary built from the
+// abstract, answer, definition, and up to five related topics.
+// Returns an error if the HTTP request fails, the context is cancelled, or
+// the API response cannot be parsed.
 func Search(ctx context.Context, req Input) (Output, error) {
 	ddgResponse, err := fetchDDGResponse(ctx, req.Query)
 	if err != nil {
@@ -178,6 +191,11 @@ func Search(ctx context.Context, req Input) (Output, error) {
 	}, nil
 }
 
+// SearchAdvanced executes a DuckDuckGo Instant Answer query for the given
+// [Input] and returns a fully structured [AdvancedOutput] with all available
+// metadata fields and absolute image and icon URLs.
+// Returns an error if the HTTP request fails, the context is cancelled, or
+// the API response cannot be parsed.
 func SearchAdvanced(ctx context.Context, req Input) (AdvancedOutput, error) {
 	ddgResponse, err := fetchDDGResponse(ctx, req.Query)
 	if err != nil {
@@ -216,15 +234,23 @@ func SearchAdvanced(ctx context.Context, req Input) (AdvancedOutput, error) {
 	}, nil
 }
 
+// Input holds the parameters accepted by the DuckDuckGo search tools.
 type Input struct {
 	Query string `json:"query" jsonschema:"description=The search query to look up on DuckDuckGo,required"`
 }
 
+// Output holds the concise result returned by [Search].
+// Summary is a newline-separated plain-text string combining the abstract,
+// instant answer, definition, and up to five related topics.
 type Output struct {
 	Query   string `json:"query" jsonschema:"description=The original search query"`
 	Summary string `json:"summary" jsonschema:"description=Summary of search results including abstracts, answers, and related topics"`
 }
 
+// AdvancedOutput holds the fully structured result returned by [SearchAdvanced].
+// All URL fields are guaranteed to be absolute. Image dimension fields use
+// string representation to accommodate APIs that return them as either numbers
+// or strings.
 type AdvancedOutput struct {
 	Query          string         `json:"query" jsonschema:"description=The original search query"`
 	Abstract       string         `json:"abstract,omitempty" jsonschema:"description=Abstract text about the topic"`
@@ -245,7 +271,9 @@ type AdvancedOutput struct {
 	Redirect       string         `json:"redirect,omitempty" jsonschema:"description=Redirect URL if applicable"`
 }
 
-// DDGResponse represents the DuckDuckGo API response (internal)
+// DDGResponse represents the raw JSON response from the DuckDuckGo Instant
+// Answer API. It is an internal type used only for unmarshaling; callers
+// should use [Output] or [AdvancedOutput] instead.
 type DDGResponse struct {
 	Abstract       string                 `json:"Abstract"`
 	AbstractText   string                 `json:"AbstractText"`
@@ -266,6 +294,8 @@ type DDGResponse struct {
 	Redirect       string                 `json:"Redirect"`
 }
 
+// RelatedTopic represents a single related topic returned by the DuckDuckGo
+// Instant Answer API, including its URL, display text, and associated icon.
 type RelatedTopic struct {
 	FirstURL string `json:"first_url" jsonschema:"description=URL to the related topic"`
 	Icon     Icon   `json:"icon" jsonschema:"description=Icon information with absolute URL"`
@@ -273,6 +303,8 @@ type RelatedTopic struct {
 	Text     string `json:"text" jsonschema:"description=Plain text description of the topic"`
 }
 
+// Result represents a single additional search result entry returned by the
+// DuckDuckGo Instant Answer API, including its URL, display text, and icon.
 type Result struct {
 	FirstURL string `json:"first_url" jsonschema:"description=URL to the result"`
 	Icon     Icon   `json:"icon" jsonschema:"description=Icon information with absolute URL"`
@@ -313,6 +345,8 @@ func (r resultResponse) toResult() Result {
 	}
 }
 
+// Icon holds the metadata for an image icon associated with a [RelatedTopic]
+// or [Result]. The URL field is always an absolute URL.
 type Icon struct {
 	URL    string `json:"url" jsonschema:"description=Icon URL (absolute)"`
 	Height string `json:"height" jsonschema:"description=Icon height in pixels"`

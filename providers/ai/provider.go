@@ -18,11 +18,20 @@ type StreamProvider interface {
 	StreamMessage(ctx context.Context, request ChatRequest) (*ChatStream, error)
 }
 
-// Provider is the generic interface that all LLM providers must implement
+// Provider is the core interface that every LLM provider implementation must
+// satisfy. It covers the full lifecycle of a single request: authentication,
+// endpoint configuration, message dispatch, and response interpretation.
+// Use [StreamProvider] in addition when the provider supports streaming.
 type Provider interface {
-	// SendSingleMessage sends a chat request and returns the response
+	// SendMessage sends a chat request to the provider and returns the
+	// completed response. Returns an error if the provider call fails,
+	// the context is cancelled, or the response cannot be decoded.
 	SendMessage(ctx context.Context, request ChatRequest) (*ChatResponse, error)
 
+	// IsStopMessage reports whether the response represents a terminal
+	// completion (i.e. the model has nothing more to say and no further
+	// tool calls are expected). Providers use their own finish-reason
+	// semantics to implement this check.
 	IsStopMessage(message *ChatResponse) bool
 
 	// WithAPIKey sets the API key used for authenticating requests.

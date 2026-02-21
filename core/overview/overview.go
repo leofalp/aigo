@@ -16,6 +16,10 @@ const overviewContextKey contextKey = "overview"
 
 // Overview aggregates execution statistics, token usage, cost tracking,
 // and request/response history for a single execution lifecycle.
+// It is the primary carrier of observability data produced by the AI client
+// and is stored in a [context.Context] via [Overview.ToContext] so that all
+// layers of a call-stack can contribute to the same shared instance.
+// Use [OverviewFromContext] to retrieve or lazily create an Overview from a context.
 type Overview struct {
 	LastResponse  *ai.ChatResponse   `json:"last_response,omitempty"`
 	Requests      []*ai.ChatRequest  `json:"requests"`
@@ -41,7 +45,10 @@ type Overview struct {
 // execution statistics and the parsed final result.
 type StructuredOverview[T any] struct {
 	Overview
-	Data *T `json:"data,omitempty"` // Parsed final response data
+	// Data holds the strongly-typed value parsed from the final AI response.
+	// It is populated by structured execution patterns (e.g. StructuredPattern[T])
+	// and is nil when the response could not be parsed into T.
+	Data *T `json:"data,omitempty"`
 }
 
 // OverviewFromContext retrieves the Overview from the context, creating one if
@@ -64,7 +71,12 @@ func OverviewFromContext(ctx *context.Context) *Overview {
 	return overview
 }
 
-// ToContext stores the Overview in the given context and returns the enriched context.
+// ToContext stores the Overview in the given context under a private key and
+// returns the enriched context. The private key prevents collisions with other
+// packages that also use context values. Callers should retrieve the stored
+// value via [OverviewFromContext] rather than accessing the context directly,
+// so that nil-context and type-assertion edge cases are handled uniformly.
+// If ctx is nil, context.Background() is used as the base.
 func (overview *Overview) ToContext(ctx context.Context) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -118,13 +130,19 @@ func (overview *Overview) AddToolExecutionCost(toolName string, toolMetrics *cos
 	}
 }
 
-// SetModelCost sets the model cost configuration for this overview.
+// SetModelCost attaches a model pricing configuration so that [Overview.CostSummary]
+// and [Overview.TotalCost] can calculate per-token input, output, cached, and
+// reasoning costs. Calling this is optional; omitting it leaves all model cost
+// fields in the returned [cost.CostSummary] as zero.
 func (overview *Overview) SetModelCost(modelCost *cost.ModelCost) {
 	overview.ModelCost = modelCost
 }
 
-// SetComputeCost sets the compute/infrastructure cost configuration.
-// This is used to calculate the cost of running the execution environment.
+// SetComputeCost attaches an infrastructure pricing configuration so that
+// [Overview.CostSummary] can calculate the cost of the execution environment
+// (e.g. AWS Lambda, VM, or container runtime) proportional to the duration
+// measured between [Overview.StartExecution] and [Overview.EndExecution].
+// Calling this is optional; omitting it leaves compute costs as zero.
 func (overview *Overview) SetComputeCost(computeCost *cost.ComputeCost) {
 	overview.ComputeCost = computeCost
 }
@@ -154,7 +172,13 @@ func (overview *Overview) TotalCost() float64 {
 	return summary.TotalCost
 }
 
-// CostSummary returns a detailed breakdown of all costs.
+// CostSummary returns a detailed breakdown of all costs accumulated during the
+// execution. The returned [cost.CostSummary] contains per-tool execution costs
+// and invocation counts, model input/output/cached/reasoning costs derived from
+// token usage and the configured [cost.ModelCost], and compute/infrastructure
+// costs derived from the measured execution duration and the configured
+// [cost.ComputeCost]. Currency is always "USD". Call [Overview.TotalCost] when
+// only the scalar total is needed.
 func (overview *Overview) CostSummary() cost.CostSummary {
 	summary := cost.CostSummary{
 		ToolCosts:          make(map[string]float64),

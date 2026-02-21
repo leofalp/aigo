@@ -119,7 +119,22 @@ type ExtractedField struct {
 	Candidates []string `json:"candidates,omitempty" jsonschema:"description=Alternative values found when multiple matches exist"`
 }
 
-// Extract performs deterministic extraction of company data from HTML pages.
+// Extract performs deterministic, multi-pass extraction of structured company
+// data from the HTML pages supplied in input.Pages.
+//
+// Each page is parsed once and then passed through a pipeline of specialised
+// extractors (logo, contacts, social links, address, company identity, business
+// metrics, and product description). Results from higher-confidence sources
+// (e.g. JSON-LD) take precedence over lower-confidence ones (e.g. regex).
+// Alternative values found during extraction are preserved in each field's
+// Candidates list.
+//
+// The website field is always populated from input.SiteStructure.BaseURL when
+// no website is found in the page content. Overall confidence and extracted
+// field counts are calculated and stored in the returned Output.
+//
+// Extract never returns a non-nil error under normal operation; the error
+// return exists to satisfy the tool function signature.
 func Extract(ctx context.Context, input Input) (Output, error) {
 	output := Output{
 		FieldsTotal: 24, // Total extractable fields (removed ProvinceCode)

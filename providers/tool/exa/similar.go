@@ -32,7 +32,11 @@ func NewExaFindSimilarTool() *tool.Tool[SimilarInput, SimilarOutput] {
 	)
 }
 
-// FindSimilar finds content similar to a given URL or text
+// FindSimilar calls the Exa findSimilar endpoint and returns web pages
+// semantically similar to the provided URL or text. At least one of
+// SimilarInput.URL or SimilarInput.Text must be non-empty. Returns an error
+// if both are empty, EXA_API_KEY is not set, or the API returns a non-200
+// status.
 func FindSimilar(ctx context.Context, input SimilarInput) (SimilarOutput, error) {
 	// Validate input - need either URL or Text
 	if input.URL == "" && input.Text == "" {

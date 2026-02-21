@@ -7,19 +7,30 @@ import (
 	"strings"
 )
 
-// PageCategory represents a type of standard web page
+// PageCategory is a string enum that identifies a well-known category of web page
+// (e.g. home, contact, blog). Values are used as keys in the [Output.StandardPages] map
+// and are produced by [CategorizeURLs].
 type PageCategory string
 
 const (
-	CategoryHome     PageCategory = "home"
-	CategoryContact  PageCategory = "contact"
-	CategoryAbout    PageCategory = "about"
+	// CategoryHome identifies the main landing or home page of a website.
+	CategoryHome PageCategory = "home"
+	// CategoryContact identifies contact pages, including all regional and language variants.
+	CategoryContact PageCategory = "contact"
+	// CategoryAbout identifies about, company, and team pages.
+	CategoryAbout PageCategory = "about"
+	// CategoryProducts identifies product, service, catalog, and shop pages.
 	CategoryProducts PageCategory = "products"
-	CategoryBlog     PageCategory = "blog"
-	CategoryFAQ      PageCategory = "faq"
-	CategoryPrivacy  PageCategory = "privacy"
-	CategoryLogin    PageCategory = "login"
-	CategoryCart     PageCategory = "cart"
+	// CategoryBlog identifies blog, news, and article pages.
+	CategoryBlog PageCategory = "blog"
+	// CategoryFAQ identifies FAQ, help, and support pages.
+	CategoryFAQ PageCategory = "faq"
+	// CategoryPrivacy identifies privacy policy, terms of service, legal, and cookie pages.
+	CategoryPrivacy PageCategory = "privacy"
+	// CategoryLogin identifies login, sign-in, registration, and account pages.
+	CategoryLogin PageCategory = "login"
+	// CategoryCart identifies shopping cart, basket, and checkout pages.
+	CategoryCart PageCategory = "cart"
 )
 
 // categoryPatterns defines URL patterns for standard page types in multiple languages

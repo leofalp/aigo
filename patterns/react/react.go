@@ -134,29 +134,27 @@ func New[T any](baseClient *client.Client, opts ...Option) (*ReAct[T], error) {
 	return rc, nil
 }
 
-// Execute runs the type-safe ReAct (Reasoning + Acting) pattern loop:
+// Execute runs the ReAct loop for the given prompt and returns the final answer
+// parsed into type T, along with execution statistics.
 //
-// 1. First iteration: Send user prompt to LLM using SendMessage()
-//   - Schema is already injected in system prompt from construction
+// The loop sends the prompt to the LLM, executes any requested tool calls, and
+// feeds their results back to the LLM until it produces a response with no
+// further tool calls. That response is then unmarshalled into T. If the initial
+// parse fails, Execute sends one follow-up request asking for plain JSON before
+// giving up. The loop is capped at the configured maximum number of iterations
+// (default 10).
 //
-// 2. LLM analyzes and decides if it needs tools to answer
-// 3. If LLM requests tool calls:
-//   - Execute each tool and append results to memory
-//   - Use ContinueConversation() to let LLM process tool results
-//   - LLM may request more tools or provide final answer
+// Returns an error if the provider call fails, the context is cancelled, tool
+// execution fails with stopOnError enabled, or the maximum iteration count is
+// reached without a parseable final answer.
 //
-// 4. Repeat steps 3 until LLM provides final answer (no tool calls) or max iterations reached
-// 5. Parse the final answer into type T
-//   - If parsing fails, request JSON format explicitly (one retry)
-//   - If still fails, return error
+// Example:
 //
-// Key implementation details:
-//   - Schema is injected once at construction time (not per-request)
-//   - First iteration uses SendMessage(ctx, prompt) to add user message
-//   - Subsequent iterations use ContinueConversation(ctx) to process tool results
-//   - Automatic retry with explicit JSON request on parse failure
-//
-// Returns a StructuredOverview[T] containing both the parsed data and execution statistics.
+//	result, err := agent.Execute(ctx, "What is 42 * 17?")
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	fmt.Printf("Answer: %d, steps: %s\n", result.Data.Answer, result.Data.Steps)
 func (r *ReAct[T]) Execute(ctx context.Context, prompt string) (*overview.StructuredOverview[T], error) {
 	var response *ai.ChatResponse
 	var err error

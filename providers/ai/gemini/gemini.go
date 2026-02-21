@@ -16,7 +16,10 @@ const (
 	defaultModel   = Model25FlashLite // Most cost-effective model
 )
 
-// GeminiProvider implements the ai.Provider interface for Google's Gemini API.
+// GeminiProvider is the concrete implementation of [ai.Provider] and [ai.StreamProvider]
+// for Google's Gemini API. It holds authentication credentials, the HTTP client,
+// the default model selection, and the capabilities derived from that model.
+// Use [New] to construct a ready-to-use instance.
 type GeminiProvider struct {
 	apiKey       string
 	baseURL      string
@@ -57,19 +60,24 @@ func (p *GeminiProvider) WithBaseURL(baseURL string) ai.Provider {
 	return p
 }
 
-// WithHttpClient sets a custom HTTP client.
+// WithHttpClient sets a custom HTTP client for all API requests made by this provider.
+// Useful for injecting transports with custom timeouts, proxies, or tracing middleware.
 func (p *GeminiProvider) WithHttpClient(httpClient *http.Client) ai.Provider {
 	p.client = httpClient
 	return p
 }
 
-// GetCapabilities returns the current capabilities (informational only).
+// GetCapabilities returns the feature capabilities detected for the provider's
+// default model. The returned value is informational; the Gemini API enforces
+// actual limits and will return an error if an unsupported feature is used.
 func (p *GeminiProvider) GetCapabilities() Capabilities {
 	return p.capabilities
 }
 
-// SendMessage implements the ai.Provider interface.
-// It sends a chat request to the Gemini API and returns the response.
+// SendMessage sends a chat request to the Gemini generateContent endpoint and
+// returns the model's response converted to the generic [ai.ChatResponse] format.
+// It returns an error if GEMINI_API_KEY is unset, if the HTTP request fails,
+// or if the API returns an empty response body.
 func (p *GeminiProvider) SendMessage(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
 	// Get observability context
 	span := observability.SpanFromContext(ctx)

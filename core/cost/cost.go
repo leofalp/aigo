@@ -284,6 +284,8 @@ func (mc ModelCost) CalculateAudioOutputCost(count int) float64 {
 }
 
 // CalculateMediaCost calculates the combined cost for all generated media outputs.
+// images, videos, and audios are the respective unit counts for each media type;
+// each is multiplied by its per-unit rate and the results are summed.
 func (mc ModelCost) CalculateMediaCost(images, videos, audios int) float64 {
 	return mc.CalculateImageOutputCost(images) +
 		mc.CalculateVideoOutputCost(videos) +
@@ -362,7 +364,10 @@ func (cc ComputeCost) String() string {
 	return fmt.Sprintf("$%.6f/sec", cc.CostPerSecond)
 }
 
-// CostSummary provides a detailed breakdown of all costs during an execution.
+// CostSummary provides a detailed breakdown of all costs incurred during a
+// single agent execution. It separates tool call costs, model token costs
+// (input, output, cached, and reasoning), and infrastructure compute costs,
+// making it straightforward to identify which component dominates the spend.
 type CostSummary struct {
 	// ToolCosts maps tool names to their accumulated execution costs
 	ToolCosts map[string]float64 `json:"tool_costs,omitempty"`

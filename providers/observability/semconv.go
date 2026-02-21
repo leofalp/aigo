@@ -1,9 +1,5 @@
 package observability
 
-// Semantic conventions for observability attributes.
-// These constants define standard attribute names to ensure consistency
-// across different components of the system.
-
 // --- LLM Provider Attributes ---
 
 const (

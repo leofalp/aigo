@@ -2,7 +2,9 @@ package exa
 
 // === SEARCH INPUT/OUTPUT ===
 
-// SearchInput represents the input parameters for Exa Search
+// SearchInput holds all parameters accepted by the Exa semantic search
+// endpoints. Query is the only required field; all other fields are optional
+// filters that narrow or enrich the results returned by the API.
 type SearchInput struct {
 	Query              string   `json:"query" jsonschema:"description=The search query to perform,required"`
 	Type               string   `json:"type,omitempty" jsonschema:"description=Search type: neural (embedding-based) keyword (keyword-based) or auto (default - automatically selects best type),enum=neural,enum=keyword,enum=auto"`
@@ -18,14 +20,18 @@ type SearchInput struct {
 	IncludeHighlights  bool     `json:"include_highlights,omitempty" jsonschema:"description=Include key sentence highlights in results"`
 }
 
-// SearchOutput represents a simplified search result optimized for LLM consumption
+// SearchOutput contains the summarized result of a [Search] call, formatted for
+// efficient LLM consumption. Results contains at most maxSummaryResults entries
+// even when the API returns more; the full count is visible in Summary.
 type SearchOutput struct {
 	Query   string         `json:"query" jsonschema:"description=The original search query"`
 	Summary string         `json:"summary" jsonschema:"description=Formatted summary of search results"`
 	Results []SearchResult `json:"results" jsonschema:"description=List of search results"`
 }
 
-// SearchResult represents a single search result
+// SearchResult represents a single item returned by a [Search] or
+// [FindSimilar] call. Text and Highlights are only populated when the
+// corresponding IncludeText or IncludeHighlights flags are set on the input.
 type SearchResult struct {
 	Title         string   `json:"title" jsonschema:"description=Title of the result"`
 	URL           string   `json:"url" jsonschema:"description=URL of the result"`
@@ -35,7 +41,9 @@ type SearchResult struct {
 	Highlights    []string `json:"highlights,omitempty" jsonschema:"description=Key sentence highlights if requested"`
 }
 
-// SearchAdvancedOutput represents the complete Exa Search API response
+// SearchAdvancedOutput contains the full structured response from a
+// [SearchAdvanced] call, including all metadata fields and the resolved
+// search type chosen by the Exa API.
 type SearchAdvancedOutput struct {
 	Query              string                 `json:"query" jsonschema:"description=The original search query"`
 	Results            []SearchResultAdvanced `json:"results" jsonschema:"description=List of detailed search results"`
@@ -43,7 +51,8 @@ type SearchAdvancedOutput struct {
 	RequestID          string                 `json:"request_id,omitempty" jsonschema:"description=Unique request identifier"`
 }
 
-// SearchResultAdvanced represents a detailed search result with all metadata
+// SearchResultAdvanced represents a single item from a [SearchAdvanced] call
+// with all available metadata, relevance scores, and optional content fields.
 type SearchResultAdvanced struct {
 	ID              string    `json:"id" jsonschema:"description=Temporary ID for the document"`
 	Title           string    `json:"title" jsonschema:"description=Title of the result"`
@@ -59,7 +68,9 @@ type SearchResultAdvanced struct {
 
 // === FIND SIMILAR INPUT/OUTPUT ===
 
-// SimilarInput represents the input parameters for Exa FindSimilar
+// SimilarInput holds the parameters for a [FindSimilar] call. Either URL or
+// Text must be non-empty; supplying both sends both fields to the API and the
+// API determines how to weight them for similarity matching.
 type SimilarInput struct {
 	URL               string   `json:"url,omitempty" jsonschema:"description=URL to find similar content for (provide either url or text)"`
 	Text              string   `json:"text,omitempty" jsonschema:"description=Text to find similar content for (provide either url or text)"`
@@ -70,7 +81,8 @@ type SimilarInput struct {
 	IncludeHighlights bool     `json:"include_highlights,omitempty" jsonschema:"description=Include key sentence highlights in results"`
 }
 
-// SimilarOutput represents the FindSimilar result
+// SimilarOutput contains the result of a [FindSimilar] call, including the
+// source used for similarity matching and a formatted summary of similar pages.
 type SimilarOutput struct {
 	Source  string         `json:"source" jsonschema:"description=The source used for similarity search (URL or text-based input indicator)"`
 	Summary string         `json:"summary" jsonschema:"description=Formatted summary of similar results"`
@@ -79,20 +91,24 @@ type SimilarOutput struct {
 
 // === ANSWER INPUT/OUTPUT ===
 
-// AnswerInput represents the input parameters for Exa Answer
+// AnswerInput holds the parameters for an [Answer] call. Query is required;
+// IncludeText controls whether full source text is included in the returned
+// Citations.
 type AnswerInput struct {
 	Query       string `json:"query" jsonschema:"description=The question to answer,required"`
 	IncludeText bool   `json:"include_text,omitempty" jsonschema:"description=Include full text from citation sources"`
 }
 
-// AnswerOutput represents the Answer result
+// AnswerOutput contains the AI-generated answer and its supporting citations
+// as returned by the Exa Answer endpoint.
 type AnswerOutput struct {
 	Query     string     `json:"query" jsonschema:"description=The original question"`
 	Answer    string     `json:"answer" jsonschema:"description=AI-generated answer based on search results"`
 	Citations []Citation `json:"citations" jsonschema:"description=Sources used to generate the answer"`
 }
 
-// Citation represents a source citation for an answer
+// Citation represents a single web source used to ground an [Answer] response.
+// Text is only populated when AnswerInput.IncludeText is true.
 type Citation struct {
 	Title         string `json:"title" jsonschema:"description=Title of the citation source"`
 	URL           string `json:"url" jsonschema:"description=URL of the citation source"`

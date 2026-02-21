@@ -19,8 +19,9 @@ const (
 	baseURL = "https://api.search.brave.com/res/v1"
 )
 
-// NewBraveSearchTool creates a new Brave Search tool for web search.
-// Returns summarized results optimized for LLM consumption.
+// NewBraveSearchTool returns a tool that searches the web via the Brave Search
+// API and produces summarized results optimised for LLM consumption.
+// Use [NewBraveSearchAdvancedTool] when the full structured response is needed.
 func NewBraveSearchTool() *tool.Tool[Input, Output] {
 	return tool.NewTool[Input, Output](
 		"BraveSearch",
@@ -36,8 +37,10 @@ func NewBraveSearchTool() *tool.Tool[Input, Output] {
 	)
 }
 
-// NewBraveSearchAdvancedTool creates a new Brave Search tool with detailed results.
-// Returns complete structured data including all metadata.
+// NewBraveSearchAdvancedTool returns a tool that searches the web via the Brave
+// Search API and produces the complete structured response, including web, news,
+// video, infobox, and location results without any summarisation.
+// Use [NewBraveSearchTool] when a compact, LLM-friendly summary is sufficient.
 func NewBraveSearchAdvancedTool() *tool.Tool[Input, AdvancedOutput] {
 	return tool.NewTool[Input, AdvancedOutput](
 		"BraveSearchAdvanced",
@@ -53,7 +56,9 @@ func NewBraveSearchAdvancedTool() *tool.Tool[Input, AdvancedOutput] {
 	)
 }
 
-// Input represents the search query parameters
+// Input holds the query parameters forwarded to the Brave Search API.
+// Query is the only required field; all other fields are optional filters
+// that narrow results by count, region, language, safety level, or freshness.
 type Input struct {
 	Query      string `json:"query" jsonschema:"description=The search query string,required"`
 	Count      int    `json:"count,omitempty" jsonschema:"description=Number of results to return (default: 10 max: 20)"`
@@ -63,14 +68,17 @@ type Input struct {
 	Freshness  string `json:"freshness,omitempty" jsonschema:"description=Time filter: 'pd' (past day) 'pw' (past week) 'pm' (past month) 'py' (past year)"`
 }
 
-// Output represents a summarized search result optimized for LLM consumption
+// Output holds a summarized view of a Brave Search response, shaped for direct
+// use by an LLM. It combines a human-readable Summary with the underlying
+// Results slice so callers can inspect individual entries when needed.
 type Output struct {
 	Query   string         `json:"query" jsonschema:"description=The original search query"`
 	Summary string         `json:"summary" jsonschema:"description=Formatted summary of search results"`
 	Results []SearchResult `json:"results" jsonschema:"description=List of top search results"`
 }
 
-// SearchResult represents a single search result
+// SearchResult holds the title, URL, description snippet, and optional age of
+// a single web result as returned by [Search].
 type SearchResult struct {
 	Title       string `json:"title" jsonschema:"description=Title of the result"`
 	URL         string `json:"url" jsonschema:"description=URL of the result"`
@@ -78,7 +86,9 @@ type SearchResult struct {
 	Age         string `json:"age,omitempty" jsonschema:"description=Age of the content (e.g. '2 hours ago')"`
 }
 
-// AdvancedOutput represents the complete Brave Search API response
+// AdvancedOutput holds the full Brave Search API response mapped to typed Go
+// structs. Each field corresponds to a distinct result category and is nil when
+// the API returned no data for that category.
 type AdvancedOutput struct {
 	Query        string              `json:"query" jsonschema:"description=The original search query"`
 	Type         string              `json:"type" jsonschema:"description=Type of search response"`
@@ -90,14 +100,17 @@ type AdvancedOutput struct {
 	MixedResults *MixedResultSection `json:"mixed,omitempty" jsonschema:"description=Mixed content results"`
 }
 
-// WebResults contains web search results
+// WebResults holds the collection of organic web results returned by the API
+// along with the result-set type identifier and family-friendliness flag.
 type WebResults struct {
 	Type           string      `json:"type"`
 	Results        []WebResult `json:"results"`
 	FamilyFriendly bool        `json:"family_friendly,omitempty"`
 }
 
-// WebResult represents a web search result
+// WebResult holds the full metadata for a single organic web result, including
+// title, URL, description, source locality flags, language, thumbnail, and
+// optional deep-link buttons and schema.org markup.
 type WebResult struct {
 	Title          string     `json:"title"`
 	URL            string     `json:"url"`
@@ -117,13 +130,15 @@ type WebResult struct {
 	MetaURL        *MetaURL   `json:"meta_url,omitempty"`
 }
 
-// NewsResults contains news search results
+// NewsResults holds the collection of news articles returned by the API
+// along with the result-set type identifier.
 type NewsResults struct {
 	Type    string       `json:"type"`
 	Results []NewsResult `json:"results"`
 }
 
-// NewsResult represents a news article result
+// NewsResult holds the metadata for a single news article, including title,
+// URL, description, publication age, and an optional breaking-news flag.
 type NewsResult struct {
 	Title        string     `json:"title"`
 	URL          string     `json:"url"`
@@ -135,13 +150,15 @@ type NewsResult struct {
 	Thumbnail    *Thumbnail `json:"thumbnail,omitempty"`
 }
 
-// VideoResults contains video search results
+// VideoResults holds the collection of video results returned by the API
+// along with the result-set type identifier.
 type VideoResults struct {
 	Type    string        `json:"type"`
 	Results []VideoResult `json:"results"`
 }
 
-// VideoResult represents a video search result
+// VideoResult holds the metadata for a single video result, including title,
+// URL, description, age, and an optional [Video] struct with playback details.
 type VideoResult struct {
 	Type        string     `json:"type"`
 	URL         string     `json:"url"`
@@ -154,7 +171,8 @@ type VideoResult struct {
 	Thumbnail   *Thumbnail `json:"thumbnail,omitempty"`
 }
 
-// Video contains video metadata
+// Video holds playback metadata for a video result such as duration, view
+// count, creator, publisher, and whether a subscription is required to watch.
 type Video struct {
 	Duration             string  `json:"duration,omitempty"`
 	Views                int64   `json:"views,omitempty"`
@@ -164,7 +182,9 @@ type Video struct {
 	Author               *Author `json:"author,omitempty"`
 }
 
-// Infobox contains structured information about an entity
+// Infobox holds structured knowledge-panel data about a named entity, including
+// label, category, short and long descriptions, image, key-value attributes,
+// social profiles, ratings, and data-source providers.
 type Infobox struct {
 	Type       string            `json:"type"`
 	Position   int               `json:"position"`
@@ -180,13 +200,16 @@ type Infobox struct {
 	Providers  map[string]string `json:"providers,omitempty"`
 }
 
-// LocationResults contains location/map results
+// LocationResults holds the collection of location results returned by the API
+// along with the result-set type identifier.
 type LocationResults struct {
 	Type    string           `json:"type"`
 	Results []LocationResult `json:"results"`
 }
 
-// LocationResult represents a location result
+// LocationResult holds the metadata for a single location result, including
+// title, URL, description, GPS coordinates, postal address, contact details,
+// rating, distance, and zoom level for map rendering.
 type LocationResult struct {
 	Type        string     `json:"type"`
 	Title       string     `json:"title"`
@@ -201,7 +224,9 @@ type LocationResult struct {
 	Zoom        string     `json:"zoom_level,omitempty"`
 }
 
-// MixedResultSection contains mixed content types
+// MixedResultSection holds references to heterogeneous result types grouped by
+// display position (main feed, top banner, or side panel). Each [MixedItem]
+// carries a type discriminator and an index into the corresponding typed slice.
 type MixedResultSection struct {
 	Type string      `json:"type"`
 	Main []MixedItem `json:"main,omitempty"`
@@ -209,13 +234,15 @@ type MixedResultSection struct {
 	Side []MixedItem `json:"side,omitempty"`
 }
 
-// MixedItem represents a mixed content item
+// MixedItem identifies a single entry within a [MixedResultSection] by its
+// content type name and its position index in the corresponding result slice.
 type MixedItem struct {
 	Type  string `json:"type"`
 	Index int    `json:"index"`
 }
 
-// Supporting types
+// Profile holds the display name, URL, long name, and avatar image of a source
+// profile associated with a web result or infobox.
 type Profile struct {
 	Name     string `json:"name"`
 	URL      string `json:"url,omitempty"`
@@ -223,16 +250,23 @@ type Profile struct {
 	Img      string `json:"img,omitempty"`
 }
 
+// DeepLink holds the set of navigational deep-link buttons associated with a
+// web result, allowing agents to jump directly to subsections of a page.
 type DeepLink struct {
 	Buttons []Button `json:"buttons,omitempty"`
 }
 
+// Button represents a single labelled navigational action within a [DeepLink],
+// carrying a type discriminator, a human-readable title, and a target URL.
 type Button struct {
 	Type  string `json:"type"`
 	Title string `json:"title"`
 	URL   string `json:"url"`
 }
 
+// MetaURL holds the decomposed components of a result's canonical URL —
+// scheme, network location, hostname, path, and favicon — as provided by the
+// Brave API for display and routing purposes.
 type MetaURL struct {
 	Scheme   string `json:"scheme"`
 	Netloc   string `json:"netloc"`
@@ -241,23 +275,32 @@ type MetaURL struct {
 	Path     string `json:"path,omitempty"`
 }
 
+// Thumbnail holds the source URL and optional pixel dimensions of a preview
+// image attached to a web, news, video, or location result.
 type Thumbnail struct {
 	Src    string `json:"src"`
 	Height int    `json:"height,omitempty"`
 	Width  int    `json:"width,omitempty"`
 }
 
+// Image holds the source URL and optional pixel dimensions of an image
+// associated with an [Infobox] entity panel.
 type Image struct {
 	Src    string `json:"src"`
 	Height int    `json:"height,omitempty"`
 	Width  int    `json:"width,omitempty"`
 }
 
+// Author holds the name and optional profile URL of the creator of a video or
+// other media result.
 type Author struct {
 	Name string `json:"name"`
 	URL  string `json:"url,omitempty"`
 }
 
+// Rating holds aggregate rating data for a result, including the numeric
+// value, the maximum possible score, and the total review count. The optional
+// Profile links the rating to a specific review platform.
 type Rating struct {
 	RatingValue float64  `json:"ratingValue,omitempty"`
 	BestRating  float64  `json:"bestRating,omitempty"`
@@ -266,6 +309,8 @@ type Rating struct {
 	IsTricorder bool     `json:"is_tricorder,omitempty"`
 }
 
+// Postal holds the structured postal address of a location result, including
+// street, city, region, postal code, and country fields.
 type Postal struct {
 	Type            string `json:"type,omitempty"`
 	Country         string `json:"country,omitempty"`
@@ -275,12 +320,16 @@ type Postal struct {
 	AddressLocality string `json:"addressLocality,omitempty"`
 }
 
+// Contact holds the email address and telephone number for a location result,
+// both of which are optional and may be empty strings.
 type Contact struct {
 	Email     string `json:"email,omitempty"`
 	Telephone string `json:"telephone,omitempty"`
 }
 
-// BraveAPIResponse is the internal response structure from Brave API
+// BraveAPIResponse is the top-level response envelope returned by the Brave
+// Search REST API. It is mapped directly from JSON and then projected into
+// either [Output] or [AdvancedOutput] depending on the calling tool.
 type BraveAPIResponse struct {
 	Type      string              `json:"type"`
 	Query     *QueryInfo          `json:"query,omitempty"`
@@ -292,6 +341,9 @@ type BraveAPIResponse struct {
 	Mixed     *MixedResultSection `json:"mixed,omitempty"`
 }
 
+// QueryInfo holds metadata about the submitted search query as reported by
+// the Brave API, including the original text, whether spellcheck was bypassed,
+// any automatically altered query, and whether a safe-search warning applies.
 type QueryInfo struct {
 	Original          string `json:"original"`
 	SpellcheckOff     bool   `json:"spellcheck_off,omitempty"`
@@ -376,7 +428,11 @@ func fetchBraveSearchResults(ctx context.Context, input Input) (*BraveAPIRespons
 	return &apiResponse, nil
 }
 
-// Search performs a web search and returns a summarized result optimized for LLMs
+// Search performs a web search via the Brave Search API and returns an [Output]
+// containing a plain-text summary and up to ten [SearchResult] entries. The
+// summary also includes the infobox label and up to three news headlines when
+// the API returns them. Returns an error if BRAVE_SEARCH_API_KEY is unset, the
+// context is cancelled, or the API responds with a non-200 status.
 func Search(ctx context.Context, input Input) (Output, error) {
 	apiResponse, err := fetchBraveSearchResults(ctx, input)
 	if err != nil {
@@ -442,7 +498,12 @@ func Search(ctx context.Context, input Input) (Output, error) {
 	}, nil
 }
 
-// SearchAdvanced performs a web search and returns complete structured results
+// SearchAdvanced performs a web search via the Brave Search API and returns the
+// full [AdvancedOutput] without any summarisation. All result categories (web,
+// news, video, infobox, locations, mixed) are included as typed structs with
+// nil values for categories the API did not return. Returns an error if
+// BRAVE_SEARCH_API_KEY is unset, the context is cancelled, or the API responds
+// with a non-200 status.
 func SearchAdvanced(ctx context.Context, input Input) (AdvancedOutput, error) {
 	apiResponse, err := fetchBraveSearchResults(ctx, input)
 	if err != nil {

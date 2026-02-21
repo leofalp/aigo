@@ -133,12 +133,14 @@ func WithNodeClient(nodeClient *client.Client) NodeOption {
 	}
 }
 
-// WithNodeTools adds tools that are available to this node's LLM client.
-// These tools are passed to the node via NodeInput and can be used when
-// building chat requests.
+// WithNodeTools registers additional tools on the node for use during execution.
+// The tools are stored on the node and supplement those already registered on
+// the node's LLM client (whether the graph default or a per-node override set
+// via WithNodeClient).
 //
-// Note: If the node also has a custom client (via WithNodeClient), these
-// tools are available in addition to the client's built-in tools.
+// TODO: clarify — nodeTools are stored on the node struct but NodeInput currently
+// exposes no Tools field; executor implementations must retrieve them via a
+// node-level mechanism or custom client configuration.
 //
 // Example:
 //

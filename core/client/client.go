@@ -63,38 +63,54 @@ type ClientOptions struct {
 	ComputeCost                 *cost.ComputeCost         // Optional: infrastructure/compute cost configuration
 }
 
-// Functional option pattern for ergonomic API
-
+// WithDefaultModel sets the LLM model name used for every request made by the
+// client. If not set here, the value falls back to the AIGO_DEFAULT_LLM_MODEL
+// environment variable.
 func WithDefaultModel(model string) func(*ClientOptions) {
 	return func(o *ClientOptions) {
 		o.DefaultModel = model
 	}
 }
 
+// WithMemory configures a memory provider for the client, enabling stateful
+// (multi-turn) conversations. Without a memory provider the client is stateless
+// and sends only the current prompt on each call.
 func WithMemory(memProvider memory.Provider) func(*ClientOptions) {
 	return func(o *ClientOptions) {
 		o.MemoryProvider = memProvider
 	}
 }
 
+// WithObserver attaches an observability provider that receives tracing spans,
+// log events, and metrics for every LLM request. Omitting this option results
+// in zero overhead (nil observer fast-path).
 func WithObserver(observer observability.Provider) func(*ClientOptions) {
 	return func(o *ClientOptions) {
 		o.Observer = observer
 	}
 }
 
+// WithSystemPrompt sets the global system prompt sent with every request.
+// Individual requests can override this value temporarily using
+// [WithEphemeralSystemPrompt].
 func WithSystemPrompt(prompt string) func(*ClientOptions) {
 	return func(o *ClientOptions) {
 		o.SystemPrompt = prompt
 	}
 }
 
+// WithRequiredTools registers tools that the LLM must always consider when
+// formulating a response. Required tools are included in every request
+// alongside any tools added via [WithTools].
 func WithRequiredTools(tools ...tool.GenericTool) func(*ClientOptions) {
 	return func(o *ClientOptions) {
 		o.RequiredTools = append(o.RequiredTools, tools...)
 	}
 }
 
+// WithTools registers additional tools that the LLM may call during a
+// conversation. Use [WithRequiredTools] for tools that must always be
+// considered.
 func WithTools(tools ...tool.GenericTool) func(*ClientOptions) {
 	return func(o *ClientOptions) {
 		o.Tools = append(o.Tools, tools...)

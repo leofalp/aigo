@@ -9,33 +9,46 @@ import (
 	"strings"
 )
 
-// Schema represents the structure of JSON Schema used for defining arguments and responses.
-// It follows the JSON Schema standard, supporting various types, properties, and validation rules.
-// This structure is typically used to define the expected format of arguments for tools or functions
-// and to validate that incoming data conforms to the expected structure.
+// Schema represents a JSON Schema definition used to describe the structure and
+// validation rules of tool arguments or structured responses. It follows the
+// JSON Schema specification and supports types, properties, enums, references,
+// and reusable definitions for handling recursive types.
 type Schema struct {
-	//  Type Specifies the data type (e.g., "object", "array", "string", "number")
+	// Type is the JSON Schema type keyword (e.g. "object", "array", "string",
+	// "number", "integer", "boolean").
 	Type        string   `json:"type,omitempty"`
 	Description string   `json:"description,omitempty"`
 	Required    []string `json:"required,omitempty"`
-	// Properties of the arguments, each with its own schema
+	// Properties maps field names to their individual sub-schemas for object types.
 	Properties map[string]*Schema `json:"properties,omitempty"`
-	// For array types, defines the schema of items in the array
+	// Items defines the schema for elements of an array type.
 	Items *Schema `json:"items,omitempty"`
-	// AdditionalProperties: Controls whether properties not defined in Properties are allowed
+	// AdditionalProperties controls whether extra object properties are permitted.
+	// When set to a *Schema value it describes the schema those values must conform to,
+	// which is how map types are represented.
 	AdditionalProperties any `json:"additionalProperties,omitempty"`
-	// Default value for the parameter
+	// Default holds the default value for the property.
 	Default any `json:"default,omitempty"`
-	// Enum contains the list of allowed values for the parameter
+	// Enum lists the set of allowed values for the property.
 	Enum []any `json:"enum,omitempty"`
-	// Ref is used for JSON Schema references to avoid infinite recursion
+	// Ref is a JSON Pointer to a reusable schema definition (e.g. "#/$defs/myType"),
+	// used to break cycles when a type references itself directly or indirectly.
 	Ref string `json:"$ref,omitempty"`
-	// Defs contains reusable schema definitions
+	// Defs holds reusable schema definitions that are referenced via Ref within
+	// the same document, following the $defs convention.
 	Defs map[string]*Schema `json:"$defs,omitempty"`
 }
 
-// GenerateJSONSchema generates a basic JSON schema from a reflect.Type.
-// objectType must be a pointer to the target type.
+// GenerateJSONSchema derives a JSON Schema from the Go type T using reflection.
+// T can be any Go type; pointer, slice, map, and recursive struct types are all
+// supported. Recursive types are represented with $ref/$defs to avoid infinite
+// loops. The returned Schema is ready to be serialised and passed to an LLM or
+// tool-calling API.
+//
+// Example:
+//
+//	schema := jsonschema.GenerateJSONSchema[MyParams]()
+//	json, err := schema.JsonString(true)
 func GenerateJSONSchema[T any]() *Schema {
 	t := reflect.TypeFor[T]()
 	// Use a context to track visited types and handle recursion
@@ -247,13 +260,20 @@ func generateDefName(t reflect.Type) string {
 	return "anonymousStruct"
 }
 
-// parseJSONSchemaTag parses jsonschema struct tag and applies the settings to the schema.
-// Supported struct tags:
-// 1. jsonschema: "description=xxx"
-// 2. jsonschema: "enum=xxx,enum=yyy", or "enum=1,enum=2", or "enum=3.14,enum=3.15", etc.
-// NOTE: will convert actual enum value such as "1" or "3.14" to actual field type defined in struct.
-// NOTE: enum only supports string, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, bool.
-// 3. jsonschema: "required"
+// parseJSONSchemaTag reads the "jsonschema" struct tag from tag and applies any
+// recognised directives to schema in-place. It returns true when the tag
+// explicitly marks the field as required.
+//
+// Supported directives (comma-separated key=value pairs):
+//   - description=<text>  — sets Schema.Description.
+//   - enum=<value>        — appends an allowed value; may be repeated.
+//     The raw string is parsed into the field's actual Go type (string, int
+//     family, float family, or bool). Other field kinds return an error.
+//   - required            — marks the field as required regardless of pointer
+//     kind or omitempty.
+//
+// Note: because commas are used as the directive separator, description values
+// that contain a comma are not currently supported.
 func parseJSONSchemaTag(fieldType reflect.Type, tag reflect.StructTag, schema *Schema) (bool, error) {
 	jsonSchemaTag := tag.Get("jsonschema")
 	if len(jsonSchemaTag) == 0 {
@@ -456,8 +476,9 @@ func handleStructType(t reflect.Type, ctx *schemaContext) *Schema {
 	return &Schema{Ref: "#/$defs/" + defName}
 }
 
-// JsonString converts the Schema to its JSON representation
-// indent: optional bool parameter. If true, formats JSON with indentation. If false or omitted, returns compact JSON.
+// JsonString returns the JSON encoding of the schema. When indent is true the
+// output is formatted with two-space indentation; when omitted or false the
+// output is compact. It returns an error if marshalling fails.
 func (s *Schema) JsonString(indent ...bool) (string, error) {
 	shouldIndent := false // default: compact
 	if len(indent) > 0 {
@@ -479,10 +500,11 @@ func (s *Schema) JsonString(indent ...bool) (string, error) {
 	return string(jsonBytes), nil
 }
 
-// String returns the JSON representation of the schema with indentation
-// Returns an error message if marshaling fails
+// String returns the compact JSON encoding of the schema, satisfying the
+// fmt.Stringer interface. If marshalling fails it returns an error description
+// instead of panicking, so the value is always safe to log or print.
 func (s *Schema) String() string {
-	jsonStr, err := s.JsonString() // usa il default (true)
+	jsonStr, err := s.JsonString()
 	if err != nil {
 		return fmt.Sprintf("error: %v", err)
 	}

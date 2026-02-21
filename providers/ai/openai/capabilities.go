@@ -2,7 +2,11 @@ package openai
 
 import "strings"
 
-// Capabilities represents the feature set supported by an OpenAI-compatible provider
+// Capabilities represents the complete feature set supported by a given
+// OpenAI-compatible provider endpoint. It drives endpoint selection, wire-format
+// choice, and optional features such as structured outputs and parallel tool calls.
+// Capabilities are populated automatically by [detectCapabilities] but can be
+// overridden via [OpenAIProvider.WithCapabilities] for non-standard hosts.
 type Capabilities struct {
 	// Endpoint support
 	SupportsResponses bool // true only for real OpenAI API
@@ -20,12 +24,23 @@ type Capabilities struct {
 	SupportsReasoning         bool // o1/o3/gpt-5 reasoning
 }
 
+// ToolCallMode specifies which tool-calling wire format a provider understands.
+// Providers that pre-date the structured tools API require the legacy functions
+// format; modern providers support the newer tools format or both.
 type ToolCallMode string
 
 const (
-	ToolCallModeTools     ToolCallMode = "tools"     // New format (tools + tool_choice)
-	ToolCallModeFunctions ToolCallMode = "functions" // Legacy format (functions + function_call)
-	ToolCallModeBoth      ToolCallMode = "both"      // Supports both formats
+	// ToolCallModeTools selects the modern tools/tool_choice request format.
+	// This is the preferred format for OpenAI and most current providers.
+	ToolCallModeTools ToolCallMode = "tools"
+
+	// ToolCallModeFunctions selects the legacy functions/function_call request format.
+	// Use this for older provider deployments that do not recognise the tools field.
+	ToolCallModeFunctions ToolCallMode = "functions"
+
+	// ToolCallModeBoth indicates the provider accepts either format.
+	// The provider implementation may choose whichever format is most appropriate.
+	ToolCallModeBoth ToolCallMode = "both"
 )
 
 // detectCapabilities attempts to detect provider capabilities based on baseURL

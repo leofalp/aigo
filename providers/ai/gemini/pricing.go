@@ -449,7 +449,10 @@ func CalculateCost(model string, usage *ai.Usage) float64 {
 	)
 }
 
-// CostBreakdown provides a detailed breakdown of costs for a single request.
+// CostBreakdown holds a per-request cost breakdown for a Gemini API call,
+// separating input, output, cached, reasoning, and media output charges.
+// All monetary values are expressed in USD. Obtain one via [CalculateCostBreakdown]
+// or [CalculateCostBreakdownWithMedia].
 type CostBreakdown struct {
 	Model           string  `json:"model"`
 	InputTokens     int     `json:"input_tokens"`
@@ -475,7 +478,10 @@ func CalculateCostBreakdown(model string, usage *ai.Usage) CostBreakdown {
 	return CalculateCostBreakdownWithMedia(model, usage, 0, 0, 0)
 }
 
-// CalculateCostBreakdownWithMedia returns a detailed breakdown of costs including media output costs.
+// CalculateCostBreakdownWithMedia returns a detailed cost breakdown for the given
+// model and token usage, including per-unit costs for generated media output.
+// images, videos, and audios specify the count of generated media items to price.
+// Returns a zero-cost breakdown with only the model name set when usage is nil.
 func CalculateCostBreakdownWithMedia(model string, usage *ai.Usage, images, videos, audios int) CostBreakdown {
 	if usage == nil {
 		return CostBreakdown{Model: model}

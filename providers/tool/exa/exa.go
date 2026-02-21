@@ -32,8 +32,10 @@ const (
 // httpClient is a shared HTTP client with a default timeout for connection reuse.
 var httpClient = &http.Client{Timeout: 30 * time.Second} //nolint:gochecknoglobals // shared for connection reuse
 
-// NewExaSearchTool creates a new Exa Search tool for semantic web search.
-// Returns summarized results optimized for LLM consumption.
+// NewExaSearchTool returns a Tool that performs semantic web search via the
+// Exa API and produces a summarized, LLM-optimized [SearchOutput]. The tool is
+// registered with an estimated cost of $0.003 per query. Use
+// [NewExaSearchAdvancedTool] when full structured metadata is required.
 func NewExaSearchTool() *tool.Tool[SearchInput, SearchOutput] {
 	return tool.NewTool[SearchInput, SearchOutput](
 		"ExaSearch",
@@ -49,8 +51,11 @@ func NewExaSearchTool() *tool.Tool[SearchInput, SearchOutput] {
 	)
 }
 
-// NewExaSearchAdvancedTool creates a new Exa Search tool with detailed results.
-// Returns complete structured data including all metadata, text content, and highlights.
+// NewExaSearchAdvancedTool returns a Tool that performs semantic web search via
+// the Exa API and produces a complete [SearchAdvancedOutput] containing all
+// metadata, relevance scores, and content. The tool is registered with an
+// estimated cost of $0.005 per query due to content extraction. Use
+// [NewExaSearchTool] when a concise summary is sufficient.
 func NewExaSearchAdvancedTool() *tool.Tool[SearchInput, SearchAdvancedOutput] {
 	return tool.NewTool[SearchInput, SearchAdvancedOutput](
 		"ExaSearchAdvanced",
@@ -138,8 +143,9 @@ func Search(ctx context.Context, input SearchInput) (SearchOutput, error) {
 }
 
 // SearchAdvanced performs a semantic web search using the Exa API and returns
-// complete structured results with all metadata. Requires the EXA_API_KEY
-// environment variable.
+// complete structured results with all metadata fields populated. Requires the
+// EXA_API_KEY environment variable. Returns an error if Query is empty, the
+// API key is missing, or the API returns a non-200 status.
 func SearchAdvanced(ctx context.Context, input SearchInput) (SearchAdvancedOutput, error) {
 	if input.Query == "" {
 		return SearchAdvancedOutput{}, fmt.Errorf("query is required")

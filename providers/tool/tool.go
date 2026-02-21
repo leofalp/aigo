@@ -13,27 +13,46 @@ import (
 	"github.com/leofalp/aigo/providers/observability"
 )
 
+// Tool represents a typed, callable tool that can be registered with an AI provider.
+// It binds a name and description to a strongly-typed Go function, and automatically
+// derives JSON schemas for both input (I) and output (O) via reflection.
+// Use [NewTool] to construct a Tool; implement [GenericTool] for provider-agnostic usage.
 type Tool[I, O any] struct {
 	Name        string
 	Description string
 	Parameters  *jsonschema.Schema
 	Output      *jsonschema.Schema
 	Function    func(ctx context.Context, input I) (O, error)
-	// Metrics contains optional cost and performance metrics for this tool execution
+	// Metrics contains optional cost and performance metrics for this tool execution.
 	Metrics *cost.ToolMetrics
 }
 
+// GenericTool is the provider-agnostic interface for all tools.
+// It abstracts over the concrete generic type parameters of [Tool] so that tools
+// can be stored, dispatched, and introspected without knowing their exact input/output types.
 type GenericTool interface {
+	// ToolInfo returns the metadata (name, description, parameter schema) used to
+	// advertise this tool to an AI provider.
 	ToolInfo() ai.ToolDescription
+
+	// Call invokes the tool with a JSON-encoded input string and returns a
+	// JSON-encoded output string. Returns an error if parsing or execution fails.
 	Call(ctx context.Context, inputJson string) (string, error)
+
+	// GetMetrics returns the cost and performance metrics associated with this tool,
+	// or nil if none were configured.
 	GetMetrics() *cost.ToolMetrics
 }
 
+// funcToolOptions holds optional configuration for a tool created via [NewTool].
 type funcToolOptions struct {
 	Description string
 	Metrics     *cost.ToolMetrics
 }
 
+// WithDescription sets a human-readable description for the tool.
+// Providers surface this description to the language model to help it decide
+// when and how to invoke the tool.
 func WithDescription(description string) func(tool *funcToolOptions) {
 	return func(s *funcToolOptions) {
 		s.Description = description
@@ -47,13 +66,24 @@ func WithMetrics(toolMetrics cost.ToolMetrics) func(tool *funcToolOptions) {
 	}
 }
 
+// NewTool constructs a new [Tool] with the given name and handler function.
+// JSON schemas for the input type I and output type O are derived automatically
+// via reflection. Optional configuration (description, metrics) can be provided
+// through [WithDescription] and [WithMetrics].
+//
+// Example:
+//
+//	myTool := tool.NewTool("search", searchFunc,
+//	    tool.WithDescription("Searches the web for a query."),
+//	    tool.WithMetrics(cost.ToolMetrics{Amount: 0.001, Currency: "USD"}),
+//	)
 func NewTool[I, O any](name string, function func(ctx context.Context, input I) (O, error), options ...func(tool *funcToolOptions)) *Tool[I, O] {
 	toolOptions := &funcToolOptions{}
-	for _, o := range options {
-		o(toolOptions)
+	for _, option := range options {
+		option(toolOptions)
 	}
 
-	tool := &Tool[I, O]{
+	newTool := &Tool[I, O]{
 		Name:        name,
 		Description: toolOptions.Description,
 		Parameters:  jsonschema.GenerateJSONSchema[I](),
@@ -61,9 +91,11 @@ func NewTool[I, O any](name string, function func(ctx context.Context, input I) 
 		Function:    function,
 		Metrics:     toolOptions.Metrics,
 	}
-	return tool
+	return newTool
 }
 
+// ToolInfo returns the [ai.ToolDescription] used to advertise this tool to an AI provider.
+// It includes the tool's name, description, parameter schema, and optional metrics metadata.
 func (t *Tool[I, O]) ToolInfo() ai.ToolDescription {
 	toolDesc := ai.ToolDescription{
 		Name:        t.Name,
@@ -71,7 +103,7 @@ func (t *Tool[I, O]) ToolInfo() ai.ToolDescription {
 		Parameters:  t.Parameters,
 	}
 
-	// Attach metrics metadata if available
+	// Attach metrics metadata if available so providers can surface cost information.
 	if t.Metrics != nil {
 		toolDesc.Metrics = t.Metrics
 	}
@@ -79,8 +111,13 @@ func (t *Tool[I, O]) ToolInfo() ai.ToolDescription {
 	return toolDesc
 }
 
+// Call invokes the tool's underlying function with the given JSON-encoded input.
+// It deserialises inputJson into the tool's input type I, executes the function,
+// and returns the result serialised as JSON. Observability span events are emitted
+// at the start and end of execution when a span is present in ctx.
+// Returns an error if JSON parsing, function execution, or output marshalling fails.
 func (t *Tool[I, O]) Call(ctx context.Context, inputJson string) (string, error) {
-	// Extract span from context for observability
+	// Extract span from context for observability.
 	span := observability.SpanFromContext(ctx)
 
 	if span != nil {
@@ -93,10 +130,9 @@ func (t *Tool[I, O]) Call(ctx context.Context, inputJson string) (string, error)
 
 	start := time.Now()
 
-	// Track cost if available (extracted from context later)
-	// The cost tracking will be handled by the caller (client/pattern)
+	// Cost tracking is handled by the caller (client/pattern) via GetMetrics.
 
-	// Flexible parse of input JSON (from llm) into the expected input type
+	// Flexibly parse the LLM-supplied input JSON into the strongly-typed input type.
 	parsedInput, err := parse.ParseStringAs[I](inputJson)
 	if err != nil {
 		if span != nil {
@@ -136,7 +172,7 @@ func (t *Tool[I, O]) Call(ctx context.Context, inputJson string) (string, error)
 			observability.Duration(observability.AttrToolDuration, duration),
 		}
 
-		// Add cost and metrics information to observability if available
+		// Add cost and metrics information to observability if available.
 		if t.Metrics != nil {
 			attrs = append(attrs,
 				observability.Float64("tool.cost.amount", t.Metrics.Amount),

@@ -32,23 +32,18 @@ const (
 	IdleConnTimeout = 90 * time.Second
 )
 
-// NewWebFetchTool creates a new web fetch tool that retrieves web pages and converts HTML to Markdown.
-// The tool uses the standard library's HTTP client for fetching and html-to-markdown for conversion.
+// NewWebFetchTool returns a [tool.Tool] that fetches web pages and converts
+// their HTML content to Markdown. It uses the standard library HTTP client
+// and the html-to-markdown library for conversion.
 //
-// Features:
-//   - Fetches web pages via HTTP/HTTPS
-//   - Automatically adds https:// to partial URLs (e.g., "google.it" → "https://google.it")
-//   - Follows HTTP redirects and returns the final URL
-//   - Converts HTML content to clean Markdown
-//   - Configurable timeout (default: 30s)
-//   - Custom User-Agent support
-//   - Response size limiting (max 10MB)
-//   - Context cancellation support
+// The tool normalises partial URLs by prepending "https://", follows up to
+// ten redirects, enforces a [MaxBodySize] limit, and respects context
+// cancellation. The default request timeout is [DefaultTimeout].
 //
 // Example:
 //
-//	tool := webfetch.NewWebFetchTool()
-//	client, _ := client.New(provider, client.WithTools(tool))
+//	fetchTool := webfetch.NewWebFetchTool()
+//	aiClient, _ := client.New(provider, client.WithTools(fetchTool))
 func NewWebFetchTool() *tool.Tool[Input, Output] {
 	return tool.NewTool[Input, Output](
 		"WebFetch",
@@ -64,27 +59,19 @@ func NewWebFetchTool() *tool.Tool[Input, Output] {
 	)
 }
 
-// Fetch retrieves a web page from the specified URL and converts its HTML content to Markdown.
-// It handles HTTP redirects, validates response status codes, and enforces size limits.
+// Fetch retrieves the web page at req.URL and returns its content as Markdown.
 //
-// The function automatically adds "https://" to partial URLs (e.g., "google.it" becomes "https://google.it").
-// It follows HTTP redirects (up to 10) and returns the final URL after all redirects.
+// Partial URLs (e.g. "google.com") are normalised by prepending "https://".
+// The request timeout is taken from req.TimeoutSeconds when set, otherwise
+// [DefaultTimeout] is used. Up to ten HTTP redirects are followed; the final
+// URL after all redirects is returned in [Output.URL].
 //
-// The function performs the following steps:
-//  1. Validates and normalizes the input URL (adds https:// if missing)
-//  2. Creates an HTTP request with context for cancellation support
-//  3. Fetches the page content with a timeout, following redirects
-//  4. Validates the HTTP response status
-//  5. Reads and limits the response body size
-//  6. Converts HTML to Markdown
+// The response body is capped at [MaxBodySize] bytes. Reading is performed in
+// a goroutine so that context cancellation is honoured even during slow reads.
 //
-// Parameters:
-//   - ctx: Context for request cancellation and timeout control
-//   - req: Input containing the URL to fetch and optional configuration
-//
-// Returns:
-//   - Output: Contains the final URL (after redirects) and converted Markdown content
-//   - error: Returns error if the request fails, status is not OK, or conversion fails
+// Fetch returns an error when the URL is empty, the HTTP status code is not
+// 200 OK, the body exceeds [MaxBodySize], HTML-to-Markdown conversion fails,
+// or the context is cancelled or times out.
 //
 // Example:
 //
@@ -231,7 +218,9 @@ func Fetch(ctx context.Context, req Input) (Output, error) {
 	return output, nil
 }
 
-// Input represents the input parameters for the web fetch tool.
+// Input holds the parameters passed to the web fetch tool by the language model.
+// URL is the only required field; all other fields are optional overrides for
+// the defaults defined by the package-level constants.
 type Input struct {
 	// URL is the web page URL to fetch (can be partial like "google.com" or full like "https://google.com")
 	URL string `json:"url" jsonschema:"description=The URL of the web page to fetch (supports partial URLs like 'google.com' or full URLs like 'https://google.com'),required"`
@@ -246,7 +235,9 @@ type Input struct {
 	IncludeHTML bool `json:"include_html,omitempty" jsonschema:"description=When true includes the raw HTML content in the output (useful for logo extraction and structured data parsing)"`
 }
 
-// Output represents the output of the web fetch tool.
+// Output holds the result produced by [Fetch] and returned to the language model.
+// URL reflects the final destination after all HTTP redirects. HTML is only
+// populated when [Input.IncludeHTML] is true.
 type Output struct {
 	// URL is the final URL after following all redirects
 	URL string `json:"url" jsonschema:"description=The final URL after following all redirects and normalization"`

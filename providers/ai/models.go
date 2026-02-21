@@ -14,7 +14,10 @@ import (
 	##### PROVIDER INPUT #####
 */
 
-// ChatRequest represents a request to send a chat message
+// ChatRequest represents a single chat completion request sent to a provider.
+// Messages contains the full conversation history (excluding the system prompt).
+// Optional fields such as Tools, ToolChoice, ResponseFormat, and GenerationConfig
+// are forwarded to the provider only when non-nil / non-empty.
 type ChatRequest struct {
 	Model            string            `json:"model,omitempty"`         // Model name or identifier
 	Messages         []Message         `json:"messages"`                // Contains all messages in the conversation except system prompt
@@ -25,12 +28,21 @@ type ChatRequest struct {
 	GenerationConfig *GenerationConfig `json:"generation_config,omitempty"` // Optional generation configuration
 }
 
+// ToolChoice controls which tool(s) the model is allowed or required to call.
+// When ToolChoiceForced is set it overrides any automatic selection derived from
+// RequiredTools. AtLeastOneRequired ensures the model calls at least one tool
+// declared in ChatRequest.Tools.
 type ToolChoice struct {
 	ToolChoiceForced   string             `json:"tool_choice_forced,omitempty"`    // Forced tool choice to not use computed one from tools.Required
 	AtLeastOneRequired bool               `json:"at_least_one_required,omitempty"` // If true, at least one tool from ChatRequest.Tools must be used
 	RequiredTools      []*ToolDescription `json:"required_tools,omitempty"`        // List of required tool (must be declared in ChatRequest.Tools)
 }
 
+// ToolDescription describes a function that the model may call during a
+// conversation. Name and Description are sent verbatim to the provider;
+// Parameters defines the expected JSON schema for arguments. Metrics carries
+// optional cost/performance metadata for the orchestration layer only and is
+// never forwarded to the provider.
 type ToolDescription struct {
 	Name        string             `json:"name"`
 	Description string             `json:"description,omitempty"`
@@ -216,7 +228,11 @@ func NewDocumentPartFromURI(mimeType, uri string) ContentPart {
 	}
 }
 
-// Message represents a single message in a conversation
+// Message represents a single turn in a conversation. The Role field
+// determines how the provider interprets the content. When ContentParts is
+// populated it takes precedence over the plain-text Content field, enabling
+// multimodal messages. Tool-related fields (ToolCalls, ToolCallID, Name) are
+// only relevant for assistant and tool roles respectively.
 type Message struct {
 	// Core fields (always present)
 	Role    MessageRole `json:"role"`
@@ -240,6 +256,10 @@ type Message struct {
 	Reasoning string `json:"reasoning,omitempty"` // Chain-of-thought reasoning (o1/o3/gpt-5)
 }
 
+// GenerationConfig holds sampling and output-control parameters sent to the
+// provider with each request. Fields that are unsupported by a given provider
+// are silently ignored by that provider's conversion layer.
+// Zero values are treated as "not set" (providers use their own defaults).
 type GenerationConfig struct {
 	MaxTokens        int     `json:"max_tokens,omitempty"`        // Optional max tokens for the response
 	Temperature      float32 `json:"temperature,omitempty"`       // Sampling temperature [0..2]. Higher => more random; lower => more deterministic.
@@ -287,6 +307,11 @@ const (
 	BlockLowAndAbove    = "BLOCK_LOW_AND_ABOVE"
 )
 
+// ResponseFormat instructs the provider to emit output in a specific structure.
+// When OutputSchema is set the provider is asked to produce JSON conforming to
+// that schema. The Type hint selects a named format preset (e.g., "json_object",
+// "json_schema") when no explicit schema is provided. Strict mode, when
+// supported, causes the provider to enforce the schema without fallback.
 type ResponseFormat struct {
 	OutputSchema *jsonschema.Schema `json:"output_schema,omitempty"` // Optional schema for structured response. Implementation may vary by provider.
 	Strict       bool               `json:"strict,omitempty"`        // If true, the model must strictly adhere to the output schema, if possible.
@@ -311,6 +336,10 @@ type CodeExecution struct {
 	Output   string `json:"output,omitempty"`  // stdout on success, stderr or error description on failure
 }
 
+// Usage reports the token consumption for a single chat completion. Providers
+// populate only the fields they support; unsupported counters remain zero.
+// ReasoningTokens and CachedTokens are subset counts already included in
+// PromptTokens / CompletionTokens; they are broken out for cost attribution.
 type Usage struct {
 	PromptTokens     int `json:"prompt_tokens,omitempty"`
 	CompletionTokens int `json:"completion_tokens,omitempty"`
@@ -321,7 +350,11 @@ type Usage struct {
 	CachedTokens    int `json:"cached_tokens,omitempty"`    // Cached prompt tokens
 }
 
-// ChatResponse represents the response from a chat completion
+// ChatResponse represents the completed response returned by a provider after a
+// chat completion request. Content holds the primary text reply. Multimodal
+// output (images, audio, video) is stored in the respective slice fields.
+// ToolCalls is populated when the model requests one or more function calls
+// instead of (or in addition to) generating text.
 type ChatResponse struct {
 	Id           string      `json:"id"`
 	Model        string      `json:"model"`
@@ -408,13 +441,17 @@ type StructuredChatResponse[T any] struct {
 	##### ENUMS #####
 */
 
-// ToolCall represents a function/tool call request from the LLM
+// ToolCall represents a single function invocation that the model has requested.
+// ID uniquely identifies this call within the response and must be echoed back
+// in the corresponding tool-role message so the provider can correlate results.
 type ToolCall struct {
 	ID       string           `json:"id,omitempty"` // Unique identifier for this tool call
 	Type     string           `json:"type"`         // "function"
 	Function ToolCallFunction `json:"function"`
 }
 
+// ToolCallFunction carries the name and serialized JSON arguments for a single
+// function invocation requested by the model.
 type ToolCallFunction struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"` // JSON string
@@ -460,13 +497,15 @@ func (tr ToolResult) ToJSON() (string, error) {
 	return string(bytes), nil
 }
 
-// MessageRole represents the role of a message; compatible with string
+// MessageRole identifies the author of a message within a conversation.
+// It is a string alias so that provider conversion layers can compare and
+// switch on roles without casting.
 type MessageRole string
 
 const (
 	RoleSystem    MessageRole = "system"    // System instructions/configuration
 	RoleUser      MessageRole = "user"      // End-user message
-	RoleAssistant MessageRole = "assistant" // Middle llm response
+	RoleAssistant MessageRole = "assistant" // Model-generated reply or tool call request
 	RoleTool      MessageRole = "tool"      // Tool/function output
 )
 

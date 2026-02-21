@@ -6,43 +6,62 @@ import (
 	"github.com/leofalp/aigo/providers/ai"
 )
 
-// Provider defines memory operations for chat sessions and tool calls.
+// Provider defines the contract for conversation-history storage.
+// Implementations must be safe for concurrent use; the core client calls
+// these methods from multiple goroutines during tool-call loops.
+// The reference implementation is [github.com/leofalp/aigo/providers/memory/inmemory.ArrayMemory].
 type Provider interface {
-	// Core chat history
+	// AppendMessage adds message to the end of the conversation history.
+	// Implementations should store a copy so callers can reuse the pointer safely.
+	// A nil message must be silently ignored.
 	AppendMessage(ctx context.Context, message *ai.Message)
 
-	// Introspection
+	// Count returns the total number of messages currently stored.
 	Count() int
+
+	// AllMessages returns a copy of every message in chronological order.
+	// Callers may freely modify the returned slice without affecting stored state.
 	AllMessages() []ai.Message
+
+	// LastMessages returns a copy of the most recent n messages in chronological order.
+	// If n exceeds the total number of stored messages, all messages are returned.
+	// If n is zero or negative, an empty slice is returned.
 	LastMessages(n int) []ai.Message
+
+	// PopLastMessage removes and returns the most recent message.
+	// Returns nil when the history is empty.
 	PopLastMessage() *ai.Message
 
-	// clear
+	// ClearMessages removes all stored messages.
+	// Implementations should retain any underlying capacity for reuse.
 	ClearMessages(ctx context.Context)
 
-	// Token-aware retrieval and compaction
+	// FilterByRole returns a copy of all messages whose role matches role.
+	// Returns an empty slice when no matching messages exist.
+	FilterByRole(role ai.MessageRole) []ai.Message
+
+	// Token-aware retrieval and compaction (planned)
 	//GetForTokenBudget(maxTokens int, tokenizer ai.Tokenizer) []ai.Message
 	//SummarizeOlder(maxTokens int, summarizer ai.Summarizer) error
 
-	// Mutation by id
+	// Mutation by id (planned)
 	//GetByID(id string) (*ai.Message, bool)
 	//UpdateByID(id string, patch ai.MessagePatch) error
 	//DeleteByID(id string) error
 
-	// Truncation and eviction
+	// Truncation and eviction (planned)
 	//TruncateLast(n int)
 	//SetMaxMessages(n int)
 	//SetTTLSeconds(ttl int64)
 
-	// Metadata and filtering
+	// Metadata and filtering (planned)
 	//SetMetadata(id string, meta map[string]string) error
-	FilterByRole(role ai.MessageRole) []ai.Message
 
-	// Tool calls
+	// Tool calls (planned)
 	//LogToolCall(tc ai.ToolCall)
 	//GetToolCalls() []ai.ToolCall
 
-	// Sessions and persistence
+	// Sessions and persistence (planned)
 	//StartSession(id string) error
 	//CurrentSession() string
 	//ListSessions() []string
@@ -50,7 +69,7 @@ type Provider interface {
 	//Save() error
 	//Load() error
 
-	// Semantic memory (optional)
+	// Semantic memory (planned)
 	//UpsertEmbedding(id string, text string, vector []float32) error
 	//SearchSimilar(query string, topK int) []ai.Message
 }

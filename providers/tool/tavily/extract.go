@@ -19,8 +19,10 @@ const (
 	maxURLs = 20
 )
 
-// NewTavilyExtractTool creates a new Tavily Extract tool for content extraction from URLs.
-// Returns extracted content optimized for LLM consumption.
+// NewTavilyExtractTool returns a [tool.Tool] that extracts and parses web page
+// content into clean markdown via the Tavily Extract API.
+// Supports up to 20 URLs per request. Use [tool.WithDescription] and
+// [tool.WithMetrics] to customise the tool after construction if needed.
 func NewTavilyExtractTool() *tool.Tool[ExtractInput, ExtractOutput] {
 	return tool.NewTool[ExtractInput, ExtractOutput](
 		"TavilyExtract",
@@ -36,7 +38,13 @@ func NewTavilyExtractTool() *tool.Tool[ExtractInput, ExtractOutput] {
 	)
 }
 
-// Extract retrieves and parses content from the specified URLs
+// Extract retrieves and parses content from the URLs listed in [ExtractInput],
+// returning an [ExtractOutput] with per-URL markdown content and a combined
+// summary. It validates that at least one URL is provided and that the total
+// does not exceed 20. URLs that the API fails to process are reported in the
+// summary but do not cause the function to return an error.
+// Returns an error if the TAVILY_API_KEY environment variable is not set, the
+// HTTP request fails, or the response cannot be decoded.
 func Extract(ctx context.Context, input ExtractInput) (ExtractOutput, error) {
 	if len(input.URLs) == 0 {
 		return ExtractOutput{}, fmt.Errorf("at least one URL is required")

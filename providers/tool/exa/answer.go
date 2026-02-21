@@ -31,7 +31,11 @@ func NewExaAnswerTool() *tool.Tool[AnswerInput, AnswerOutput] {
 	)
 }
 
-// Answer generates an AI answer to a question with citations from web sources
+// Answer calls the Exa Answer endpoint and returns an AI-generated response
+// grounded in web sources. Citations are populated from the API "citations"
+// field, falling back to "results" when citations are absent. Returns an error
+// if Query is empty, EXA_API_KEY is not set, or the API returns a non-200
+// status.
 func Answer(ctx context.Context, input AnswerInput) (AnswerOutput, error) {
 	if input.Query == "" {
 		return AnswerOutput{}, fmt.Errorf("query is required")
