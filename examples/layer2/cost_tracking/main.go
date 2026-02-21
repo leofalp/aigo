@@ -1,3 +1,8 @@
+// Package main demonstrates cost tracking in the aigo client layer (Layer 2). It creates
+// tools with distinct cost profiles, attaches per-token model pricing and per-second compute
+// pricing to a ReAct agent, and prints detailed cost breakdowns. It also shows how
+// OptimizationStrategy changes tool-selection guidance.
+// Requires the OPENAI_API_KEY environment variable.
 package main
 
 import (

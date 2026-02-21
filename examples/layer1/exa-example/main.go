@@ -1,3 +1,7 @@
+// Package main demonstrates the Exa AI-native search tool (Layer 1) with five scenarios:
+// semantic web search, research-paper category search, finding similar pages, AI-generated
+// answers with citations, and advanced search with highlights.
+// Requires the EXA_API_KEY environment variable to be set.
 package main
 
 import (

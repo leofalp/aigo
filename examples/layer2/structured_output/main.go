@@ -1,3 +1,7 @@
+// Package main demonstrates two approaches to structured JSON output (Layer 2):
+// StructuredClient[T] (automatic, recommended) where schema and parsing are handled by the
+// client, and manual WithOutputSchema plus ParseStringAs for explicit control.
+// Requires the OPENAI_API_KEY environment variable.
 package main
 
 import (

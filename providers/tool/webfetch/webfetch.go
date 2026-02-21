@@ -222,16 +222,13 @@ func Fetch(ctx context.Context, req Input) (Output, error) {
 // URL is the only required field; all other fields are optional overrides for
 // the defaults defined by the package-level constants.
 type Input struct {
-	// URL is the web page URL to fetch (can be partial like "google.com" or full like "https://google.com")
+	// URL is the web page URL to fetch (can be partial like "google.com" or full like "https://google.com").
 	URL string `json:"url" jsonschema:"description=The URL of the web page to fetch (supports partial URLs like 'google.com' or full URLs like 'https://google.com'),required"`
-
-	// TimeoutSeconds is the request timeout in seconds (default: 30, max: 300)
+	// TimeoutSeconds is the request timeout in seconds (default: 30, max: 300).
 	TimeoutSeconds int `json:"timeout_seconds,omitempty" jsonschema:"description=Request timeout in seconds (default: 30 max: 300),minimum=1,maximum=300"`
-
-	// UserAgent is the User-Agent header to send with the request (optional)
+	// UserAgent is the User-Agent header to send with the request (optional).
 	UserAgent string `json:"user_agent,omitempty" jsonschema:"description=Custom User-Agent header for the HTTP request"`
-
-	// IncludeHTML when true includes the raw HTML content in the output alongside Markdown
+	// IncludeHTML includes the raw HTML content in the output alongside Markdown when true.
 	IncludeHTML bool `json:"include_html,omitempty" jsonschema:"description=When true includes the raw HTML content in the output (useful for logo extraction and structured data parsing)"`
 }
 
@@ -239,12 +236,10 @@ type Input struct {
 // URL reflects the final destination after all HTTP redirects. HTML is only
 // populated when [Input.IncludeHTML] is true.
 type Output struct {
-	// URL is the final URL after following all redirects
+	// URL is the final URL after following all redirects and normalization.
 	URL string `json:"url" jsonschema:"description=The final URL after following all redirects and normalization"`
-
-	// Markdown is the page content converted from HTML to Markdown format
+	// Markdown is the page content converted from HTML to Markdown format.
 	Markdown string `json:"markdown" jsonschema:"description=The web page content converted to Markdown format"`
-
-	// HTML is the raw HTML content (only populated when IncludeHTML is true in Input)
+	// HTML is the raw HTML content (only populated when IncludeHTML is true in Input).
 	HTML string `json:"html,omitempty" jsonschema:"description=The raw HTML content (only populated when IncludeHTML is true in Input)"`
 }

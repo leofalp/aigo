@@ -10,6 +10,7 @@ import (
 )
 
 // parseHTMLPage parses an HTML document and extracts structured data.
+// It extracts JSON-LD blocks, meta tags, link elements, and visible text content.
 func parseHTMLPage(htmlContent string, baseURL *url.URL) *pageData {
 	data := &pageData{
 		html:     htmlContent,
@@ -123,6 +124,7 @@ func parseHTMLPage(htmlContent string, baseURL *url.URL) *pageData {
 }
 
 // resolveURL converts a relative URL to absolute using the base URL.
+// It handles protocol-relative URLs, relative paths, and absolute URLs.
 func resolveURL(href string, baseURL *url.URL) string {
 	if baseURL == nil {
 		return href
@@ -148,16 +150,11 @@ func resolveURL(href string, baseURL *url.URL) string {
 // === LOGO EXTRACTION ===
 
 // extractLogo extracts the company logo URL from the page.
-// Priority order (revised to prefer reliable icon sources over og:image):
-// 1. JSON-LD Organization.logo (confidence: 0.95)
-// 2. <img> with logo class/id (confidence: 0.85)
-// 3. apple-touch-icon (confidence: 0.85)
-// 4. SVG favicon with "logo" in path (confidence: 0.82)
-// 5. SVG favicon (confidence: 0.78)
-// 6. PNG favicon (confidence: 0.75)
-// 7. og:image (filtered, confidence: 0.50) - often contains marketing images, not logos
-// 8. URL pattern matching /logo.* (confidence: 0.50)
-// 9. favicon.ico (confidence: 0.30)
+// It uses multiple extraction sources in priority order:
+// JSON-LD Organization.logo (0.95), img with logo class/id (0.85),
+// apple-touch-icon (0.85), SVG/PNG favicons (0.78-0.75), og:image (0.50),
+// URL patterns (0.50), and favicon.ico (0.30).
+// Results are stored in output.LogoURL with confidence scores.
 func extractLogo(ctx *extractionContext, page *pageData, output *Output) {
 	// 1. Check JSON-LD for Organization logo
 	for _, jsonData := range page.jsonLD {
@@ -300,6 +297,7 @@ func extractLogo(ctx *extractionContext, page *pageData, output *Output) {
 }
 
 // containsLogoKeyword checks if a URL path contains logo-related keywords.
+// It returns true if the path contains keywords like "logo", "brand", "emblem", or "marchio".
 func containsLogoKeyword(path string) bool {
 	keywords := []string{"logo", "brand", "emblem", "marchio"}
 	for _, kw := range keywords {
@@ -311,7 +309,8 @@ func containsLogoKeyword(path string) bool {
 }
 
 // isLikelyMarketingImage checks if an image URL appears to be a marketing photo rather than a logo.
-// Excludes images that have certain keywords or size indicators in the path.
+// It returns true if the image URL contains keywords or size indicators that suggest
+// a large marketing photo (e.g., "product", "team", "1920x1080") rather than a logo.
 func isLikelyMarketingImage(imageURL string) bool {
 	path := strings.ToLower(imageURL)
 
@@ -354,7 +353,9 @@ func isLikelyMarketingImage(imageURL string) bool {
 	return false
 }
 
-// extractJSONLDLogo extracts logo from JSON-LD data.
+// extractJSONLDLogo extracts a logo URL from JSON-LD structured data.
+// It looks for Organization or similar entity types and extracts the logo or image field.
+// Returns the logo URL string or an empty string if not found.
 func extractJSONLDLogo(data map[string]interface{}) string {
 	// Check @type for Organization, LocalBusiness, etc.
 	typeVal, ok := data["@type"].(string)
@@ -404,7 +405,9 @@ func extractJSONLDLogo(data map[string]interface{}) string {
 
 // === CONTACT EXTRACTION ===
 
-// extractContacts extracts email, phone, fax, and PEC from the page.
+// extractContacts extracts email, phone, fax, and PEC contact information from the page.
+// It uses JSON-LD data, regex patterns on visible text, mailto: links, and tel: links.
+// Results are stored in output with confidence scores.
 func extractContacts(ctx *extractionContext, page *pageData, output *Output) {
 	// Extract from JSON-LD first
 	for _, jsonData := range page.jsonLD {
@@ -537,7 +540,9 @@ func extractContacts(ctx *extractionContext, page *pageData, output *Output) {
 	}
 }
 
-// extractJSONLDContacts extracts contact info from JSON-LD.
+// extractJSONLDContacts extracts contact information from JSON-LD structured data.
+// It extracts telephone, email, and fax from contactPoint or top-level fields.
+// Results are stored in output fields with high confidence (0.95).
 func extractJSONLDContacts(data map[string]interface{}, pageCategory string, output *Output) {
 	// Check contactPoint
 	if contactPoint, ok := data["contactPoint"].(map[string]interface{}); ok {
@@ -588,7 +593,9 @@ func extractJSONLDContacts(data map[string]interface{}, pageCategory string, out
 
 // === SOCIAL LINKS EXTRACTION ===
 
-// extractSocialLinks extracts social media profile URLs.
+// extractSocialLinks extracts social media profile URLs from JSON-LD sameAs and page links.
+// It categorizes URLs into Facebook, LinkedIn, Twitter, Instagram, and YouTube fields.
+// Extracts LinkedIn numeric company IDs when available.
 func extractSocialLinks(ctx *extractionContext, page *pageData, output *Output) {
 	// Extract from JSON-LD sameAs property
 	for _, jsonData := range page.jsonLD {
@@ -626,6 +633,8 @@ func extractSocialLinks(ctx *extractionContext, page *pageData, output *Output) 
 }
 
 // categorizeSocialURL categorizes a URL into the appropriate social media field.
+// It matches against known social network patterns and updates the corresponding output field.
+// Applies exclude patterns to filter out sharing dialogs and other non-profile URLs.
 func categorizeSocialURL(urlStr, pageCategory, source string, confidence float64, output *Output) {
 	urlStr = strings.TrimSpace(urlStr)
 
@@ -673,7 +682,9 @@ func categorizeSocialURL(urlStr, pageCategory, source string, confidence float64
 
 // === ADDRESS EXTRACTION ===
 
-// extractAddress extracts location data (address, city, ZIP, country).
+// extractAddress extracts location data including address, city, ZIP code, and country.
+// It uses JSON-LD structured data and regex patterns for address, ZIP codes, and derived region information.
+// Results are stored in output with confidence scores based on the extraction method.
 func extractAddress(ctx *extractionContext, page *pageData, output *Output) {
 	// Extract from JSON-LD first (highest confidence)
 	for _, jsonData := range page.jsonLD {
@@ -744,7 +755,9 @@ func extractAddress(ctx *extractionContext, page *pageData, output *Output) {
 
 }
 
-// extractJSONLDAddress extracts address from JSON-LD.
+// extractJSONLDAddress extracts address information from JSON-LD structured data.
+// It extracts street address, postal code, city, region, and country from address or location objects.
+// Derives region names from Italian province codes and country names from ISO codes.
 func extractJSONLDAddress(data map[string]interface{}, pageCategory string, output *Output) {
 	var addr map[string]interface{}
 
@@ -849,7 +862,9 @@ func extractJSONLDAddress(data map[string]interface{}, pageCategory string, outp
 
 // === COMPANY DATA EXTRACTION ===
 
-// extractCompanyData extracts company name, VAT, and tax code.
+// extractCompanyData extracts company name, VAT, and tax code from the page.
+// It uses JSON-LD data, Open Graph meta tags, and regex patterns for Italian and European VAT and tax codes.
+// Results are stored in output with appropriate confidence scores.
 func extractCompanyData(ctx *extractionContext, page *pageData, output *Output) {
 	// Extract from JSON-LD
 	for _, jsonData := range page.jsonLD {
@@ -924,7 +939,9 @@ func extractCompanyData(ctx *extractionContext, page *pageData, output *Output) 
 	}
 }
 
-// extractJSONLDCompanyData extracts company data from JSON-LD.
+// extractJSONLDCompanyData extracts company data from JSON-LD structured data.
+// It extracts name, legal name, description, VAT, tax ID, industry, and employee count.
+// Results are stored in output with high confidence scores (0.95+).
 func extractJSONLDCompanyData(data map[string]interface{}, pageCategory string, output *Output) {
 	// Check @type for Organization types (unused but kept for potential future filtering)
 	_, _ = data["@type"].(string) //nolint:errcheck // Type assertion result not needed here
@@ -1018,8 +1035,9 @@ func extractJSONLDCompanyData(data map[string]interface{}, pageCategory string, 
 
 // === BUSINESS METRICS EXTRACTION ===
 
-// extractBusinessMetrics extracts employees, turnover, ATECO code, etc.
-// These fields typically have low confidence as they're rarely on company websites.
+// extractBusinessMetrics extracts business metrics including employee count, turnover, and ATECO code.
+// These fields typically have low confidence (0.40-0.50) as they are rarely published on company websites.
+// Extracts using regex patterns on visible text content.
 func extractBusinessMetrics(ctx *extractionContext, page *pageData, output *Output) {
 	// Extract employee count using regex
 	for _, pattern := range employeesPatterns {
@@ -1066,7 +1084,9 @@ func extractBusinessMetrics(ctx *extractionContext, page *pageData, output *Outp
 
 // === PRODUCT DESCRIPTION EXTRACTION ===
 
-// extractProductDescription extracts description of products/services.
+// extractProductDescription extracts descriptions of products or services offered.
+// It uses JSON-LD data, meta description tags, and Open Graph tags.
+// Only matches descriptions containing product or service-related keywords.
 func extractProductDescription(ctx *extractionContext, page *pageData, output *Output) {
 	// Check JSON-LD for product/service descriptions
 	for _, jsonData := range page.jsonLD {
@@ -1111,7 +1131,10 @@ func extractProductDescription(ctx *extractionContext, page *pageData, output *O
 	}
 }
 
-// extractJSONLDProductDescription extracts product description from JSON-LD.
+// extractJSONLDProductDescription extracts product or service description from JSON-LD structured data.
+// It looks for Product or Service types and extracts descriptions.
+// Also checks makesOffer fields for service descriptions.
+// Returns the description string or empty string if not found.
 func extractJSONLDProductDescription(data map[string]interface{}) string {
 	// Check for Product type
 	typeVal, ok := data["@type"].(string)
@@ -1136,7 +1159,8 @@ func extractJSONLDProductDescription(data map[string]interface{}) string {
 // === HELPER FUNCTIONS ===
 
 // getEmailConfidenceByPrefix adjusts email confidence based on the local part prefix.
-// Prefers generic contact emails (info@, contact@) over department-specific ones.
+// It boosts confidence for generic contact emails (info@, contact@) and reduces it for
+// department-specific addresses (admin@, billing@, legal@). Returns adjusted confidence.
 func getEmailConfidenceByPrefix(email string, baseConfidence float64) float64 {
 	parts := strings.SplitN(email, "@", 2)
 	if len(parts) != 2 {
@@ -1175,7 +1199,8 @@ func getEmailConfidenceByPrefix(email string, baseConfidence float64) float64 {
 
 // isLikelyVATNotPhone determines if a number that was extracted as a potential phone
 // is more likely to be an Italian VAT number (Partita IVA).
-// Italian VAT numbers are exactly 11 digits with no international prefix.
+// It returns true if the number has exactly 11 digits with no international prefix or separators.
+// Italian VAT numbers are typically continuous 11-digit numbers unlike formatted phone numbers.
 func isLikelyVATNotPhone(originalPhone, cleanedDigits string) bool {
 	// Only consider numbers that are exactly 11 digits (Italian VAT length)
 	if len(cleanedDigits) != 11 {
@@ -1221,7 +1246,8 @@ func isLikelyVATNotPhone(originalPhone, cleanedDigits string) bool {
 	return false
 }
 
-// formatNumber formats a float64 as a clean integer string (no decimals, no separators).
+// formatNumber formats a float64 as a clean integer string with no decimals or separators.
+// It truncates decimals and returns the result as a string.
 func formatNumber(n float64) string {
 	// Convert to integer (truncate decimals)
 	intVal := int64(n)
@@ -1252,6 +1278,8 @@ func formatNumber(n float64) string {
 }
 
 // normalizeNumber extracts and normalizes a number from a string.
+// It removes thousands separators and normalizes decimal separators.
+// Returns the cleaned number string.
 func normalizeNumber(s string) string {
 	// Remove thousands separators and normalize decimal separators
 	s = strings.TrimSpace(s)

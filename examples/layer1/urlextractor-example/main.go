@@ -1,3 +1,7 @@
+// Package main demonstrates the URLExtractor tool (Layer 1) with basic extraction,
+// real-time progress tracking, custom configuration (limits/delays/user-agent),
+// sitemap-only mode, and deep crawling with URL structure analysis.
+// No API key required.
 package main
 
 import (

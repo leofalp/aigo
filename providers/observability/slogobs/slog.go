@@ -98,6 +98,8 @@ type slogSpan struct {
 	mu        sync.Mutex
 }
 
+// End completes the span by recording the elapsed time and any accumulated attributes,
+// then logging the span end event at debug level.
 func (s *slogSpan) End() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -115,12 +117,14 @@ func (s *slogSpan) End() {
 	s.logger.LogAttrs(context.Background(), slog.LevelDebug, "Span ended", logAttrs...)
 }
 
+// SetAttributes appends the provided attributes to the span's attribute list.
 func (s *slogSpan) SetAttributes(attrs ...observability.Attribute) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.attrs = append(s.attrs, attrs...)
 }
 
+// SetStatus records the final status of the span using the provided code and optional description.
 func (s *slogSpan) SetStatus(code observability.StatusCode, description string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -141,6 +145,7 @@ func (s *slogSpan) SetStatus(code observability.StatusCode, description string) 
 	}
 }
 
+// RecordError records the provided error as an exception event on the span and logs it at error level.
 func (s *slogSpan) RecordError(err error) {
 	if err == nil {
 		return
@@ -158,6 +163,7 @@ func (s *slogSpan) RecordError(err error) {
 	s.logger.LogAttrs(context.Background(), slog.LevelError, "Span error", logAttrs...)
 }
 
+// AddEvent appends a named event with optional attributes to the span's timeline by logging it at debug level.
 func (s *slogSpan) AddEvent(name string, attrs ...observability.Attribute) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -254,6 +260,8 @@ type slogCounter struct {
 	value  int64
 }
 
+// Add increments the counter by value and logs the updated total at DEBUG level.
+// It implements [observability.Counter].
 func (c *slogCounter) Add(ctx context.Context, value int64, attrs ...observability.Attribute) {
 	c.mu.Lock()
 	c.value += value
@@ -278,6 +286,8 @@ type slogHistogram struct {
 	mu     sync.Mutex
 }
 
+// Record logs a histogram observation at DEBUG level.
+// It implements [observability.Histogram].
 func (h *slogHistogram) Record(ctx context.Context, value float64, attrs ...observability.Attribute) {
 	h.mu.Lock()
 	defer h.mu.Unlock()

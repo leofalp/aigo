@@ -7,51 +7,101 @@ import (
 	"github.com/leofalp/aigo/providers/ai"
 )
 
-// Model name constants for Gemini models.
-// Use these constants instead of raw strings for type safety and autocompletion.
-const (
-	// Gemini 3.0 Preview models (experimental)
-	Model30ProPreview      = "gemini-3-pro-preview"
-	Model30ProImagePreview = "gemini-3-pro-image-preview"
-	Model30FlashPreview    = "gemini-3-flash-preview"
+// Model30ProPreview is the Gemini 3.0 Pro Preview model identifier.
+const Model30ProPreview = "gemini-3-pro-preview"
 
-	// Gemini 2.5 models
-	Model25Pro              = "gemini-2.5-pro"
-	Model25ProLatest        = "gemini-2.5-pro-latest"
-	Model25ProPreview       = "gemini-2.5-pro-preview-05-06"
-	Model25Flash            = "gemini-2.5-flash"
-	Model25FlashLatest      = "gemini-2.5-flash-latest"
-	Model25FlashPreview     = "gemini-2.5-flash-preview-04-17"
-	Model25FlashImage       = "gemini-2.5-flash-image"
-	Model25FlashNativeAudio = "gemini-2.5-flash-native-audio-preview-12-2025"
-	Model25FlashLite        = "gemini-2.5-flash-lite"
-	Model25FlashLiteLatest  = "gemini-2.5-flash-lite-latest"
-	Model25FlashLitePreview = "gemini-2.5-flash-lite-preview-06-17"
-	Model25ProTTS           = "gemini-2.5-pro-preview-tts"
-	Model25FlashTTS         = "gemini-2.5-flash-preview-tts"
+// Model30ProImagePreview is the Gemini 3.0 Pro with image generation output model identifier.
+const Model30ProImagePreview = "gemini-3-pro-image-preview"
 
-	// Gemini 2.0 models
-	Model20Flash       = "gemini-2.0-flash"
-	Model20FlashLatest = "gemini-2.0-flash-latest"
-	Model20FlashExp    = "gemini-2.0-flash-exp"
-	Model20FlashLite   = "gemini-2.0-flash-lite"
+// Model30FlashPreview is the Gemini 3.0 Flash Preview model identifier.
+const Model30FlashPreview = "gemini-3-flash-preview"
 
-	// Gemini 1.5 models (legacy)
-	Model15Pro        = "gemini-1.5-pro"
-	Model15ProLatest  = "gemini-1.5-pro-latest"
-	Model15Flash      = "gemini-1.5-flash"
-	Model15Flash8B    = "gemini-1.5-flash-8b"
-	Model15Flash8BExp = "gemini-1.5-flash-8b-exp-0924"
+// Model25Pro is the Gemini 2.5 Pro model identifier.
+const Model25Pro = "gemini-2.5-pro"
 
-	// Specialized models (registry-only, no chat API integration)
-	ModelRoboticsER15 = "gemini-robotics-er-1.5-preview"
-	ModelImagen4      = "imagen-4.0-generate-001"
-	ModelImagen4Ultra = "imagen-4.0-ultra-generate-001"
-	ModelImagen4Fast  = "imagen-4.0-fast-generate-001"
-	ModelVeo31        = "veo-3.1-generate-preview"
-	ModelVeo31Fast    = "veo-3.1-fast-generate-preview"
-	ModelVeo20        = "veo-2.0-generate-001"
-)
+// Model25ProLatest is the latest Gemini 2.5 Pro model identifier.
+const Model25ProLatest = "gemini-2.5-pro-latest"
+
+// Model25ProPreview is the Gemini 2.5 Pro Preview model identifier.
+const Model25ProPreview = "gemini-2.5-pro-preview-05-06"
+
+// Model25Flash is the Gemini 2.5 Flash model identifier.
+const Model25Flash = "gemini-2.5-flash"
+
+// Model25FlashLatest is the latest Gemini 2.5 Flash model identifier.
+const Model25FlashLatest = "gemini-2.5-flash-latest"
+
+// Model25FlashPreview is the Gemini 2.5 Flash Preview model identifier.
+const Model25FlashPreview = "gemini-2.5-flash-preview-04-17"
+
+// Model25FlashImage is the Gemini 2.5 Flash with image generation output model identifier.
+const Model25FlashImage = "gemini-2.5-flash-image"
+
+// Model25FlashNativeAudio is the Gemini 2.5 Flash with native audio model identifier.
+const Model25FlashNativeAudio = "gemini-2.5-flash-native-audio-preview-12-2025"
+
+// Model25FlashLite is the Gemini 2.5 Flash Lite model identifier.
+const Model25FlashLite = "gemini-2.5-flash-lite"
+
+// Model25FlashLiteLatest is the latest Gemini 2.5 Flash Lite model identifier.
+const Model25FlashLiteLatest = "gemini-2.5-flash-lite-latest"
+
+// Model25FlashLitePreview is the Gemini 2.5 Flash Lite Preview model identifier.
+const Model25FlashLitePreview = "gemini-2.5-flash-lite-preview-06-17"
+
+// Model25ProTTS is the Gemini 2.5 Pro text-to-speech model identifier.
+const Model25ProTTS = "gemini-2.5-pro-preview-tts"
+
+// Model25FlashTTS is the Gemini 2.5 Flash text-to-speech model identifier.
+const Model25FlashTTS = "gemini-2.5-flash-preview-tts"
+
+// Model20Flash is the Gemini 2.0 Flash model identifier.
+const Model20Flash = "gemini-2.0-flash"
+
+// Model20FlashLatest is the latest Gemini 2.0 Flash model identifier.
+const Model20FlashLatest = "gemini-2.0-flash-latest"
+
+// Model20FlashExp is the Gemini 2.0 Flash experimental model identifier.
+const Model20FlashExp = "gemini-2.0-flash-exp"
+
+// Model20FlashLite is the Gemini 2.0 Flash Lite model identifier.
+const Model20FlashLite = "gemini-2.0-flash-lite"
+
+// Model15Pro is the Gemini 1.5 Pro legacy model identifier.
+const Model15Pro = "gemini-1.5-pro"
+
+// Model15ProLatest is the latest Gemini 1.5 Pro model identifier.
+const Model15ProLatest = "gemini-1.5-pro-latest"
+
+// Model15Flash is the Gemini 1.5 Flash legacy model identifier.
+const Model15Flash = "gemini-1.5-flash"
+
+// Model15Flash8B is the Gemini 1.5 Flash 8B legacy model identifier.
+const Model15Flash8B = "gemini-1.5-flash-8b"
+
+// Model15Flash8BExp is the Gemini 1.5 Flash 8B experimental model identifier.
+const Model15Flash8BExp = "gemini-1.5-flash-8b-exp-0924"
+
+// ModelRoboticsER15 is the Gemini Robotics embodied reasoning model identifier.
+const ModelRoboticsER15 = "gemini-robotics-er-1.5-preview"
+
+// ModelImagen4 is the Imagen 4 image generation model identifier.
+const ModelImagen4 = "imagen-4.0-generate-001"
+
+// ModelImagen4Ultra is the Imagen 4 Ultra image generation model identifier.
+const ModelImagen4Ultra = "imagen-4.0-ultra-generate-001"
+
+// ModelImagen4Fast is the Imagen 4 Fast image generation model identifier.
+const ModelImagen4Fast = "imagen-4.0-fast-generate-001"
+
+// ModelVeo31 is the Veo 3.1 video generation model identifier.
+const ModelVeo31 = "veo-3.1-generate-preview"
+
+// ModelVeo31Fast is the Veo 3.1 Fast video generation model identifier.
+const ModelVeo31Fast = "veo-3.1-fast-generate-preview"
+
+// ModelVeo20 is the Veo 2.0 video generation legacy model identifier.
+const ModelVeo20 = "veo-2.0-generate-001"
 
 // ModelRegistry contains metadata, capabilities, and pricing for all supported Gemini models.
 // Each entry maps a canonical model ID to its ModelInfo. Alias models (e.g., "gemini-2.5-pro-latest")
@@ -338,7 +388,9 @@ var ModelRegistry = map[string]ai.ModelInfo{
 }
 
 // ModelPricing provides backward-compatible access to pricing for models that have published costs.
-// It is derived from ModelRegistry at init time. Entries with nil Pricing are excluded.
+// It is derived from ModelRegistry at init time and includes alias mappings.
+// Entries with nil Pricing are excluded.
+// Use ModelRegistry and GetModelInfo for new code instead.
 //
 // Deprecated: Use ModelRegistry and GetModelInfo instead.
 var ModelPricing map[string]cost.ModelCost
@@ -449,10 +501,10 @@ func CalculateCost(model string, usage *ai.Usage) float64 {
 	)
 }
 
-// CostBreakdown holds a per-request cost breakdown for a Gemini API call,
-// separating input, output, cached, reasoning, and media output charges.
-// All monetary values are expressed in USD. Obtain one via [CalculateCostBreakdown]
-// or [CalculateCostBreakdownWithMedia].
+// CostBreakdown holds a detailed per-request cost breakdown for a Gemini API call.
+// It separates costs by category: input, output, cached, reasoning, and media output (images, videos, audio).
+// All monetary values are expressed in USD.
+// Obtain a CostBreakdown via CalculateCostBreakdown or CalculateCostBreakdownWithMedia.
 type CostBreakdown struct {
 	Model           string  `json:"model"`
 	InputTokens     int     `json:"input_tokens"`

@@ -1,3 +1,7 @@
+// Package main demonstrates streaming responses using the Gemini provider (Layer 2). It calls
+// client.StreamMessage and iterates the ChatStream, printing each content delta as it arrives
+// for a live typewriter effect, then prints token-usage statistics.
+// Requires the GEMINI_API_KEY environment variable.
 package main
 
 import (

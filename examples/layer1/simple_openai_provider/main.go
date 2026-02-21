@@ -1,3 +1,7 @@
+// Package main demonstrates direct use of the OpenAI provider (Layer 1) without the
+// higher-level client abstraction. It shows a plain chat completion and a tool-calling
+// request where the model invokes a weather function.
+// Requires the OPENAI_API_KEY and AIGO_DEFAULT_LLM_MODEL environment variables.
 package main
 
 import (

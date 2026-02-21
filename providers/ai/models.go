@@ -72,11 +72,16 @@ func IsBuiltinTool(name string) bool {
 type ContentType string
 
 const (
-	ContentTypeText     ContentType = "text"     // Plain text content
-	ContentTypeImage    ContentType = "image"    // Image content (base64-encoded or URI reference)
-	ContentTypeAudio    ContentType = "audio"    // Audio content (base64-encoded or URI reference)
-	ContentTypeVideo    ContentType = "video"    // Video content (base64-encoded or URI reference)
-	ContentTypeDocument ContentType = "document" // Document content (PDF, plain text; base64-encoded or URI reference)
+	// ContentTypeText represents plain text content.
+	ContentTypeText ContentType = "text"
+	// ContentTypeImage represents image content (base64-encoded or URI reference).
+	ContentTypeImage ContentType = "image"
+	// ContentTypeAudio represents audio content (base64-encoded or URI reference).
+	ContentTypeAudio ContentType = "audio"
+	// ContentTypeVideo represents video content (base64-encoded or URI reference).
+	ContentTypeVideo ContentType = "video"
+	// ContentTypeDocument represents document content (PDF, plain text; base64-encoded or URI reference).
+	ContentTypeDocument ContentType = "document"
 )
 
 // ContentPart represents a single part of a multimodal message.
@@ -293,18 +298,26 @@ type SafetySetting struct {
 
 // Gemini-specific safety categories. Other providers may define their own.
 const (
-	HarmCategoryHarassment       = "HARM_CATEGORY_HARASSMENT"
-	HarmCategoryHateSpeech       = "HARM_CATEGORY_HATE_SPEECH"
+	// HarmCategoryHarassment represents harassment content.
+	HarmCategoryHarassment = "HARM_CATEGORY_HARASSMENT"
+	// HarmCategoryHateSpeech represents hate speech content.
+	HarmCategoryHateSpeech = "HARM_CATEGORY_HATE_SPEECH"
+	// HarmCategorySexuallyExplicit represents sexually explicit content.
 	HarmCategorySexuallyExplicit = "HARM_CATEGORY_SEXUALLY_EXPLICIT"
+	// HarmCategoryDangerousContent represents dangerous or harmful content.
 	HarmCategoryDangerousContent = "HARM_CATEGORY_DANGEROUS_CONTENT"
 )
 
 // Gemini-specific safety thresholds. Other providers may define their own.
 const (
-	BlockNone           = "BLOCK_NONE"
-	BlockOnlyHigh       = "BLOCK_ONLY_HIGH"
+	// BlockNone disables content filtering.
+	BlockNone = "BLOCK_NONE"
+	// BlockOnlyHigh blocks only high-severity content.
+	BlockOnlyHigh = "BLOCK_ONLY_HIGH"
+	// BlockMediumAndAbove blocks medium and high-severity content.
 	BlockMediumAndAbove = "BLOCK_MEDIUM_AND_ABOVE"
-	BlockLowAndAbove    = "BLOCK_LOW_AND_ABOVE"
+	// BlockLowAndAbove blocks low, medium, and high-severity content.
+	BlockLowAndAbove = "BLOCK_LOW_AND_ABOVE"
 )
 
 // ResponseFormat instructs the provider to emit output in a specific structure.
@@ -503,10 +516,14 @@ func (tr ToolResult) ToJSON() (string, error) {
 type MessageRole string
 
 const (
-	RoleSystem    MessageRole = "system"    // System instructions/configuration
-	RoleUser      MessageRole = "user"      // End-user message
-	RoleAssistant MessageRole = "assistant" // Model-generated reply or tool call request
-	RoleTool      MessageRole = "tool"      // Tool/function output
+	// RoleSystem represents system instructions/configuration.
+	RoleSystem MessageRole = "system"
+	// RoleUser represents end-user message.
+	RoleUser MessageRole = "user"
+	// RoleAssistant represents model-generated reply or tool call request.
+	RoleAssistant MessageRole = "assistant"
+	// RoleTool represents tool/function output.
+	RoleTool MessageRole = "tool"
 )
 
 /*
@@ -518,11 +535,16 @@ const (
 type Modality string
 
 const (
-	ModalityText     Modality = "text"     // Text input/output (universal)
-	ModalityImage    Modality = "image"    // Image input (vision) or output (generation)
-	ModalityAudio    Modality = "audio"    // Audio input (transcription) or output (TTS, native audio)
-	ModalityVideo    Modality = "video"    // Video input (understanding) or output (generation)
-	ModalityDocument Modality = "document" // Document input (PDF, plain text)
+	// ModalityText represents text input/output (universal).
+	ModalityText Modality = "text"
+	// ModalityImage represents image input (vision) or output (generation).
+	ModalityImage Modality = "image"
+	// ModalityAudio represents audio input (transcription) or output (TTS, native audio).
+	ModalityAudio Modality = "audio"
+	// ModalityVideo represents video input (understanding) or output (generation).
+	ModalityVideo Modality = "video"
+	// ModalityDocument represents document input (PDF, plain text).
+	ModalityDocument Modality = "document"
 )
 
 // ModelInfo describes a model's identity, capabilities, and pricing.

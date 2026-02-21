@@ -44,7 +44,9 @@ func ParseLogLevel(level string) slog.Level {
 	}
 }
 
-// LogLevelString returns a human-readable string for the log level.
+// LogLevelString returns a human-readable string representation of the given slog.Level.
+// Maps TRACE (Debug-4), DEBUG, INFO, WARN, and ERROR to their string equivalents;
+// unknown levels are formatted as "LEVEL(n)" where n is the numeric level value.
 func LogLevelString(level slog.Level) string {
 	switch level {
 	case slog.LevelDebug - 4:

@@ -1,3 +1,7 @@
+// Package main demonstrates the Tavily search and content-extraction tool (Layer 1) with
+// five scenarios: simple web search, AI-generated answer, news topic search, advanced
+// search with images, and URL content extraction.
+// Requires the TAVILY_API_KEY environment variable to be set.
 package main
 
 import (

@@ -1,3 +1,6 @@
+// Package main demonstrates the WebFetch tool (Layer 1) with three scenarios: partial URL
+// normalisation to HTTPS, redirect detection, and fetch with custom timeout and user-agent.
+// No API key required.
 package main
 
 import (

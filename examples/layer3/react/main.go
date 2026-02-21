@@ -1,3 +1,7 @@
+// Package main demonstrates the type-safe ReAct pattern (Layer 3) with a math agent returning
+// MathResult, a research agent returning ResearchResult, and an untyped string agent for
+// backward compatibility. All agents run an automatic tool-execution loop.
+// Requires the OPENAI_API_KEY environment variable.
 package main
 
 import (

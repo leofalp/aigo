@@ -18,6 +18,8 @@ import (
 // flexibleInt is a private type that can unmarshal both string and int values
 type flexibleInt string
 
+// UnmarshalJSON handles both integer and string representations returned by the
+// DuckDuckGo API for numeric fields (e.g., answer counts).
 func (f *flexibleInt) UnmarshalJSON(data []byte) error {
 	// Try to unmarshal as int first
 	var i int
@@ -38,6 +40,7 @@ func (f *flexibleInt) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// String returns the underlying string value of the flexibleInt.
 func (f *flexibleInt) String() string {
 	return string(*f)
 }

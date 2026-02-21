@@ -1,6 +1,7 @@
 package tavily
 
-// SearchInput represents the input parameters for Tavily Search
+// SearchInput represents the input parameters for Tavily Search.
+// Query is required; all other fields are optional.
 type SearchInput struct {
 	Query          string   `json:"query" jsonschema:"description=The search query to perform,required"`
 	SearchDepth    string   `json:"search_depth,omitempty" jsonschema:"description=Search depth: basic (faster/1 credit) or advanced (more thorough/2 credits),enum=basic,enum=advanced"`
@@ -12,7 +13,8 @@ type SearchInput struct {
 	Topic          string   `json:"topic,omitempty" jsonschema:"description=Search topic for optimization,enum=general,enum=news"`
 }
 
-// SearchOutput represents a simplified search result optimized for LLM consumption
+// SearchOutput represents a simplified search result optimized for LLM consumption.
+// It includes the original query, an optional AI-generated answer, a formatted summary, and structured results.
 type SearchOutput struct {
 	Query   string         `json:"query" jsonschema:"description=The original search query"`
 	Answer  string         `json:"answer,omitempty" jsonschema:"description=AI-generated answer if include_answer was true"`
@@ -20,7 +22,7 @@ type SearchOutput struct {
 	Results []SearchResult `json:"results" jsonschema:"description=List of search results"`
 }
 
-// SearchResult represents a single search result
+// SearchResult represents a single search result from a Tavily search query.
 type SearchResult struct {
 	Title   string  `json:"title" jsonschema:"description=Title of the result"`
 	URL     string  `json:"url" jsonschema:"description=URL of the result"`
@@ -28,7 +30,8 @@ type SearchResult struct {
 	Score   float64 `json:"score,omitempty" jsonschema:"description=Relevance score of the result"`
 }
 
-// SearchAdvancedOutput represents the complete Tavily Search API response
+// SearchAdvancedOutput represents the complete Tavily Search API response with all metadata.
+// It includes results with full content, images, and API timing information.
 type SearchAdvancedOutput struct {
 	Query        string                 `json:"query" jsonschema:"description=The original search query"`
 	Answer       string                 `json:"answer,omitempty" jsonschema:"description=AI-generated answer if requested"`
@@ -38,7 +41,8 @@ type SearchAdvancedOutput struct {
 	RequestID    string                 `json:"request_id,omitempty" jsonschema:"description=Unique request identifier"`
 }
 
-// SearchResultAdvanced represents a detailed search result with all metadata
+// SearchResultAdvanced represents a detailed search result with all metadata.
+// It includes raw page content, images found on the page, and relevance scoring.
 type SearchResultAdvanced struct {
 	Title      string   `json:"title" jsonschema:"description=Title of the result"`
 	URL        string   `json:"url" jsonschema:"description=URL of the result"`
@@ -48,25 +52,26 @@ type SearchResultAdvanced struct {
 	Images     []string `json:"images,omitempty" jsonschema:"description=Images found on the page"`
 }
 
-// ImageResult represents an image from search results
+// ImageResult represents an image from search results.
 type ImageResult struct {
 	URL         string `json:"url" jsonschema:"description=URL of the image"`
 	Description string `json:"description,omitempty" jsonschema:"description=Description of the image"`
 }
 
-// ExtractInput represents the input parameters for Tavily Extract
+// ExtractInput represents the input parameters for Tavily Extract.
+// URLs is required; ExtractDepth is optional.
 type ExtractInput struct {
 	URLs         []string `json:"urls" jsonschema:"description=URLs to extract content from (max 20),required"`
 	ExtractDepth string   `json:"extract_depth,omitempty" jsonschema:"description=Extraction depth: basic (1 credit per 5 URLs) or advanced (2 credits per 5 URLs),enum=basic,enum=advanced"`
 }
 
-// ExtractOutput represents the simplified extract result
+// ExtractOutput represents the simplified extract result containing parsed web page content.
 type ExtractOutput struct {
 	Results []ExtractResult `json:"results" jsonschema:"description=List of extracted content"`
 	Summary string          `json:"summary" jsonschema:"description=Summary of extracted content"`
 }
 
-// ExtractResult represents extracted content from a single URL
+// ExtractResult represents extracted content from a single URL in markdown format.
 type ExtractResult struct {
 	URL        string `json:"url" jsonschema:"description=The URL that was extracted"`
 	RawContent string `json:"raw_content" jsonschema:"description=Extracted content in markdown format"`

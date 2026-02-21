@@ -34,6 +34,7 @@ func CloseWithLog(closer io.Closer) {
 }
 
 // HeaderOption represents a custom HTTP header to be added to requests.
+// It holds the header name and value as strings.
 type HeaderOption struct {
 	Key   string
 	Value string
