@@ -1,0 +1,5 @@
+# Re-include to-do planning files for OpenCode agent access.
+# These files are in .gitignore to keep them out of version control,
+# but OpenCode needs to read/write them via the aigo-integration skill.
+!to-do/
+!to-do/*.md
