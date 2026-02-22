@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/leofalp/aigo/core/client"
+	"github.com/leofalp/aigo/core/overview"
 	"github.com/leofalp/aigo/core/parse"
 	"github.com/leofalp/aigo/internal/jsonschema"
 	"github.com/leofalp/aigo/internal/utils"
-	"github.com/leofalp/aigo/patterns"
 	"github.com/leofalp/aigo/providers/ai"
 	"github.com/leofalp/aigo/providers/memory"
 	"github.com/leofalp/aigo/providers/observability"
@@ -134,30 +134,28 @@ func New[T any](baseClient *client.Client, opts ...Option) (*ReAct[T], error) {
 	return rc, nil
 }
 
-// Execute runs the type-safe ReAct (Reasoning + Acting) pattern loop:
+// Execute runs the ReAct loop for the given prompt and returns the final answer
+// parsed into type T, along with execution statistics.
 //
-// 1. First iteration: Send user prompt to LLM using SendMessage()
-//   - Schema is already injected in system prompt from construction
+// The loop sends the prompt to the LLM, executes any requested tool calls, and
+// feeds their results back to the LLM until it produces a response with no
+// further tool calls. That response is then unmarshalled into T. If the initial
+// parse fails, Execute sends one follow-up request asking for plain JSON before
+// giving up. The loop is capped at the configured maximum number of iterations
+// (default 10).
 //
-// 2. LLM analyzes and decides if it needs tools to answer
-// 3. If LLM requests tool calls:
-//   - Execute each tool and append results to memory
-//   - Use ContinueConversation() to let LLM process tool results
-//   - LLM may request more tools or provide final answer
+// Returns an error if the provider call fails, the context is canceled, tool
+// execution fails with stopOnError enabled, or the maximum iteration count is
+// reached without a parseable final answer.
 //
-// 4. Repeat steps 3 until LLM provides final answer (no tool calls) or max iterations reached
-// 5. Parse the final answer into type T
-//   - If parsing fails, request JSON format explicitly (one retry)
-//   - If still fails, return error
+// Example:
 //
-// Key implementation details:
-//   - Schema is injected once at construction time (not per-request)
-//   - First iteration uses SendMessage(ctx, prompt) to add user message
-//   - Subsequent iterations use ContinueConversation(ctx) to process tool results
-//   - Automatic retry with explicit JSON request on parse failure
-//
-// Returns a StructuredOverview[T] containing both the parsed data and execution statistics.
-func (r *ReAct[T]) Execute(ctx context.Context, prompt string) (*patterns.StructuredOverview[T], error) {
+//	result, err := agent.Execute(ctx, "What is 42 * 17?")
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	fmt.Printf("Answer: %d, steps: %s\n", result.Data.Answer, result.Data.Steps)
+func (r *ReAct[T]) Execute(ctx context.Context, prompt string) (*overview.StructuredOverview[T], error) {
 	var response *ai.ChatResponse
 	var err error
 
@@ -167,11 +165,11 @@ func (r *ReAct[T]) Execute(ctx context.Context, prompt string) (*patterns.Struct
 	execTimer := utils.NewTimer()
 	reactMemory := r.client.Memory()
 	toolCatalog := r.client.ToolCatalog()
-	overview := patterns.OverviewFromContext(&ctx)
+	executionOverview := overview.OverviewFromContext(&ctx)
 
 	// Start execution timing for compute cost tracking
-	overview.StartExecution()
-	defer overview.EndExecution()
+	executionOverview.StartExecution()
+	defer executionOverview.EndExecution()
 
 	// Start top-level ReAct span
 	observer := r.client.Observer()
@@ -249,8 +247,8 @@ func (r *ReAct[T]) Execute(ctx context.Context, prompt string) (*patterns.Struct
 				// Success after retry
 				r.observeSuccess(&ctx, retryResponse, iteration)
 				// Get updated overview from context (includes all responses added by client)
-				finalOverview := patterns.OverviewFromContext(&ctx)
-				return &patterns.StructuredOverview[T]{
+				finalOverview := overview.OverviewFromContext(&ctx)
+				return &overview.StructuredOverview[T]{
 					Overview: *finalOverview,
 					Data:     &data,
 				}, nil
@@ -259,8 +257,8 @@ func (r *ReAct[T]) Execute(ctx context.Context, prompt string) (*patterns.Struct
 			// Parse succeeded on first try
 			r.observeSuccess(&ctx, response, iteration)
 			// Get updated overview from context (includes all responses added by client)
-			finalOverview := patterns.OverviewFromContext(&ctx)
-			return &patterns.StructuredOverview[T]{
+			finalOverview := overview.OverviewFromContext(&ctx)
+			return &overview.StructuredOverview[T]{
 				Overview: *finalOverview,
 				Data:     &data,
 			}, nil
@@ -312,7 +310,7 @@ func (r *ReAct[T]) executeToolCall(
 	toolCall ai.ToolCall,
 ) error {
 	// Get overview for cost tracking
-	overview := patterns.OverviewFromContext(&ctx)
+	executionOverview := overview.OverviewFromContext(&ctx)
 	var span observability.Span
 
 	if observer != nil {
@@ -415,7 +413,7 @@ func (r *ReAct[T]) executeToolCall(
 
 	// Track tool execution cost if available
 	if toolMetrics := toolInstance.GetMetrics(); toolMetrics != nil {
-		overview.AddToolExecutionCost(toolCall.Function.Name, toolMetrics)
+		executionOverview.AddToolExecutionCost(toolCall.Function.Name, toolMetrics)
 	}
 
 	// Parse and add result as structured attributes if it's JSON

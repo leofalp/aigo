@@ -1,3 +1,7 @@
+// Package main demonstrates the ReAct pattern with the Brave Search tool (Layer 3). An agent
+// autonomously decides when to call search or calculator tools across three prompts requiring
+// real-time web information, and prints the full conversation history for the last query.
+// Requires the BRAVE_SEARCH_API_KEY and OPENAI_API_KEY environment variables.
 package main
 
 import (

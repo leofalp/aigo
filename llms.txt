@@ -1,0 +1,203 @@
+# aigo
+
+> A lightweight, modular Go framework for building AI applications with LLMs — supporting multi-turn conversations, tool calling, structured output, streaming, observability, cost tracking, and agentic patterns (ReAct, DAG graphs).
+
+Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architecture: **Layer 1** (`providers/`) exposes raw LLM/tool/memory/observability I/O; **Layer 2** (`core/`) orchestrates stateful/stateless conversations, cost tracking, and JSON parsing; **Layer 3** (`patterns/`) provides type-safe agentic workflows. AI providers: OpenAI, Gemini (and any OpenAI-compatible API). Install: `go get github.com/leofalp/aigo`. Key env vars: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `AIGO_DEFAULT_LLM_MODEL`.
+
+## Docs
+
+- [README](README.md): overview, installation, quick-start examples
+- [Architecture](ARCHITECTURE.md): 3-layer design, type-safe ReAct, design principles
+- [Cost Tracking](core/cost/README.md): ModelCost, ToolMetrics, ComputeCost, OptimizationStrategy, env vars
+- [Observability](providers/observability/README.md): Provider interface, span propagation, semantic conventions
+- [Slog Observer](providers/observability/slogobs/README.md): compact/pretty/JSON log formats, env vars
+- [Tool: BraveSearch](providers/tool/bravesearch/README.md): web search via Brave Search API
+- [Tool: DuckDuckGo](providers/tool/duckduckgo/README.md): free web search without API key
+- [Tool: WebFetch](providers/tool/webfetch/README.md): URL content fetcher with HTML-to-markdown
+- [Tool: URLExtractor](providers/tool/urlextractor/README.md): URL extraction from text (SSRF-safe)
+- [Tool: SiteDataExtractor](providers/tool/sitedataextractor/README.md): structured company/site data extraction
+- [Examples: ReAct](examples/layer3/react/README.md): type-safe ReAct agent usage guide
+- [Examples: Streaming](examples/layer2/streaming/main.go): streaming responses with real-time token delivery
+- [Examples: Cost Tracking](examples/layer2/cost_tracking/README.md): cost tracking walkthrough
+
+## API Reference
+
+### core/client
+
+- `New(provider ai.Provider, opts ...func(*ClientOptions)) (*Client, error)` — creates the main LLM orchestrator
+- `(*Client).SendMessage(ctx context.Context, prompt string, opts ...SendMessageOption) (*ai.ChatResponse, error)` — sends a user message; stateless without memory
+- `(*Client).StreamMessage(ctx context.Context, prompt string, opts ...SendMessageOption) (*ai.ChatStream, error)` — streams a response with real-time token delivery; falls back to single-event stream if provider lacks StreamProvider
+- `(*Client).ContinueConversation(ctx context.Context, opts ...SendMessageOption) (*ai.ChatResponse, error)` — continues without new user message (requires memory)
+- `(*Client).StreamContinueConversation(ctx context.Context, opts ...SendMessageOption) (*ai.ChatStream, error)` — streaming continuation without new user message (requires memory); falls back to synchronous if provider lacks StreamProvider
+- `(*Client).Memory() memory.Provider` — returns configured memory provider (nil if stateless)
+- `(*Client).Observer() observability.Provider` — returns configured observer
+- `(*Client).AppendToSystemPrompt(appendix string)` — appends text to the client system prompt
+- `(*Client).SetDefaultOutputSchema(schema *jsonschema.Schema)` — sets default JSON schema for structured output
+- Client options: `WithMemory`, `WithObserver`, `WithSystemPrompt`, `WithTools`, `WithRequiredTools`, `WithDefaultModel`, `WithModelCost`, `WithComputeCost`, `WithDefaultOutputSchema`, `WithEnrichSystemPromptWithToolsDescriptions`, `WithEnrichSystemPromptWithToolsCosts(strategy)`
+- Per-request options: `WithOutputSchema(schema)`, `WithEphemeralSystemPrompt(prompt)`
+- `NewStructured[T any](provider ai.Provider, opts ...func(*ClientOptions)) (*StructuredClient[T], error)` — type-safe structured client (auto-parses response into T)
+
+### core/overview
+
+- `Overview` — aggregates requests, responses, token usage, tool calls, and cost data per execution
+- `StructuredOverview[T any]` — embeds Overview with typed `Data *T` field for the parsed final result
+- `OverviewFromContext(ctx *context.Context) *Overview` — retrieves or creates Overview from context
+- `(*Overview).CostSummary() cost.CostSummary` — returns detailed cost breakdown
+- `(*Overview).TotalCost() float64` — returns total USD cost
+- `(*Overview).ExecutionDuration() time.Duration` — returns total execution time
+
+### core/cost
+
+- `ModelCost{InputCostPerMillion, OutputCostPerMillion, CachedInputCostPerMillion, ReasoningCostPerMillion float64}` — model pricing per million tokens
+- `ToolMetrics{Amount float64, Currency, CostDescription string, Accuracy float64, AverageDurationInMillis int64}` — tool cost and quality metadata
+- `ComputeCost{CostPerSecond float64}` — infrastructure/VM cost tracking
+- `CostSummary` — breakdown: TotalCost, TotalToolCost, TotalModelCost, ComputeCost, ToolCosts map, ToolExecutionCount map
+- Optimization strategies: `OptimizeForCost`, `OptimizeForAccuracy`, `OptimizeForSpeed`, `OptimizeBalanced`, `OptimizeCostEffective`, `OptimizeForQuality`
+
+### core/parse
+
+- `ParseStringAs[T any](content string) (T, error)` — parses JSON from LLM text output into type T; returns string directly when T is string
+
+### patterns/react
+
+- `New[T any](client *client.Client, opts ...Option) (*ReAct[T], error)` — creates a type-safe ReAct agent; injects JSON schema into system prompt at construction
+- `(*ReAct[T]).Execute(ctx context.Context, prompt string) (*overview.StructuredOverview[T], error)` — runs the ReAct tool loop and parses final answer into T
+- Options: `WithMaxIterations(n int)`, `WithStopOnError(bool)`, `WithSysPromptAnnotation(bool)`
+- Use `T = string` for untyped text output; any struct with json tags for structured output
+
+### patterns/graph
+
+- `New[T any](outputNodeID string, opts ...Option) (*Graph[T], error)` — creates a DAG-based parallel workflow
+- `(*Graph[T]).AddNode(nodeID string, executor NodeExecutor, opts ...NodeOption) error`
+- `(*Graph[T]).AddEdge(from, to string, opts ...EdgeOption) error`
+- `(*Graph[T]).Execute(ctx context.Context, initialState map[string]any) (*overview.StructuredOverview[T], error)` — runs nodes in topological order with parallel execution per level
+- `(*Graph[T]).Reset(ctx context.Context, initialState map[string]any) error`
+- Types: `NodeInput`, `NodeResult`, `NodeExecutor` (interface), `StateProvider` (interface), `InMemoryStateProvider`
+- Graph options: `WithDefaultClient`, `WithStateProvider`, `WithErrorStrategy`, `WithMaxConcurrency`, `WithExecutionTimeout`
+- Node options: `WithNodeClient`, `WithNodeTimeout`, `WithNodeParams`
+- Edge options: `WithCondition(fn EdgeCondition)`
+- Error strategies: `ErrorStrategyFailFast`, `ErrorStrategyContinueOnError`
+
+### providers/ai
+
+- `Provider` interface: `SendMessage(ctx context.Context, req ChatRequest) (*ChatResponse, error)`, `IsStopMessage(*ChatResponse) bool`
+- `StreamProvider` interface: embeds `Provider`; adds `StreamMessage(ctx context.Context, req ChatRequest) (*ChatStream, error)` — optional streaming support detected via type assertion
+- `ChatRequest{Model, Messages, SystemPrompt, Tools, ResponseFormat, ...}`
+- `ChatResponse{Id, Content, FinishReason, ToolCalls, Usage, Images, Audio, Videos, ...}`
+- `Message{Role, Content, ContentParts []ContentPart, ToolCalls, ToolCallID, Name, CodeExecutions []CodeExecution}` — roles: `RoleUser`, `RoleAssistant`, `RoleTool`, `RoleSystem`; when `ContentParts` is populated it takes precedence over `Content`
+- `ContentType` — enum: `ContentTypeText`, `ContentTypeImage`, `ContentTypeAudio`, `ContentTypeVideo`, `ContentTypeDocument`
+- `ContentPart{Type ContentType, Text, Image *ImageData, Audio *AudioData, Video *VideoData, Document *DocumentData}` — one part of a multimodal message
+- `ImageData{MimeType, Data, URI string}`, `AudioData{MimeType, Data, URI string}`, `VideoData{MimeType, Data, URI string}`, `DocumentData{MimeType, Data, URI string}` — media content holders; exactly one of Data (base64) or URI should be set
+- `NewTextPart(text string) ContentPart`, `NewImagePart(mimeType, base64Data string) ContentPart`, `NewImagePartFromURI(mimeType, uri string) ContentPart` — content part constructors
+- `NewAudioPart(mimeType, base64Data string) ContentPart`, `NewAudioPartFromURI(mimeType, uri string) ContentPart` — audio part constructors
+- `NewVideoPart(mimeType, base64Data string) ContentPart`, `NewVideoPartFromURI(mimeType, uri string) ContentPart` — video part constructors
+- `NewDocumentPart(mimeType, base64Data string) ContentPart`, `NewDocumentPartFromURI(mimeType, uri string) ContentPart` — document part constructors
+- `CodeExecution{Language, Code, Outcome, Output string}` — server-side code execution result; currently supported by Gemini (`_code_execution` tool); paired Language/Code + Outcome/Output fields
+- `Usage{PromptTokens, CompletionTokens, TotalTokens, ReasoningTokens, CachedTokens int}`
+- `StreamEventType` — event kind enum: `StreamEventContent`, `StreamEventToolCall`, `StreamEventReasoning`, `StreamEventUsage`, `StreamEventDone`, `StreamEventError`
+- `StreamEvent{Type, Content, Reasoning, ToolCall *ToolCallDelta, Usage *Usage, FinishReason, Error}` — single delta yielded during streaming
+- `ToolCallDelta{Index int, ID, Name, Arguments string}` — incremental tool call update; ID/Name on first chunk only
+- `ChatStream` — wraps `iter.Seq2[StreamEvent, error]`; must be consumed to release underlying resources
+- `NewChatStream(iter iter.Seq2[StreamEvent, error]) *ChatStream` — creates a ChatStream from a raw iterator
+- `NewSingleEventStream(response *ChatResponse) *ChatStream` — wraps a synchronous response as a single-event stream (fallback for non-streaming providers)
+- `(*ChatStream).Iter() iter.Seq2[StreamEvent, error]` — returns iterator for range-over-func loops
+- `(*ChatStream).Collect() (*ChatResponse, error)` — consumes the entire stream and returns accumulated ChatResponse
+
+### providers/ai/openai
+
+- `New() *OpenAIProvider` — reads `OPENAI_API_KEY`, `OPENAI_API_BASE_URL` from env
+- Fluent: `.WithAPIKey(key string) ai.Provider`, `.WithBaseURL(url string) ai.Provider`, `.WithHttpClient(c *http.Client) ai.Provider`
+
+### providers/ai/gemini
+
+- `New() *GeminiProvider` — reads `GEMINI_API_KEY`, `GEMINI_API_BASE_URL` from env
+- Fluent: `.WithAPIKey(key string) ai.Provider`, `.WithBaseURL(url string) ai.Provider`, `.WithHttpClient(c *http.Client) ai.Provider`
+- Model constants: `Model25Flash`, `Model25FlashLite`, `Model25Pro`, `Model20Flash`, `Model20FlashLite`, `Model15Flash`, `Model15Pro`
+
+### providers/memory
+
+- `Provider` interface: `AppendMessage(ctx, *ai.Message)`, `AllMessages() []ai.Message`, `Clear(ctx)`
+- `inmemory.New() memory.Provider` — thread-safe in-memory array-backed implementation
+
+### providers/tool
+
+- `NewTool[I, O any](name string, fn func(ctx context.Context, input I) (O, error), opts ...ToolOption) *Tool[I,O]` — creates a typed tool with automatic JSON schema generation
+- `GenericTool` interface: `ToolInfo() ai.ToolDescription`, `Execute(ctx, args json.RawMessage) (any, error)`
+- Tool options: `WithDescription(desc string)`, `WithMetrics(cost.ToolMetrics)`
+- `NewCatalogWithTools(tools ...GenericTool) *Catalog` — registry for tool lookup and execution
+
+### providers/tool/calculator
+
+- `NewCalculatorTool() *tool.Tool[Input, Output]` — free local arithmetic tool (add/subtract/multiply/divide)
+
+### providers/tool/bravesearch
+
+- `NewBraveSearchTool() *tool.Tool[Input, Output]` — basic web search (requires `BRAVE_SEARCH_API_KEY`)
+- `NewBraveSearchAdvancedTool() *tool.Tool[Input, AdvancedOutput]` — full web + news results with metadata
+
+### providers/tool/duckduckgo
+
+- `NewDuckDuckGoSearchTool() *tool.Tool[Input, Output]` — free web search, no API key required
+- `NewDuckDuckGoSearchAdvancedTool() *tool.Tool[Input, AdvancedOutput]` — with related topics and infobox
+
+### providers/tool/exa
+
+- `NewExaSearchTool() *tool.Tool[SearchInput, SearchOutput]` — semantic web search (requires `EXA_API_KEY`)
+- `NewExaSearchAdvancedTool() *tool.Tool[SearchInput, SearchAdvancedOutput]` — with highlights, summaries, and full text
+- `NewExaFindSimilarTool() *tool.Tool[SimilarInput, SimilarOutput]` — finds web pages similar to a given URL; `SimilarInput.URL` is required (the Exa API only supports URL-based similarity, not text-only)
+- `NewExaAnswerTool() *tool.Tool[AnswerInput, AnswerOutput]` — AI-generated answer grounded by web citations (~$0.01/query)
+- Input/output types: `SearchInput`, `SearchOutput`, `SearchResult`, `SearchAdvancedOutput`, `SearchResultAdvanced`, `SimilarInput`, `SimilarOutput`, `AnswerInput`, `AnswerOutput`, `Citation`
+
+### providers/tool/tavily
+
+- `NewTavilySearchTool() *tool.Tool[SearchInput, SearchOutput]` — AI-optimized web search (requires `TAVILY_API_KEY`)
+- `NewTavilySearchAdvancedTool() *tool.Tool[SearchInput, SearchAdvancedOutput]` — with raw content and images
+- `NewTavilyExtractTool() *tool.Tool[ExtractInput, ExtractOutput]` — extracts clean markdown content from up to 20 URLs (~$0.0002/URL)
+- Input/output types: `SearchInput`, `SearchOutput`, `SearchResult`, `SearchAdvancedOutput`, `SearchResultAdvanced`, `ImageResult`, `ExtractInput`, `ExtractOutput`, `ExtractResult`
+
+### providers/tool/webfetch
+
+- `NewWebFetchTool() *tool.Tool[Input, Output]` — fetches URL content and converts HTML to Markdown
+
+### providers/tool/urlextractor
+
+- `NewURLExtractorTool() *tool.Tool[Input, Output]` — extracts and validates URLs from text (SSRF-safe, configurable allowlist)
+
+### providers/tool/sitedataextractor
+
+- `NewSiteDataExtractorTool() *tool.Tool[Input, Output]` — extracts structured company/organization data with confidence scores
+
+### providers/observability
+
+- `Provider` interface: `StartSpan`, `Counter`, `Histogram`, `Trace/Debug/Info/Warn/Error`
+- `Span` interface: `SetAttributes`, `AddEvent`, `RecordError`, `SetStatus`, `End`
+- Context helpers: `ContextWithObserver`, `ObserverFromContext`, `ContextWithSpan`, `SpanFromContext`
+- Attribute constructors: `String`, `Int`, `Bool`, `Float`, `Duration`, `StringSlice`, `Error`
+
+### providers/observability/slogobs
+
+- `New(opts ...Option) *Observer` — slog-based observability provider implementing `observability.Provider`
+- Options: `WithFormat(FormatCompact|FormatPretty|FormatJSON)`, `WithLevel(slog.Level)`, `WithOutput(io.Writer)`, `WithColors(bool)`, `WithLogger(*slog.Logger)`
+- Env vars: `AIGO_LOG_FORMAT` (`compact`/`pretty`/`json`), `AIGO_LOG_LEVEL` (`debug`/`info`/`warn`/`error`)
+
+## Examples
+
+### Layer 1 — Raw Provider Usage
+
+- [Simple OpenAI](examples/layer1/simple_openai_provider/main.go): direct `ai.Provider.SendMessage` with and without tools
+- [Simple Gemini](examples/layer1/simple_gemini_provider/main.go): Gemini with Google Search grounding and JSON schema structured output
+- [Brave Search](examples/layer1/bravesearch-example/main.go): five Brave Search demos (simple, localized, news, advanced, technical)
+
+### Layer 2 — Client Orchestration
+
+- [Stateless vs Stateful](examples/layer2/stateless_vs_stateful/main.go): memory provider comparison
+- [Structured Output](examples/layer2/structured_output/main.go): `StructuredClient[T]` vs manual schema + `ParseStringAs`
+- [Manual Tool Loop](examples/layer2/manual_tool/main.go): manual tool execution with `SendMessage`/`AppendMessage`/`ContinueConversation`
+- [Streaming](examples/layer2/streaming/main.go): `StreamMessage` with Gemini, real-time token printing via `ChatStream.Iter()`
+- [Observability](examples/layer2/observability/main.go): compact, pretty, and JSON log format demos
+- [Cost Tracking](examples/layer2/cost_tracking/main.go): ModelCost, ToolMetrics, ComputeCost, OptimizationStrategy
+
+### Layer 3 — Agentic Patterns
+
+- [ReAct](examples/layer3/react/main.go): typed `MathResult`, typed `ResearchResult`, untyped `string`
+- [Brave Search ReAct](examples/layer3/bravesearch-react/main.go): ReAct agent with Brave Search and Calculator tools

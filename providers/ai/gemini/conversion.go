@@ -48,28 +48,56 @@ func buildContents(messages []ai.Message) []content {
 	for _, msg := range messages {
 		switch msg.Role {
 		case ai.RoleUser:
-			contents = append(contents, content{
-				Role:  "user",
-				Parts: []part{{Text: msg.Content}},
-			})
+			userContent := content{Role: "user"}
+			// Use multimodal ContentParts if available, otherwise fall back to text Content
+			if len(msg.ContentParts) > 0 {
+				userContent.Parts = contentPartsToGeminiParts(msg.ContentParts)
+			} else {
+				userContent.Parts = []part{{Text: msg.Content}}
+			}
+			contents = append(contents, userContent)
 
 		case ai.RoleAssistant:
 			c := content{Role: "model"}
 
 			// Handle tool calls
 			if len(msg.ToolCalls) > 0 {
-				for _, tc := range msg.ToolCalls {
+				for _, toolCall := range msg.ToolCalls {
 					c.Parts = append(c.Parts, part{
 						FunctionCall: &functionCall{
-							Name: tc.Function.Name,
-							Args: json.RawMessage(tc.Function.Arguments),
+							Name: toolCall.Function.Name,
+							Args: json.RawMessage(toolCall.Function.Arguments),
 						},
 					})
 				}
 			}
 
-			// Handle text content
-			if msg.Content != "" {
+			// Handle code execution results (for multi-turn round-tripping).
+			// Each CodeExecution is serialized as a pair of executableCode + codeExecutionResult parts,
+			// matching the Gemini API's wire format for model responses containing code execution.
+			for _, codeExec := range msg.CodeExecutions {
+				if codeExec.Code != "" {
+					c.Parts = append(c.Parts, part{
+						ExecutableCode: &executableCode{
+							Language: codeExec.Language,
+							Code:     codeExec.Code,
+						},
+					})
+				}
+				if codeExec.Outcome != "" {
+					c.Parts = append(c.Parts, part{
+						CodeExecutionResult: &codeExecutionResult{
+							Outcome: codeExec.Outcome,
+							Output:  codeExec.Output,
+						},
+					})
+				}
+			}
+
+			// Use multimodal ContentParts if available, otherwise fall back to text Content
+			if len(msg.ContentParts) > 0 {
+				c.Parts = append(c.Parts, contentPartsToGeminiParts(msg.ContentParts)...)
+			} else if msg.Content != "" {
 				c.Parts = append(c.Parts, part{Text: msg.Content})
 			}
 
@@ -100,6 +128,60 @@ func buildContents(messages []ai.Message) []content {
 	}
 
 	return contents
+}
+
+// contentPartsToGeminiParts converts generic ContentPart slices to Gemini part slices.
+// For each content type, the conversion chooses between inlineData (base64) and fileData (URI)
+// based on which field is populated. If both Data and URI are set, URI takes precedence.
+func contentPartsToGeminiParts(contentParts []ai.ContentPart) []part {
+	var parts []part
+	for _, contentPart := range contentParts {
+		switch contentPart.Type {
+		case ai.ContentTypeText:
+			parts = append(parts, part{Text: contentPart.Text})
+
+		case ai.ContentTypeImage:
+			if contentPart.Image != nil {
+				parts = append(parts, mediaDataToPart(contentPart.Image.MimeType, contentPart.Image.Data, contentPart.Image.URI))
+			}
+
+		case ai.ContentTypeAudio:
+			if contentPart.Audio != nil {
+				parts = append(parts, mediaDataToPart(contentPart.Audio.MimeType, contentPart.Audio.Data, contentPart.Audio.URI))
+			}
+
+		case ai.ContentTypeVideo:
+			if contentPart.Video != nil {
+				parts = append(parts, mediaDataToPart(contentPart.Video.MimeType, contentPart.Video.Data, contentPart.Video.URI))
+			}
+
+		case ai.ContentTypeDocument:
+			if contentPart.Document != nil {
+				parts = append(parts, mediaDataToPart(contentPart.Document.MimeType, contentPart.Document.Data, contentPart.Document.URI))
+			}
+			// TODO: implement document/PDF content part extraction from response
+		}
+	}
+	return parts
+}
+
+// mediaDataToPart converts media data (base64 or URI) to a Gemini part.
+// URI takes precedence over inline data when both are provided.
+func mediaDataToPart(mimeType, data, uri string) part {
+	if uri != "" {
+		return part{
+			FileData: &fileData{
+				MimeType: mimeType,
+				FileURI:  uri,
+			},
+		}
+	}
+	return part{
+		InlineData: &inlineData{
+			MimeType: mimeType,
+			Data:     data,
+		},
+	}
 }
 
 // buildGenerationConfig converts ai.GenerationConfig and ai.ResponseFormat to Gemini generationConfig.
@@ -144,6 +226,11 @@ func buildGenerationConfig(cfg *ai.GenerationConfig, respFmt *ai.ResponseFormat)
 				ThinkingBudget:  cfg.ThinkingBudget,
 				IncludeThoughts: cfg.IncludeThoughts,
 			}
+		}
+
+		// Response modalities (e.g., ["TEXT", "IMAGE"] for image generation)
+		if len(cfg.ResponseModalities) > 0 {
+			gc.ResponseModalities = cfg.ResponseModalities
 		}
 	}
 
@@ -301,6 +388,73 @@ func geminiToGeneric(resp generateContentResponse) *ai.ChatResponse {
 					},
 				})
 			}
+
+			// Extract code execution results (generated code + execution output).
+			// The Gemini API returns executableCode and codeExecutionResult as separate
+			// sequential parts. We pair them: executableCode creates a new entry,
+			// and the following codeExecutionResult completes it with outcome/output.
+			if p.ExecutableCode != nil {
+				result.CodeExecutions = append(result.CodeExecutions, ai.CodeExecution{
+					Language: p.ExecutableCode.Language,
+					Code:     p.ExecutableCode.Code,
+				})
+			}
+			if p.CodeExecutionResult != nil {
+				if len(result.CodeExecutions) > 0 {
+					// Pair with the most recent code execution entry
+					lastIndex := len(result.CodeExecutions) - 1
+					result.CodeExecutions[lastIndex].Outcome = p.CodeExecutionResult.Outcome
+					result.CodeExecutions[lastIndex].Output = p.CodeExecutionResult.Output
+				} else {
+					// Standalone result without preceding executableCode (defensive)
+					result.CodeExecutions = append(result.CodeExecutions, ai.CodeExecution{
+						Outcome: p.CodeExecutionResult.Outcome,
+						Output:  p.CodeExecutionResult.Output,
+					})
+				}
+			}
+
+			// Extract inline media data from response (images, audio, video)
+			if p.InlineData != nil {
+				switch {
+				case isAudioMimeType(p.InlineData.MimeType):
+					result.Audio = append(result.Audio, ai.AudioData{
+						MimeType: p.InlineData.MimeType,
+						Data:     p.InlineData.Data,
+					})
+				case isVideoMimeType(p.InlineData.MimeType):
+					result.Videos = append(result.Videos, ai.VideoData{
+						MimeType: p.InlineData.MimeType,
+						Data:     p.InlineData.Data,
+					})
+				default:
+					result.Images = append(result.Images, ai.ImageData{
+						MimeType: p.InlineData.MimeType,
+						Data:     p.InlineData.Data,
+					})
+				}
+			}
+
+			// Extract file-referenced media from response
+			if p.FileData != nil {
+				switch {
+				case isAudioMimeType(p.FileData.MimeType):
+					result.Audio = append(result.Audio, ai.AudioData{
+						MimeType: p.FileData.MimeType,
+						URI:      p.FileData.FileURI,
+					})
+				case isVideoMimeType(p.FileData.MimeType):
+					result.Videos = append(result.Videos, ai.VideoData{
+						MimeType: p.FileData.MimeType,
+						URI:      p.FileData.FileURI,
+					})
+				default:
+					result.Images = append(result.Images, ai.ImageData{
+						MimeType: p.FileData.MimeType,
+						URI:      p.FileData.FileURI,
+					})
+				}
+			}
 		}
 
 		result.Content = strings.Join(textParts, "\n")
@@ -326,6 +480,20 @@ func geminiToGeneric(resp generateContentResponse) *ai.ChatResponse {
 	// Map grounding metadata
 	if candidate.GroundingMetadata != nil {
 		result.Grounding = mapGroundingMetadata(candidate.GroundingMetadata)
+	}
+
+	// Map URL context metadata (from url_context tool)
+	if len(candidate.URLContextMetadata) > 0 {
+		if result.Grounding == nil {
+			result.Grounding = &ai.GroundingMetadata{}
+		}
+		for _, meta := range candidate.URLContextMetadata {
+			result.Grounding.URLContextSources = append(result.Grounding.URLContextSources, ai.URLContextSource{
+				URL:                    meta.URL,
+				Status:                 meta.Status,
+				RetrievedContentLength: meta.RetrievedContentLength,
+			})
+		}
 	}
 
 	return result
@@ -385,4 +553,14 @@ func mapGroundingMetadata(gm *groundingMetadata) *ai.GroundingMetadata {
 	}
 
 	return result
+}
+
+// isAudioMimeType returns true if the given MIME type represents audio content.
+func isAudioMimeType(mimeType string) bool {
+	return strings.HasPrefix(mimeType, "audio/")
+}
+
+// isVideoMimeType returns true if the given MIME type represents video content.
+func isVideoMimeType(mimeType string) bool {
+	return strings.HasPrefix(mimeType, "video/")
 }

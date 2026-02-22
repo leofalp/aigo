@@ -34,3 +34,10 @@ aigo.iml
 
 *.env
 .DS_Store
+
+# AI Agent
+/.opencode
+/.claude
+
+# TO-DO
+to-do/*.md

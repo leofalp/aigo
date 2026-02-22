@@ -1,3 +1,7 @@
+// Package main contrasts stateless and stateful client modes (Layer 2). The stateless example
+// shows the model cannot recall earlier context; the stateful example uses an inmemory provider
+// so the model remembers the user's name across turns.
+// Requires the OPENAI_API_KEY environment variable.
 package main
 
 import (

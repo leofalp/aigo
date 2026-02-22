@@ -1,3 +1,8 @@
+// Package main demonstrates manual tool execution in a multi-turn conversation (Layer 2):
+// send a user message, save the assistant message with its ToolCalls, execute tools and
+// append linked results (ToolCallID + Name), then call ContinueConversation for the final
+// answer.
+// Requires the OPENAI_API_KEY environment variable.
 package main
 
 import (

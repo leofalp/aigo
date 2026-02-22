@@ -1,3 +1,6 @@
+// Package ai defines the shared types and interfaces used across all AI providers
+// (OpenAI, Gemini, Anthropic). Types in this package are provider-agnostic: each
+// provider's conversion layer is responsible for mapping them to wire format.
 package ai
 
 import (
@@ -11,7 +14,10 @@ import (
 	##### PROVIDER INPUT #####
 */
 
-// ChatRequest represents a request to send a chat message
+// ChatRequest represents a single chat completion request sent to a provider.
+// Messages contains the full conversation history (excluding the system prompt).
+// Optional fields such as Tools, ToolChoice, ResponseFormat, and GenerationConfig
+// are forwarded to the provider only when non-nil / non-empty.
 type ChatRequest struct {
 	Model            string            `json:"model,omitempty"`         // Model name or identifier
 	Messages         []Message         `json:"messages"`                // Contains all messages in the conversation except system prompt
@@ -22,12 +28,21 @@ type ChatRequest struct {
 	GenerationConfig *GenerationConfig `json:"generation_config,omitempty"` // Optional generation configuration
 }
 
+// ToolChoice controls which tool(s) the model is allowed or required to call.
+// When ToolChoiceForced is set it overrides any automatic selection derived from
+// RequiredTools. AtLeastOneRequired ensures the model calls at least one tool
+// declared in ChatRequest.Tools.
 type ToolChoice struct {
 	ToolChoiceForced   string             `json:"tool_choice_forced,omitempty"`    // Forced tool choice to not use computed one from tools.Required
 	AtLeastOneRequired bool               `json:"at_least_one_required,omitempty"` // If true, at least one tool from ChatRequest.Tools must be used
 	RequiredTools      []*ToolDescription `json:"required_tools,omitempty"`        // List of required tool (must be declared in ChatRequest.Tools)
 }
 
+// ToolDescription describes a function that the model may call during a
+// conversation. Name and Description are sent verbatim to the provider;
+// Parameters defines the expected JSON schema for arguments. Metrics carries
+// optional cost/performance metadata for the orchestration layer only and is
+// never forwarded to the provider.
 type ToolDescription struct {
 	Name        string             `json:"name"`
 	Description string             `json:"description,omitempty"`
@@ -53,24 +68,203 @@ func IsBuiltinTool(name string) bool {
 	return len(name) > 0 && name[0] == '_'
 }
 
-// Message represents a single message in a conversation
+// ContentType represents the type of a content part in a multimodal message.
+type ContentType string
+
+const (
+	// ContentTypeText represents plain text content.
+	ContentTypeText ContentType = "text"
+	// ContentTypeImage represents image content (base64-encoded or URI reference).
+	ContentTypeImage ContentType = "image"
+	// ContentTypeAudio represents audio content (base64-encoded or URI reference).
+	ContentTypeAudio ContentType = "audio"
+	// ContentTypeVideo represents video content (base64-encoded or URI reference).
+	ContentTypeVideo ContentType = "video"
+	// ContentTypeDocument represents document content (PDF, plain text; base64-encoded or URI reference).
+	ContentTypeDocument ContentType = "document"
+)
+
+// ContentPart represents a single part of a multimodal message.
+// A message can contain multiple parts mixing text, images, audio, video, and documents.
+// Each provider's conversion layer maps these parts to the appropriate wire format.
+type ContentPart struct {
+	Type     ContentType   `json:"type"`
+	Text     string        `json:"text,omitempty"`
+	Image    *ImageData    `json:"image,omitempty"`
+	Audio    *AudioData    `json:"audio,omitempty"`
+	Video    *VideoData    `json:"video,omitempty"`
+	Document *DocumentData `json:"document,omitempty"`
+}
+
+// ImageData holds image content, either as base64-encoded inline data or a URI reference.
+// Exactly one of Data or URI should be set. Each provider decides the wire format:
+//   - Gemini: URI maps to fileData, Data maps to inlineData
+//   - OpenAI: URI maps to image_url, Data maps to base64 data URL
+//   - Anthropic: URI maps to url source, Data maps to base64 source
+type ImageData struct {
+	MimeType string `json:"mime_type"`      // MIME type (e.g., "image/png", "image/jpeg")
+	Data     string `json:"data,omitempty"` // Base64-encoded image data
+	URI      string `json:"uri,omitempty"`  // URL, file URI, or opaque file ID
+}
+
+// AudioData holds audio content, either as base64-encoded inline data or a URI reference.
+// Exactly one of Data or URI should be set.
+// MimeType uses the canonical MIME form (e.g., "audio/wav", "audio/mp3").
+// Providers that require format strings (e.g., OpenAI uses "wav" instead of "audio/wav")
+// handle the conversion internally.
+type AudioData struct {
+	MimeType string `json:"mime_type"`      // MIME type (e.g., "audio/wav", "audio/mp3", "audio/ogg")
+	Data     string `json:"data,omitempty"` // Base64-encoded audio data
+	URI      string `json:"uri,omitempty"`  // URL, file URI, or opaque file ID
+}
+
+// VideoData holds video content, either as base64-encoded inline data or a URI reference.
+// Exactly one of Data or URI should be set.
+type VideoData struct {
+	MimeType string `json:"mime_type"`      // MIME type (e.g., "video/mp4", "video/webm")
+	Data     string `json:"data,omitempty"` // Base64-encoded video data
+	URI      string `json:"uri,omitempty"`  // URL, file URI, or opaque file ID
+}
+
+// DocumentData holds document content, either as base64-encoded inline data or a URI reference.
+// Exactly one of Data or URI should be set.
+// Supported formats depend on the provider (e.g., Gemini supports PDF via inline or file URI).
+type DocumentData struct {
+	MimeType string `json:"mime_type"`      // MIME type (e.g., "application/pdf", "text/plain")
+	Data     string `json:"data,omitempty"` // Base64-encoded document data
+	URI      string `json:"uri,omitempty"`  // URL, file URI, or opaque file ID
+}
+
+// NewTextPart creates a ContentPart containing text content.
+func NewTextPart(text string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeText,
+		Text: text,
+	}
+}
+
+// NewImagePart creates a ContentPart containing base64-encoded image data.
+func NewImagePart(mimeType, base64Data string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeImage,
+		Image: &ImageData{
+			MimeType: mimeType,
+			Data:     base64Data,
+		},
+	}
+}
+
+// NewImagePartFromURI creates a ContentPart referencing an image by URL or file URI.
+// The provider's conversion layer determines the wire format (e.g., Gemini fileData, OpenAI image_url).
+func NewImagePartFromURI(mimeType, uri string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeImage,
+		Image: &ImageData{
+			MimeType: mimeType,
+			URI:      uri,
+		},
+	}
+}
+
+// NewAudioPart creates a ContentPart containing base64-encoded audio data.
+// mimeType should be the canonical MIME form (e.g., "audio/wav", "audio/mp3").
+func NewAudioPart(mimeType, base64Data string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeAudio,
+		Audio: &AudioData{
+			MimeType: mimeType,
+			Data:     base64Data,
+		},
+	}
+}
+
+// NewAudioPartFromURI creates a ContentPart referencing audio by URL or file URI.
+func NewAudioPartFromURI(mimeType, uri string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeAudio,
+		Audio: &AudioData{
+			MimeType: mimeType,
+			URI:      uri,
+		},
+	}
+}
+
+// NewVideoPart creates a ContentPart containing base64-encoded video data.
+func NewVideoPart(mimeType, base64Data string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeVideo,
+		Video: &VideoData{
+			MimeType: mimeType,
+			Data:     base64Data,
+		},
+	}
+}
+
+// NewVideoPartFromURI creates a ContentPart referencing video by URL or file URI.
+func NewVideoPartFromURI(mimeType, uri string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeVideo,
+		Video: &VideoData{
+			MimeType: mimeType,
+			URI:      uri,
+		},
+	}
+}
+
+// NewDocumentPart creates a ContentPart containing base64-encoded document data (e.g., PDF).
+func NewDocumentPart(mimeType, base64Data string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeDocument,
+		Document: &DocumentData{
+			MimeType: mimeType,
+			Data:     base64Data,
+		},
+	}
+}
+
+// NewDocumentPartFromURI creates a ContentPart referencing a document by URL or file URI.
+func NewDocumentPartFromURI(mimeType, uri string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeDocument,
+		Document: &DocumentData{
+			MimeType: mimeType,
+			URI:      uri,
+		},
+	}
+}
+
+// Message represents a single turn in a conversation. The Role field
+// determines how the provider interprets the content. When ContentParts is
+// populated it takes precedence over the plain-text Content field, enabling
+// multimodal messages. Tool-related fields (ToolCalls, ToolCallID, Name) are
+// only relevant for assistant and tool roles respectively.
 type Message struct {
 	// Core fields (always present)
 	Role    MessageRole `json:"role"`
 	Content string      `json:"content,omitempty"`
+
+	// Multimodal content parts (optional, takes precedence over Content when populated)
+	ContentParts []ContentPart `json:"content_parts,omitempty"`
 
 	// Tool calling fields
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // For role=assistant requesting tools
 	ToolCallID string     `json:"tool_call_id,omitempty"` // For role=tool, links to the tool call being responded to
 	Name       string     `json:"name,omitempty"`         // For role=tool, name of the tool that generated this response
 
+	// Code execution results from server-side sandbox execution (Gemini code_execution tool).
+	// Present on role=assistant messages when the model generated and executed code.
+	// Used for multi-turn round-tripping: providers serialize these back to their wire format.
+	CodeExecutions []CodeExecution `json:"code_executions,omitempty"`
+
 	// Extended fields
 	Refusal   string `json:"refusal,omitempty"`   // If model refuses to respond (safety/policy)
 	Reasoning string `json:"reasoning,omitempty"` // Chain-of-thought reasoning (o1/o3/gpt-5)
-
-	// TODO support content types different than text in the future (images, audio, etc.)
 }
 
+// GenerationConfig holds sampling and output-control parameters sent to the
+// provider with each request. Fields that are unsupported by a given provider
+// are silently ignored by that provider's conversion layer.
+// Zero values are treated as "not set" (providers use their own defaults).
 type GenerationConfig struct {
 	MaxTokens        int     `json:"max_tokens,omitempty"`        // Optional max tokens for the response
 	Temperature      float32 `json:"temperature,omitempty"`       // Sampling temperature [0..2]. Higher => more random; lower => more deterministic.
@@ -89,6 +283,10 @@ type GenerationConfig struct {
 	// Currently supported by: Gemini.
 	// Other providers may use their own safety mechanisms or ignore this field.
 	SafetySettings []SafetySetting `json:"safety_settings,omitempty"`
+
+	// ResponseModalities specifies the desired output modalities (e.g., ["TEXT", "IMAGE"]).
+	// Currently supported by: Gemini (for image generation models).
+	ResponseModalities []string `json:"response_modalities,omitempty"`
 }
 
 // SafetySetting configures content safety thresholds.
@@ -100,20 +298,33 @@ type SafetySetting struct {
 
 // Gemini-specific safety categories. Other providers may define their own.
 const (
-	HarmCategoryHarassment       = "HARM_CATEGORY_HARASSMENT"
-	HarmCategoryHateSpeech       = "HARM_CATEGORY_HATE_SPEECH"
+	// HarmCategoryHarassment represents harassment content.
+	HarmCategoryHarassment = "HARM_CATEGORY_HARASSMENT"
+	// HarmCategoryHateSpeech represents hate speech content.
+	HarmCategoryHateSpeech = "HARM_CATEGORY_HATE_SPEECH"
+	// HarmCategorySexuallyExplicit represents sexually explicit content.
 	HarmCategorySexuallyExplicit = "HARM_CATEGORY_SEXUALLY_EXPLICIT"
+	// HarmCategoryDangerousContent represents dangerous or harmful content.
 	HarmCategoryDangerousContent = "HARM_CATEGORY_DANGEROUS_CONTENT"
 )
 
 // Gemini-specific safety thresholds. Other providers may define their own.
 const (
-	BlockNone           = "BLOCK_NONE"
-	BlockOnlyHigh       = "BLOCK_ONLY_HIGH"
+	// BlockNone disables content filtering.
+	BlockNone = "BLOCK_NONE"
+	// BlockOnlyHigh blocks only high-severity content.
+	BlockOnlyHigh = "BLOCK_ONLY_HIGH"
+	// BlockMediumAndAbove blocks medium and high-severity content.
 	BlockMediumAndAbove = "BLOCK_MEDIUM_AND_ABOVE"
-	BlockLowAndAbove    = "BLOCK_LOW_AND_ABOVE"
+	// BlockLowAndAbove blocks low, medium, and high-severity content.
+	BlockLowAndAbove = "BLOCK_LOW_AND_ABOVE"
 )
 
+// ResponseFormat instructs the provider to emit output in a specific structure.
+// When OutputSchema is set the provider is asked to produce JSON conforming to
+// that schema. The Type hint selects a named format preset (e.g., "json_object",
+// "json_schema") when no explicit schema is provided. Strict mode, when
+// supported, causes the provider to enforce the schema without fallback.
 type ResponseFormat struct {
 	OutputSchema *jsonschema.Schema `json:"output_schema,omitempty"` // Optional schema for structured response. Implementation may vary by provider.
 	Strict       bool               `json:"strict,omitempty"`        // If true, the model must strictly adhere to the output schema, if possible.
@@ -124,6 +335,24 @@ type ResponseFormat struct {
 	##### PROVIDER OUTPUT #####
 */
 
+// CodeExecution represents a server-side code execution result from the model.
+// The model generates code, executes it in a sandboxed environment, and returns
+// both the code and its execution result. The code and result are always paired:
+// ExecutableCode contains the generated code, and the Outcome/Output fields
+// contain the execution result.
+//
+// Currently supported by: Gemini (code_execution tool).
+type CodeExecution struct {
+	Language string `json:"language"`          // Programming language of the generated code (e.g., "PYTHON")
+	Code     string `json:"code"`              // The code that was generated and executed
+	Outcome  string `json:"outcome,omitempty"` // Execution outcome: "OUTCOME_OK", "OUTCOME_FAILED", "OUTCOME_DEADLINE_EXCEEDED"
+	Output   string `json:"output,omitempty"`  // stdout on success, stderr or error description on failure
+}
+
+// Usage reports the token consumption for a single chat completion. Providers
+// populate only the fields they support; unsupported counters remain zero.
+// ReasoningTokens and CachedTokens are subset counts already included in
+// PromptTokens / CompletionTokens; they are broken out for cost attribution.
 type Usage struct {
 	PromptTokens     int `json:"prompt_tokens,omitempty"`
 	CompletionTokens int `json:"completion_tokens,omitempty"`
@@ -134,16 +363,28 @@ type Usage struct {
 	CachedTokens    int `json:"cached_tokens,omitempty"`    // Cached prompt tokens
 }
 
-// ChatResponse represents the response from a chat completion
+// ChatResponse represents the completed response returned by a provider after a
+// chat completion request. Content holds the primary text reply. Multimodal
+// output (images, audio, video) is stored in the respective slice fields.
+// ToolCalls is populated when the model requests one or more function calls
+// instead of (or in addition to) generating text.
 type ChatResponse struct {
-	Id           string     `json:"id"`
-	Model        string     `json:"model"`
-	Object       string     `json:"object"`
-	Created      int64      `json:"created"`
-	Content      string     `json:"content"`
-	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
-	FinishReason string     `json:"finish_reason,omitempty"`
-	Usage        *Usage     `json:"usage,omitempty"`
+	Id           string      `json:"id"`
+	Model        string      `json:"model"`
+	Object       string      `json:"object"`
+	Created      int64       `json:"created"`
+	Content      string      `json:"content"`
+	Images       []ImageData `json:"images,omitempty"` // Generated images from the model response
+	Audio        []AudioData `json:"audio,omitempty"`  // Generated audio from the model response (TTS, native audio)
+	Videos       []VideoData `json:"videos,omitempty"` // Generated video from the model response
+	ToolCalls    []ToolCall  `json:"tool_calls,omitempty"`
+	FinishReason string      `json:"finish_reason,omitempty"`
+	Usage        *Usage      `json:"usage,omitempty"`
+
+	// Code execution results from server-side sandbox execution.
+	// Currently supported by: Gemini (code_execution tool).
+	// Each entry pairs the generated code with its execution outcome.
+	CodeExecutions []CodeExecution `json:"code_executions,omitempty"`
 
 	// Extended fields
 	Refusal   string `json:"refusal,omitempty"`   // If model refuses to respond (safety/policy)
@@ -167,6 +408,11 @@ type GroundingMetadata struct {
 
 	// SearchQueries contains the search queries used (Gemini-specific).
 	SearchQueries []string `json:"search_queries,omitempty"`
+
+	// URLContextSources contains metadata about URLs retrieved by the URL context tool.
+	// Each entry describes a URL that the model fetched for grounding context.
+	// Currently supported by: Gemini (url_context tool).
+	URLContextSources []URLContextSource `json:"url_context_sources,omitempty"`
 }
 
 // GroundingSource represents a source document or URL.
@@ -185,6 +431,17 @@ type Citation struct {
 	Confidence    []float64 `json:"confidence,omitempty"` // Confidence scores (optional)
 }
 
+// URLContextSource represents a URL that was retrieved by the URL context tool
+// for grounding the model's response. Contains metadata about the retrieval status
+// and the amount of content extracted from each URL.
+//
+// Currently supported by: Gemini (url_context tool).
+type URLContextSource struct {
+	URL                    string `json:"url"`                                // The URL that was retrieved
+	Status                 string `json:"status"`                             // Retrieval status (e.g., "SUCCESS", "FAILED")
+	RetrievedContentLength int    `json:"retrieved_content_length,omitempty"` // Length of content retrieved from the URL
+}
+
 // StructuredChatResponse wraps a ChatResponse with parsed structured data.
 // This type is returned by StructuredClient to provide both the parsed data
 // and access to the raw response for metadata like usage and reasoning.
@@ -197,13 +454,17 @@ type StructuredChatResponse[T any] struct {
 	##### ENUMS #####
 */
 
-// ToolCall represents a function/tool call request from the LLM
+// ToolCall represents a single function invocation that the model has requested.
+// ID uniquely identifies this call within the response and must be echoed back
+// in the corresponding tool-role message so the provider can correlate results.
 type ToolCall struct {
 	ID       string           `json:"id,omitempty"` // Unique identifier for this tool call
 	Type     string           `json:"type"`         // "function"
 	Function ToolCallFunction `json:"function"`
 }
 
+// ToolCallFunction carries the name and serialized JSON arguments for a single
+// function invocation requested by the model.
 type ToolCallFunction struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"` // JSON string
@@ -249,12 +510,67 @@ func (tr ToolResult) ToJSON() (string, error) {
 	return string(bytes), nil
 }
 
-// MessageRole represents the role of a message; compatible with string
+// MessageRole identifies the author of a message within a conversation.
+// It is a string alias so that provider conversion layers can compare and
+// switch on roles without casting.
 type MessageRole string
 
 const (
-	RoleSystem    MessageRole = "system"    // System instructions/configuration
-	RoleUser      MessageRole = "user"      // End-user message
-	RoleAssistant MessageRole = "assistant" // Middle llm response
-	RoleTool      MessageRole = "tool"      // Tool/function output
+	// RoleSystem represents system instructions/configuration.
+	RoleSystem MessageRole = "system"
+	// RoleUser represents end-user message.
+	RoleUser MessageRole = "user"
+	// RoleAssistant represents model-generated reply or tool call request.
+	RoleAssistant MessageRole = "assistant"
+	// RoleTool represents tool/function output.
+	RoleTool MessageRole = "tool"
 )
+
+/*
+	##### MODEL METADATA #####
+*/
+
+// Modality represents an input or output modality supported by a model.
+// Used in ModelInfo to describe what content types a model can accept and produce.
+type Modality string
+
+const (
+	// ModalityText represents text input/output (universal).
+	ModalityText Modality = "text"
+	// ModalityImage represents image input (vision) or output (generation).
+	ModalityImage Modality = "image"
+	// ModalityAudio represents audio input (transcription) or output (TTS, native audio).
+	ModalityAudio Modality = "audio"
+	// ModalityVideo represents video input (understanding) or output (generation).
+	ModalityVideo Modality = "video"
+	// ModalityDocument represents document input (PDF, plain text).
+	ModalityDocument Modality = "document"
+)
+
+// ModelInfo describes a model's identity, capabilities, and pricing.
+// Provider packages populate this from their model registries.
+// This type is cross-provider compatible: Gemini, OpenAI, and Anthropic models
+// can all be described with the same structure.
+type ModelInfo struct {
+	// ID is the canonical model identifier used in API calls (e.g., "gemini-2.5-pro", "gpt-4o").
+	ID string `json:"id"`
+
+	// Name is a human-readable display name (e.g., "Gemini 2.5 Pro").
+	Name string `json:"name"`
+
+	// Description is a short summary of the model's purpose and characteristics.
+	Description string `json:"description,omitempty"`
+
+	// InputModalities lists the content types the model can accept as input.
+	InputModalities []Modality `json:"input_modalities"`
+
+	// OutputModalities lists the content types the model can produce as output.
+	OutputModalities []Modality `json:"output_modalities"`
+
+	// Pricing holds the cost structure for this model. Nil if pricing is unavailable
+	// (e.g., preview/experimental models with unpublished pricing).
+	Pricing *cost.ModelCost `json:"pricing,omitempty"`
+
+	// Deprecated indicates whether this model is deprecated and should be avoided.
+	Deprecated bool `json:"deprecated,omitempty"`
+}

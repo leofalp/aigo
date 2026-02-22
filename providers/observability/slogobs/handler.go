@@ -116,8 +116,9 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 	}
 }
 
-// handleCompact writes a compact single-line format with JSON attributes.
-// Format: 2025-11-03 10:40:35 DEBUG Message → {"key":"value"}
+// handleCompact formats and writes a log record in compact single-line format:
+// "2006-01-02 15:04:05 LEVEL Message → {"key":"value"}"
+// Attributes are JSON-encoded; colors are applied only if enabled and level colors the output.
 func (h *Handler) handleCompact(r slog.Record) error {
 	buf := make([]byte, 0, 256)
 
@@ -159,11 +160,9 @@ func (h *Handler) handleCompact(r slog.Record) error {
 	return err
 }
 
-// handlePretty writes a multi-line format with indented attributes.
-// Format:
-// 2025-11-03 10:40:35 🔵 DEBUG  Message
-//
-//	└─ key: value
+// handlePretty formats and writes a log record in a multi-line pretty format with tree-style indentation:
+// "2025-11-03 10:40:35 🔵 DEBUG  Message\n                   ├─ key: value\n                   └─ key: value"
+// Each attribute appears on a separate line with appropriate tree symbols and optional colors.
 func (h *Handler) handlePretty(r slog.Record) error {
 	buf := make([]byte, 0, 256)
 
@@ -221,8 +220,9 @@ func (h *Handler) handlePretty(r slog.Record) error {
 	return err
 }
 
-// handleJSON writes a standard JSON format.
-// Format: {"time":"2025-11-03T10:40:35","level":"DEBUG","msg":"Message","key":"value"}
+// handleJSON formats and writes a log record as a single JSON object:
+// {"time":"2025-11-03T10:40:35","level":"DEBUG","msg":"Message","key":"value"}
+// Standard fields (time, level, msg) are always included; attributes are merged at the top level.
 func (h *Handler) handleJSON(r slog.Record) error {
 	data := make(map[string]interface{})
 
@@ -247,7 +247,8 @@ func (h *Handler) handleJSON(r slog.Record) error {
 	return err
 }
 
-// collectAttrs collects all attributes from the handler and record into a map.
+// collectAttrs gathers all attributes from the handler's stored attributes and the log record
+// into a single map, respecting any group prefixes defined in the handler.
 func (h *Handler) collectAttrs(r slog.Record) map[string]interface{} {
 	attrs := make(map[string]interface{})
 
@@ -265,7 +266,7 @@ func (h *Handler) collectAttrs(r slog.Record) map[string]interface{} {
 	return attrs
 }
 
-// addAttr adds an attribute to the map, handling groups.
+// addAttr adds an attribute to the map, prefixing the key with any group names if they exist.
 func (h *Handler) addAttr(attrs map[string]interface{}, attr slog.Attr) {
 	key := attr.Key
 	if len(h.groups) > 0 {
@@ -278,7 +279,8 @@ func (h *Handler) addAttr(attrs map[string]interface{}, attr slog.Attr) {
 	attrs[key] = attr.Value.Any()
 }
 
-// levelString returns a string representation of the log level.
+// levelString returns a string representation of the given slog.Level,
+// mapping TRACE (level < Debug), DEBUG, INFO, WARN, and ERROR appropriately.
 func levelString(level slog.Level) string {
 	switch {
 	case level < slog.LevelDebug:
@@ -304,7 +306,7 @@ const (
 	colorGray   = "\033[90m"
 )
 
-// colorForLevel returns the ANSI color code for a log level.
+// colorForLevel returns the appropriate ANSI color code for the given slog.Level.
 func colorForLevel(level slog.Level) string {
 	switch {
 	case level < slog.LevelDebug:
@@ -320,7 +322,7 @@ func colorForLevel(level slog.Level) string {
 	}
 }
 
-// emojiForLevel returns an emoji icon for a log level.
+// emojiForLevel returns an emoji icon appropriate for the given slog.Level.
 func emojiForLevel(level slog.Level) string {
 	switch {
 	case level < slog.LevelDebug:
@@ -336,7 +338,8 @@ func emojiForLevel(level slog.Level) string {
 	}
 }
 
-// isTerminal checks if the file is a terminal (for auto-detecting color support).
+// isTerminal checks whether the given file is connected to a terminal device.
+// It returns false if the file is nil or if stat fails.
 func isTerminal(f *os.File) bool {
 	if f == nil {
 		return false

@@ -16,23 +16,27 @@ type ArrayMemory struct {
 	messages []ai.Message
 }
 
-// New creates a new in-memory message store.
+// New returns a new, empty [ArrayMemory] ready for immediate use.
+// The internal message slice is pre-allocated to avoid extra allocations on the first appends.
 func New() *ArrayMemory {
 	return &ArrayMemory{
 		messages: []ai.Message{},
 	}
 }
 
-// Ensure ArrayMemory implements memory.Provider
+// Ensure ArrayMemory implements memory.Provider at compile time.
 var _ memory.Provider = (*ArrayMemory)(nil)
 
-// AppendMessage stores a copy of the provided message at the end of the history.
+// AppendMessage stores a copy of message at the end of the history.
+// It is a no-op when message is nil.
+// When an observability span is present in ctx, an event is recorded with the
+// message role and content length, and the running total message count is set
+// as a span attribute so callers can track history growth through tracing.
 func (m *ArrayMemory) AppendMessage(ctx context.Context, message *ai.Message) {
 	if message == nil {
 		return
 	}
 
-	// Extract span from context for observability
 	span := observability.SpanFromContext(ctx)
 
 	if span != nil {
@@ -75,7 +79,9 @@ func (m *ArrayMemory) AllMessages() []ai.Message {
 	return out
 }
 
-// LastMessages returns up to the last n messages as a new slice. If n <= 0, returns empty.
+// LastMessages returns up to the last count messages as a new, independent slice.
+// If count exceeds the total number of stored messages, all messages are returned.
+// Returns an empty, non-nil slice when count is zero or negative, or when the store is empty.
 func (m *ArrayMemory) LastMessages(n int) []ai.Message {
 	if n <= 0 {
 		return []ai.Message{}
@@ -109,9 +115,11 @@ func (m *ArrayMemory) PopLastMessage() *ai.Message {
 	return &msg
 }
 
-// ClearMessages removes all messages while retaining underlying capacity for efficiency.
+// ClearMessages removes all messages while retaining the underlying slice capacity,
+// so subsequent appends do not immediately trigger a reallocation.
+// When an observability span is present in ctx, a clear event is recorded before
+// the store is reset.
 func (m *ArrayMemory) ClearMessages(ctx context.Context) {
-	// Extract span from context for observability
 	span := observability.SpanFromContext(ctx)
 
 	if span != nil {
@@ -123,7 +131,8 @@ func (m *ArrayMemory) ClearMessages(ctx context.Context) {
 	m.mu.Unlock()
 }
 
-// FilterByRole returns a copy of messages matching the given role.
+// FilterByRole returns a copy of all messages whose role matches the given role.
+// The returned slice is always non-nil; an empty slice is returned when no messages match.
 func (m *ArrayMemory) FilterByRole(role ai.MessageRole) []ai.Message {
 	m.mu.RLock()
 	if len(m.messages) == 0 {

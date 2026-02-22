@@ -9,25 +9,68 @@ import (
 	"github.com/leofalp/aigo/providers/ai"
 )
 
+// contentPart represents a chat completions multimodal content part.
+type contentPart struct {
+	Type       string            `json:"type"`
+	Text       string            `json:"text,omitempty"`
+	ImageURL   *contentPartImage `json:"image_url,omitempty"`
+	InputAudio *contentPartAudio `json:"input_audio,omitempty"`
+}
+
+// contentPartImage describes image content for chat completions.
+type contentPartImage struct {
+	URL string `json:"url"`
+}
+
+// contentPartAudio describes audio content for chat completions.
+type contentPartAudio struct {
+	Data   string `json:"data"`
+	Format string `json:"format"`
+}
+
+// buildDataURL formats base64 data into a data URL for OpenAI image inputs.
+func buildDataURL(mimeType, data string) string {
+	if mimeType == "" || data == "" {
+		return ""
+	}
+	return "data:" + mimeType + ";base64," + data
+}
+
+// mimeTypeToAudioFormat converts a MIME type into the expected OpenAI audio format.
+// Defaults to "wav" when the format is unknown.
+func mimeTypeToAudioFormat(mimeType string) string {
+	if mimeType == "" {
+		return "wav"
+	}
+	mimeType = strings.ToLower(mimeType)
+	mimeType = strings.TrimSpace(mimeType)
+	mimeType = strings.TrimPrefix(mimeType, "audio/")
+	if mimeType == "" {
+		return "wav"
+	}
+	return mimeType
+}
+
 /*
 	CHAT COMPLETIONS API - INPUT
 */
 
 // chatCompletionRequest represents the /v1/chat/completions request format
 type chatCompletionRequest struct {
-	Model               string        `json:"model"`
-	Models              []string      `json:"models,omitempty"` // for model fallback // TODO: implement model fallback logic
-	Messages            []chatMessage `json:"messages"`
-	Temperature         *float64      `json:"temperature,omitempty"`
-	TopP                *float64      `json:"top_p,omitempty"`
-	MaxTokens           *int          `json:"max_tokens,omitempty"`            // Legacy, still accepted
-	MaxCompletionTokens *int          `json:"max_completion_tokens,omitempty"` // Preferred
-	FrequencyPenalty    *float64      `json:"frequency_penalty,omitempty"`
-	PresencePenalty     *float64      `json:"presence_penalty,omitempty"`
-	Stop                interface{}   `json:"stop,omitempty"` // string or []string
-	Stream              *bool         `json:"stream,omitempty"`
-	Seed                *int          `json:"seed,omitempty"`
-	User                string        `json:"user,omitempty"`
+	Model               string         `json:"model"`
+	Models              []string       `json:"models,omitempty"` // for model fallback // TODO: implement model fallback logic
+	Messages            []chatMessage  `json:"messages"`
+	Temperature         *float64       `json:"temperature,omitempty"`
+	TopP                *float64       `json:"top_p,omitempty"`
+	MaxTokens           *int           `json:"max_tokens,omitempty"`            // Legacy, still accepted
+	MaxCompletionTokens *int           `json:"max_completion_tokens,omitempty"` // Preferred
+	FrequencyPenalty    *float64       `json:"frequency_penalty,omitempty"`
+	PresencePenalty     *float64       `json:"presence_penalty,omitempty"`
+	Stop                interface{}    `json:"stop,omitempty"` // string or []string
+	Stream              *bool          `json:"stream,omitempty"`
+	StreamOptions       *streamOptions `json:"stream_options,omitempty"` // Controls streaming behavior (e.g., include_usage in final chunk)
+	Seed                *int           `json:"seed,omitempty"`
+	User                string         `json:"user,omitempty"`
 
 	// Tool calling - new format
 	Tools             []chatTool  `json:"tools,omitempty"`
@@ -164,6 +207,42 @@ func requestToChatCompletion(request ai.ChatRequest, useLegacyFunctions bool) ch
 		chatMsg := chatMessage{
 			Role:    string(msg.Role),
 			Content: msg.Content,
+		}
+
+		// Handle multimodal ContentParts for Chat Completions API.
+		// Video and document types are not supported by the Chat Completions API.
+		if len(msg.ContentParts) > 0 {
+			parts := make([]contentPart, 0, len(msg.ContentParts))
+			for _, part := range msg.ContentParts {
+				switch part.Type {
+				case ai.ContentTypeText:
+					parts = append(parts, contentPart{Type: "text", Text: part.Text})
+				case ai.ContentTypeImage:
+					if part.Image == nil {
+						continue
+					}
+					imageURL := part.Image.URI
+					if imageURL == "" {
+						imageURL = buildDataURL(part.Image.MimeType, part.Image.Data)
+					}
+					if imageURL == "" {
+						continue
+					}
+					parts = append(parts, contentPart{Type: "image_url", ImageURL: &contentPartImage{URL: imageURL}})
+				case ai.ContentTypeAudio:
+					if part.Audio == nil || part.Audio.Data == "" {
+						continue
+					}
+					format := mimeTypeToAudioFormat(part.Audio.MimeType)
+					parts = append(parts, contentPart{Type: "input_audio", InputAudio: &contentPartAudio{Data: part.Audio.Data, Format: format}})
+				case ai.ContentTypeVideo, ai.ContentTypeDocument:
+					// Chat Completions API does not support video/document inputs.
+					continue
+				}
+			}
+			if len(parts) > 0 {
+				chatMsg.Content = parts
+			}
 		}
 
 		// Map tool-related fields

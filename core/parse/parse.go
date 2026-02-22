@@ -88,50 +88,39 @@ func extractJSONCandidates(content string) []string {
 	return candidates
 }
 
-// ParseStringAs attempts to parse a string into the specified type T.
-// For primitive types (string, bool, int, uint, float), it performs direct conversion.
-// For complex types (structs, maps, slices), it attempts JSON unmarshaling.
+// ParseStringAs attempts to parse content into the specified type T, applying
+// increasingly aggressive recovery strategies to handle the imperfect text
+// output that language models commonly produce.
 //
-// The function handles various LLM output scenarios:
-//   - JSON with narrative text before/after (e.g., "Here is the result:\n{...}")
-//   - Multiple JSON objects (tries each until one succeeds)
-//   - Type mismatches (array when struct expected, or vice versa)
-//   - Malformed JSON (using jsonrepair library)
-//   - Markdown code blocks (handled by jsonrepair)
+// For primitive types (string, bool, int, uint, float) it performs direct
+// string conversion via strconv, with a fallback that unwraps schema-style
+// envelopes of the form {"type":"string","value":"..."}.
 //
-// Type parameters:
-//   - T: The target type to parse the string into
+// For complex types (structs, maps, slices) it first tries standard JSON
+// unmarshaling, then progressively falls back to: extracting JSON candidates
+// embedded in narrative text, repairing malformed JSON via the jsonrepair
+// library, unwrapping schema-wrapped fields, and reconciling type mismatches
+// (array-when-struct-expected and object-when-slice-expected).
 //
-// Parameters:
-//   - content: The string content to parse
+// Returns the zero value of T and a descriptive error if all strategies fail.
 //
-// Returns:
-//   - T: The parsed value of type T
-//   - error: An error if parsing fails after all attempts
-//
-// Example usage:
+// Example:
 //
 //	type Person struct {
 //	    Name string `json:"name"`
 //	    Age  int    `json:"age"`
 //	}
 //
-//	// Parse a valid JSON string
+//	// Clean JSON
 //	person, err := ParseStringAs[Person](`{"name":"John","age":30}`)
 //
-//	// Parse JSON with LLM narrative text
-//	person, err := ParseStringAs[Person](`Here is the person data:\n{"name":"John","age":30}`)
+//	// JSON embedded in prose
+//	person, err := ParseStringAs[Person]("Here is the data:\n{\"name\":\"John\",\"age\":30}")
 //
-//	// Parse an invalid JSON string (will be auto-repaired)
+//	// Malformed JSON (auto-repaired)
 //	person, err := ParseStringAs[Person](`{name: 'John', age: 30}`)
 //
-//	// Parse array when expecting struct (extracts first element)
-//	person, err := ParseStringAs[Person](`[{"name":"John","age":30}]`)
-//
-//	// Parse object when expecting array (wraps in array)
-//	people, err := ParseStringAs[[]Person](`{"name":"John","age":30}`)
-//
-//	// Parse primitive types
+//	// Primitive types
 //	num, err := ParseStringAs[int]("42")
 //	flag, err := ParseStringAs[bool]("true")
 func ParseStringAs[T any](content string) (T, error) {
@@ -231,7 +220,7 @@ func ParseStringAs[T any](content string) (T, error) {
 			var lastErr error
 			for _, candidate := range candidates {
 				// Attempt to repair the JSON candidate
-				repairedJSON, repairErr := jsonrepair.JSONRepair(candidate)
+				repairedJSON, repairErr := jsonrepair.Repair(candidate)
 				if repairErr != nil {
 					lastErr = fmt.Errorf("repair error: %v", repairErr)
 					continue

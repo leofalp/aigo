@@ -10,8 +10,8 @@ const (
 	observerContextKey contextKey = "observer"
 )
 
-// SpanFromContext extracts a Span from the context.
-// Returns nil if no span is present.
+// SpanFromContext extracts the active [Span] stored in ctx.
+// Returns nil if ctx is nil or no span has been attached.
 func SpanFromContext(ctx context.Context) Span {
 	if ctx == nil {
 		return nil
@@ -20,7 +20,9 @@ func SpanFromContext(ctx context.Context) Span {
 	return span
 }
 
-// ContextWithSpan returns a new context with the given span attached.
+// ContextWithSpan returns a copy of ctx carrying span so that it can be
+// retrieved later with [SpanFromContext]. If ctx is nil, context.Background
+// is used as the parent.
 func ContextWithSpan(ctx context.Context, span Span) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -28,8 +30,8 @@ func ContextWithSpan(ctx context.Context, span Span) context.Context {
 	return context.WithValue(ctx, spanContextKey, span)
 }
 
-// ObserverFromContext extracts an Observer (Provider) from the context.
-// Returns nil if no observer is present.
+// ObserverFromContext extracts the [Provider] stored in ctx.
+// Returns nil if ctx is nil or no observer has been attached.
 func ObserverFromContext(ctx context.Context) Provider {
 	if ctx == nil {
 		return nil
@@ -38,7 +40,9 @@ func ObserverFromContext(ctx context.Context) Provider {
 	return observer
 }
 
-// ContextWithObserver returns a new context with the given observer attached.
+// ContextWithObserver returns a copy of ctx carrying observer so that it can
+// be retrieved later with [ObserverFromContext]. If ctx is nil,
+// context.Background is used as the parent.
 func ContextWithObserver(ctx context.Context, observer Provider) context.Context {
 	if ctx == nil {
 		ctx = context.Background()

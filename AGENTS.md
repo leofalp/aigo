@@ -170,6 +170,19 @@ Optional cost tracking, logging, and tool-specific keys documented in `.env.exam
 - Command: `go test -race -coverprofile=coverage.out ./...`
 - Integration tests NOT run in CI
 
+## LLM Documentation Files
+
+`llms.txt` and `llms-full.txt` at the repo root are machine-readable documentation files following the [llms.txt specification](https://llmstxt.org/). They provide LLM-friendly navigation and comprehensive API reference.
+
+**Keep these files updated when making substantial library changes**, including:
+- Adding, removing, or renaming exported types, functions, or methods
+- Adding new packages (`providers/ai/`, `providers/tool/`, `patterns/`, `core/`)
+- Changing constructor signatures or option functions
+- Adding or removing built-in tools
+- Updating environment variable names or semantics
+
+`llms.txt` is the concise navigation index (under 200 lines). `llms-full.txt` is the comprehensive reference including README, architecture docs, exported API signatures, and key examples.
+
 ## Pre-Commit Checklist
 
 1. All unit tests pass: `go test -race ./...`
@@ -177,3 +190,4 @@ Optional cost tracking, logging, and tool-specific keys documented in `.env.exam
 3. Code formatted: `go fmt ./... && gofmt -s -w .`
 4. Checked `internal/utils/` for existing utilities
 5. All exported types/functions have godoc comments
+6. If substantial library changes were made: update `llms.txt` and `llms-full.txt`

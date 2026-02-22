@@ -1,3 +1,7 @@
+// Package main demonstrates the Brave Search tool (Layer 1) by executing five search scenarios:
+// simple web search, localized search, recent news search, advanced structured search with
+// infoboxes and media, and a technical query.
+// Requires the BRAVE_SEARCH_API_KEY environment variable to be set.
 package main
 
 import (

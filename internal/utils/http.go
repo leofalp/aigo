@@ -34,6 +34,7 @@ func CloseWithLog(closer io.Closer) {
 }
 
 // HeaderOption represents a custom HTTP header to be added to requests.
+// It holds the header name and value as strings.
 type HeaderOption struct {
 	Key   string
 	Value string
@@ -106,7 +107,9 @@ func DoPostSync[OutputStruct any](ctx context.Context, client *http.Client, url 
 	}
 	defer CloseWithLog(res.Body)
 
-	respBody, err := io.ReadAll(res.Body)
+	// Cap body reads to maxResponseBodySize (defined in http_stream.go) to
+	// prevent unbounded memory allocation from rogue or malformed responses.
+	respBody, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBodySize))
 	if err != nil {
 		return nil, nil, fmt.Errorf("error reading response body: %w", err)
 	}

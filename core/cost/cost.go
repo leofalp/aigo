@@ -50,7 +50,7 @@ func (s OptimizationStrategy) String() string {
 //	}
 type ToolMetrics struct {
 	// Amount is the cost value for executing this tool once
-	Amount float64 `json:"amount"`
+	Amount float64 `json:"amount,omitempty"`
 
 	// Currency is the currency or unit for the cost (e.g., "USD", "EUR", "credits")
 	Currency string `json:"currency,omitempty"`
@@ -117,41 +117,145 @@ func (tm ToolMetrics) CostEffectivenessScore() float64 {
 	return tm.Accuracy / tm.Amount
 }
 
+// ContextTier defines a pricing tier that activates when token usage exceeds
+// the specified thresholds. Both Gemini and Anthropic use tiered pricing
+// (e.g., different rates for prompts <=200k vs >200k tokens).
+// OpenAI uses flat pricing (no tiers needed).
+//
+// Input and output thresholds are independent: a request may exceed the input
+// threshold but remain below the output threshold, resulting in mixed rates.
+//
+// Example:
+//
+//	tier := cost.ContextTier{
+//	    InputTokenThreshold:  200_000,  // Activates when input > 200k tokens
+//	    InputCostPerMillion:  2.50,     // Higher rate for large inputs
+//	    OutputTokenThreshold: 200_000,  // Activates when output > 200k tokens
+//	    OutputCostPerMillion: 15.00,    // Higher rate for large outputs
+//	}
+type ContextTier struct {
+	// InputTokenThreshold is the minimum input token count for this tier to apply.
+	// If input tokens exceed this value, InputCostPerMillion is used instead of the base rate.
+	InputTokenThreshold int `json:"input_token_threshold,omitempty"`
+
+	// InputCostPerMillion is the cost in USD per 1 million input tokens for this tier.
+	InputCostPerMillion float64 `json:"input_cost_per_million,omitempty"`
+
+	// OutputTokenThreshold is the minimum output token count for this tier to apply.
+	// If output tokens exceed this value, OutputCostPerMillion is used instead of the base rate.
+	OutputTokenThreshold int `json:"output_token_threshold,omitempty"`
+
+	// OutputCostPerMillion is the cost in USD per 1 million output tokens for this tier.
+	OutputCostPerMillion float64 `json:"output_cost_per_million,omitempty"`
+}
+
 // ModelCost represents the pricing structure for a language model.
-// Costs are expressed in USD per million tokens.
+// Costs are expressed in USD per million tokens. Supports flat pricing,
+// tiered pricing (via ContextTiers), and per-unit media generation costs.
+//
+// Designed to be compatible with the pricing models of all major providers:
+//   - Gemini: tiered pricing (<=200k / >200k), per-image output costs
+//   - OpenAI: flat per-model pricing, per-image generation costs
+//   - Anthropic: tiered pricing (<=200k / >200k prompts)
 //
 // Example usage:
 //
 //	modelCost := cost.ModelCost{
-//	    InputCostPerMillion:       2.50,
+//	    InputCostPerMillion:       1.25,
 //	    OutputCostPerMillion:      10.00,
-//	    CachedInputCostPerMillion: 1.25,
-//	    ReasoningCostPerMillion:   5.00,
+//	    CachedInputCostPerMillion: 0.625,
+//	    ContextTiers: []cost.ContextTier{
+//	        {InputTokenThreshold: 200_000, InputCostPerMillion: 2.50,
+//	         OutputTokenThreshold: 200_000, OutputCostPerMillion: 15.00},
+//	    },
 //	}
 type ModelCost struct {
-	// InputCostPerMillion is the cost in USD per 1 million input tokens
+	// InputCostPerMillion is the base cost in USD per 1 million input tokens.
+	// When ContextTiers is populated, this is the rate for tokens below the first threshold.
 	InputCostPerMillion float64 `json:"input_cost_per_million"`
 
-	// OutputCostPerMillion is the cost in USD per 1 million output tokens
+	// OutputCostPerMillion is the base cost in USD per 1 million output tokens.
+	// When ContextTiers is populated, this is the rate for tokens below the first threshold.
 	OutputCostPerMillion float64 `json:"output_cost_per_million"`
 
-	// CachedInputCostPerMillion is the cost in USD per 1 million cached input tokens
-	// Some providers offer discounted rates for cached tokens (optional)
+	// CachedInputCostPerMillion is the cost in USD per 1 million cached input tokens.
+	// Some providers offer discounted rates for cached tokens (optional).
 	CachedInputCostPerMillion float64 `json:"cached_input_cost_per_million,omitempty"`
 
-	// ReasoningCostPerMillion is the cost in USD per 1 million reasoning tokens
-	// Used by models like o1/o3 that perform chain-of-thought reasoning (optional)
+	// ReasoningCostPerMillion is the cost in USD per 1 million reasoning tokens.
+	// Used by models like o1/o3/gpt-5 that perform chain-of-thought reasoning (optional).
 	ReasoningCostPerMillion float64 `json:"reasoning_cost_per_million,omitempty"`
+
+	// ContextTiers holds optional tiered pricing overrides, ordered by ascending threshold.
+	// When populated, CalculateTotalCost selects rates based on token counts.
+	// If empty or nil, flat base rates (InputCostPerMillion/OutputCostPerMillion) are used.
+	ContextTiers []ContextTier `json:"context_tiers,omitempty"`
+
+	// ImageOutputCostPerUnit is the cost in USD per generated image (optional).
+	// Used by image generation models (e.g., Gemini image models, DALL-E).
+	ImageOutputCostPerUnit float64 `json:"image_output_cost_per_unit,omitempty"`
+
+	// VideoOutputCostPerUnit is the cost in USD per generated video (optional).
+	// Used by video generation models (e.g., Veo, Sora).
+	VideoOutputCostPerUnit float64 `json:"video_output_cost_per_unit,omitempty"`
+
+	// AudioOutputCostPerUnit is the cost in USD per generated audio segment (optional).
+	// Used by audio/TTS generation models.
+	AudioOutputCostPerUnit float64 `json:"audio_output_cost_per_unit,omitempty"`
 }
 
-// CalculateInputCost calculates the cost for the given number of input tokens.
+// effectiveInputRate returns the applicable input cost per million tokens,
+// selecting the highest-threshold tier that the input token count exceeds.
+// Falls back to the base InputCostPerMillion when no tier matches.
+func (mc ModelCost) effectiveInputRate(inputTokens int) float64 {
+	rate := mc.InputCostPerMillion
+	for _, tier := range mc.ContextTiers {
+		if inputTokens > tier.InputTokenThreshold {
+			rate = tier.InputCostPerMillion
+		}
+	}
+	return rate
+}
+
+// effectiveOutputRate returns the applicable output cost per million tokens,
+// selecting the highest-threshold tier that the output token count exceeds.
+// Falls back to the base OutputCostPerMillion when no tier matches.
+func (mc ModelCost) effectiveOutputRate(outputTokens int) float64 {
+	rate := mc.OutputCostPerMillion
+	for _, tier := range mc.ContextTiers {
+		if outputTokens > tier.OutputTokenThreshold {
+			rate = tier.OutputCostPerMillion
+		}
+	}
+	return rate
+}
+
+// CalculateInputCost calculates the cost for the given number of input tokens
+// using the base rate (ignoring tiered pricing). For tier-aware calculation,
+// use CalculateInputCostWithTiers or CalculateTotalCost instead.
 func (mc ModelCost) CalculateInputCost(tokens int) float64 {
 	return (float64(tokens) / 1_000_000.0) * mc.InputCostPerMillion
 }
 
-// CalculateOutputCost calculates the cost for the given number of output tokens.
+// CalculateInputCostWithTiers calculates the cost for the given number of input tokens
+// using tiered pricing if ContextTiers is populated.
+func (mc ModelCost) CalculateInputCostWithTiers(tokens int) float64 {
+	rate := mc.effectiveInputRate(tokens)
+	return (float64(tokens) / 1_000_000.0) * rate
+}
+
+// CalculateOutputCost calculates the cost for the given number of output tokens
+// using the base rate (ignoring tiered pricing). For tier-aware calculation,
+// use CalculateOutputCostWithTiers or CalculateTotalCost instead.
 func (mc ModelCost) CalculateOutputCost(tokens int) float64 {
 	return (float64(tokens) / 1_000_000.0) * mc.OutputCostPerMillion
+}
+
+// CalculateOutputCostWithTiers calculates the cost for the given number of output tokens
+// using tiered pricing if ContextTiers is populated.
+func (mc ModelCost) CalculateOutputCostWithTiers(tokens int) float64 {
+	rate := mc.effectiveOutputRate(tokens)
+	return (float64(tokens) / 1_000_000.0) * rate
 }
 
 // CalculateCachedCost calculates the cost for the given number of cached tokens.
@@ -164,10 +268,39 @@ func (mc ModelCost) CalculateReasoningCost(tokens int) float64 {
 	return (float64(tokens) / 1_000_000.0) * mc.ReasoningCostPerMillion
 }
 
+// CalculateImageOutputCost calculates the cost for the given number of generated images.
+func (mc ModelCost) CalculateImageOutputCost(count int) float64 {
+	return float64(count) * mc.ImageOutputCostPerUnit
+}
+
+// CalculateVideoOutputCost calculates the cost for the given number of generated videos.
+func (mc ModelCost) CalculateVideoOutputCost(count int) float64 {
+	return float64(count) * mc.VideoOutputCostPerUnit
+}
+
+// CalculateAudioOutputCost calculates the cost for the given number of generated audio segments.
+func (mc ModelCost) CalculateAudioOutputCost(count int) float64 {
+	return float64(count) * mc.AudioOutputCostPerUnit
+}
+
+// CalculateMediaCost calculates the combined cost for all generated media outputs.
+// images, videos, and audios are the respective unit counts for each media type;
+// each is multiplied by its per-unit rate and the results are summed.
+func (mc ModelCost) CalculateMediaCost(images, videos, audios int) float64 {
+	return mc.CalculateImageOutputCost(images) +
+		mc.CalculateVideoOutputCost(videos) +
+		mc.CalculateAudioOutputCost(audios)
+}
+
 // CalculateTotalCost calculates the total cost for all token types.
+// When ContextTiers is populated, input and output rates are selected independently
+// based on respective token counts (e.g., input may use tier rate while output uses base rate).
 func (mc ModelCost) CalculateTotalCost(inputTokens, outputTokens, cachedTokens, reasoningTokens int) float64 {
-	total := mc.CalculateInputCost(inputTokens)
-	total += mc.CalculateOutputCost(outputTokens)
+	inputRate := mc.effectiveInputRate(inputTokens)
+	outputRate := mc.effectiveOutputRate(outputTokens)
+
+	total := (float64(inputTokens) / 1_000_000.0) * inputRate
+	total += (float64(outputTokens) / 1_000_000.0) * outputRate
 
 	if mc.CachedInputCostPerMillion > 0 && cachedTokens > 0 {
 		total += mc.CalculateCachedCost(cachedTokens)
@@ -182,8 +315,29 @@ func (mc ModelCost) CalculateTotalCost(inputTokens, outputTokens, cachedTokens, 
 
 // String returns a formatted string representation of the model costs.
 func (mc ModelCost) String() string {
-	return fmt.Sprintf("Input: $%.6f/M, Output: $%.6f/M",
+	result := fmt.Sprintf("Input: $%.4f/M, Output: $%.4f/M",
 		mc.InputCostPerMillion, mc.OutputCostPerMillion)
+
+	if len(mc.ContextTiers) > 0 {
+		for index, tier := range mc.ContextTiers {
+			result += fmt.Sprintf(" | Tier %d: Input(>%dk): $%.4f/M, Output(>%dk): $%.4f/M",
+				index+1,
+				tier.InputTokenThreshold/1000, tier.InputCostPerMillion,
+				tier.OutputTokenThreshold/1000, tier.OutputCostPerMillion)
+		}
+	}
+
+	if mc.ImageOutputCostPerUnit > 0 {
+		result += fmt.Sprintf(" | Image: $%.4f/unit", mc.ImageOutputCostPerUnit)
+	}
+	if mc.VideoOutputCostPerUnit > 0 {
+		result += fmt.Sprintf(" | Video: $%.4f/unit", mc.VideoOutputCostPerUnit)
+	}
+	if mc.AudioOutputCostPerUnit > 0 {
+		result += fmt.Sprintf(" | Audio: $%.4f/unit", mc.AudioOutputCostPerUnit)
+	}
+
+	return result
 }
 
 // ComputeCost represents the pricing for infrastructure/compute resources.
@@ -210,7 +364,10 @@ func (cc ComputeCost) String() string {
 	return fmt.Sprintf("$%.6f/sec", cc.CostPerSecond)
 }
 
-// CostSummary provides a detailed breakdown of all costs during an execution.
+// CostSummary provides a detailed breakdown of all costs incurred during a
+// single agent execution. It separates tool call costs, model token costs
+// (input, output, cached, and reasoning), and infrastructure compute costs,
+// making it straightforward to identify which component dominates the spend.
 type CostSummary struct {
 	// ToolCosts maps tool names to their accumulated execution costs
 	ToolCosts map[string]float64 `json:"tool_costs,omitempty"`

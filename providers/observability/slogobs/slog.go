@@ -9,7 +9,9 @@ import (
 	"github.com/leofalp/aigo/providers/observability"
 )
 
-// Observer implements observability.Provider using Go's standard library slog
+// Observer implements observability.Provider using Go's standard library slog.
+// It routes tracing, metrics, and log events through a structured slog.Logger,
+// making it suitable for lightweight observability without external dependencies.
 type Observer struct {
 	logger  *slog.Logger
 	metrics *metricsStore
@@ -62,6 +64,11 @@ var _ observability.Provider = (*Observer)(nil)
 
 // --- TRACING ---
 
+// StartSpan begins a new named span and emits a debug log event at its start.
+// It attaches the provided attributes to the span for the duration of its lifetime.
+// The returned context is unchanged; the returned Span's End method logs the
+// elapsed duration. Use SetAttributes, SetStatus, RecordError, and AddEvent on
+// the Span to enrich it before calling End.
 func (o *Observer) StartSpan(ctx context.Context, name string, attrs ...observability.Attribute) (context.Context, observability.Span) {
 	span := &slogSpan{
 		name:      name,
@@ -91,6 +98,8 @@ type slogSpan struct {
 	mu        sync.Mutex
 }
 
+// End completes the span by recording the elapsed time and any accumulated attributes,
+// then logging the span end event at debug level.
 func (s *slogSpan) End() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -108,12 +117,14 @@ func (s *slogSpan) End() {
 	s.logger.LogAttrs(context.Background(), slog.LevelDebug, "Span ended", logAttrs...)
 }
 
+// SetAttributes appends the provided attributes to the span's attribute list.
 func (s *slogSpan) SetAttributes(attrs ...observability.Attribute) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.attrs = append(s.attrs, attrs...)
 }
 
+// SetStatus records the final status of the span using the provided code and optional description.
 func (s *slogSpan) SetStatus(code observability.StatusCode, description string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -134,6 +145,7 @@ func (s *slogSpan) SetStatus(code observability.StatusCode, description string) 
 	}
 }
 
+// RecordError records the provided error as an exception event on the span and logs it at error level.
 func (s *slogSpan) RecordError(err error) {
 	if err == nil {
 		return
@@ -151,6 +163,7 @@ func (s *slogSpan) RecordError(err error) {
 	s.logger.LogAttrs(context.Background(), slog.LevelError, "Span error", logAttrs...)
 }
 
+// AddEvent appends a named event with optional attributes to the span's timeline by logging it at debug level.
 func (s *slogSpan) AddEvent(name string, attrs ...observability.Attribute) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -167,10 +180,17 @@ func (s *slogSpan) AddEvent(name string, attrs ...observability.Attribute) {
 
 // --- METRICS ---
 
+// Counter returns a named observability.Counter backed by the in-memory metrics
+// store. Multiple calls with the same name return the same counter instance,
+// so callers can safely fetch it on every use without caching.
+// Each Add call emits a debug log entry reporting the delta and cumulative value.
 func (o *Observer) Counter(name string) observability.Counter {
 	return o.metrics.getCounter(name, o.logger)
 }
 
+// Histogram returns a named observability.Histogram backed by the in-memory
+// metrics store. Multiple calls with the same name return the same histogram
+// instance. Each Record call emits a debug log entry with the observed value.
 func (o *Observer) Histogram(name string) observability.Histogram {
 	return o.metrics.getHistogram(name, o.logger)
 }
@@ -240,6 +260,8 @@ type slogCounter struct {
 	value  int64
 }
 
+// Add increments the counter by value and logs the updated total at DEBUG level.
+// It implements [observability.Counter].
 func (c *slogCounter) Add(ctx context.Context, value int64, attrs ...observability.Attribute) {
 	c.mu.Lock()
 	c.value += value
@@ -264,6 +286,8 @@ type slogHistogram struct {
 	mu     sync.Mutex
 }
 
+// Record logs a histogram observation at DEBUG level.
+// It implements [observability.Histogram].
 func (h *slogHistogram) Record(ctx context.Context, value float64, attrs ...observability.Attribute) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -281,23 +305,34 @@ func (h *slogHistogram) Record(ctx context.Context, value float64, attrs ...obse
 
 // --- LOGGING ---
 
+// Trace logs a message at TRACE level (below DEBUG) with optional structured attributes.
+// TRACE is the most granular level; it is typically filtered out unless the log
+// level is explicitly set to TRACE via [WithLevel] or the AIGO_LOG_LEVEL env var.
 func (o *Observer) Trace(ctx context.Context, msg string, attrs ...observability.Attribute) {
 	// Trace is more verbose than Debug, use Debug-4 (which is typically filtered out unless explicitly enabled)
 	o.log(ctx, slog.LevelDebug-4, msg, attrs...)
 }
 
+// Debug logs a message at DEBUG level with optional structured attributes.
+// Use this for detailed diagnostic information useful during development.
 func (o *Observer) Debug(ctx context.Context, msg string, attrs ...observability.Attribute) {
 	o.log(ctx, slog.LevelDebug, msg, attrs...)
 }
 
+// Info logs a message at INFO level with optional structured attributes.
+// Use this for general operational events that confirm normal behavior.
 func (o *Observer) Info(ctx context.Context, msg string, attrs ...observability.Attribute) {
 	o.log(ctx, slog.LevelInfo, msg, attrs...)
 }
 
+// Warn logs a message at WARN level with optional structured attributes.
+// Use this for unexpected situations that are recoverable but worth investigating.
 func (o *Observer) Warn(ctx context.Context, msg string, attrs ...observability.Attribute) {
 	o.log(ctx, slog.LevelWarn, msg, attrs...)
 }
 
+// Error logs a message at ERROR level with optional structured attributes.
+// Use this for failures that affect the current operation and require attention.
 func (o *Observer) Error(ctx context.Context, msg string, attrs ...observability.Attribute) {
 	o.log(ctx, slog.LevelError, msg, attrs...)
 }

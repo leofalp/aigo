@@ -1,3 +1,7 @@
+// Package main demonstrates direct use of the Gemini provider (Layer 1) without the
+// higher-level client abstraction. It shows a grounded chat message using Google Search
+// and a structured-output request with an inline JSON schema.
+// Requires the GEMINI_API_KEY environment variable.
 package main
 
 import (

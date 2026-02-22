@@ -17,7 +17,10 @@ const (
 	chatCompletionsEndpoint = "/chat/completions"
 )
 
-// OpenAIProvider implements the Provider interface for OpenAI-compatible APIs
+// OpenAIProvider implements [ai.Provider] and [ai.StreamProvider] for OpenAI-compatible APIs.
+// It targets real OpenAI, Azure OpenAI, Ollama, OpenRouter, and any other host that
+// exposes an OpenAI-compatible REST interface. Capabilities are detected automatically
+// from the base URL; use [OpenAIProvider.WithCapabilities] to override them manually.
 type OpenAIProvider struct {
 	apiKey       string
 	baseURL      string
@@ -25,7 +28,12 @@ type OpenAIProvider struct {
 	capabilities Capabilities
 }
 
-// New creates a new OpenAI provider instance with default values
+// New returns an [OpenAIProvider] initialized from environment variables.
+// It reads OPENAI_API_KEY for authentication and OPENAI_API_BASE_URL for the
+// endpoint base (defaulting to https://api.openai.com/v1 when unset). Provider
+// capabilities are derived automatically by inspecting the base URL.
+// Use [OpenAIProvider.WithAPIKey] and [OpenAIProvider.WithBaseURL] to override
+// these values after construction.
 func New() *OpenAIProvider {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	baseURL := os.Getenv("OPENAI_API_BASE_URL")
@@ -41,38 +49,52 @@ func New() *OpenAIProvider {
 	}
 }
 
-// WithAPIKey sets the API key for the provider
+// WithAPIKey sets the bearer token used for API authentication and returns the
+// provider so calls can be chained. It overrides the value read from OPENAI_API_KEY.
 func (p *OpenAIProvider) WithAPIKey(apiKey string) ai.Provider {
 	p.apiKey = apiKey
 	return p
 }
 
-// WithBaseURL sets the base URL for the API and re-detects capabilities
+// WithBaseURL overrides the API base URL and re-runs capability detection against
+// the new host. It returns the provider so calls can be chained.
 func (p *OpenAIProvider) WithBaseURL(baseURL string) ai.Provider {
 	p.baseURL = baseURL
 	p.capabilities = detectCapabilities(baseURL)
 	return p
 }
 
-// WithHttpClient sets a custom HTTP client
+// WithHttpClient replaces the default [http.Client] used for API calls and returns
+// the provider so calls can be chained. Useful for injecting custom timeouts,
+// transport layers, or test doubles.
 func (p *OpenAIProvider) WithHttpClient(httpClient *http.Client) ai.Provider {
 	p.client = httpClient
 	return p
 }
 
-// WithCapabilities manually overrides detected capabilities (for advanced users)
+// WithCapabilities replaces the auto-detected [Capabilities] with a caller-supplied
+// value. This is useful when connecting to a provider whose base URL is not
+// recognized by the built-in heuristic, or when testing specific feature flags.
+// It returns *OpenAIProvider (not ai.Provider) to keep the Capabilities type
+// accessible without an interface cast.
 func (p *OpenAIProvider) WithCapabilities(capabilities Capabilities) *OpenAIProvider {
 	p.capabilities = capabilities
 	return p
 }
 
-// GetCapabilities returns the current capabilities
+// GetCapabilities returns the [Capabilities] currently in effect for this provider,
+// whether detected automatically or set via [OpenAIProvider.WithCapabilities].
 func (p *OpenAIProvider) GetCapabilities() Capabilities {
 	return p.capabilities
 }
 
-// SendMessage implements the Provider interface
-// It automatically chooses the best endpoint based on capabilities
+// SendMessage implements [ai.Provider] by sending a synchronous chat request and
+// returning the full response. It automatically routes to
+// [OpenAIProvider.SendMessageViaResponses] when the provider supports the
+// /v1/responses endpoint, and falls back to
+// [OpenAIProvider.SendMessageViaChatCompletions] otherwise.
+// Returns an error if the API key is unset, the HTTP request fails, or the
+// response contains no usable output.
 func (p *OpenAIProvider) SendMessage(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
 	// Enrich span if present in context
 	span := observability.SpanFromContext(ctx)
@@ -111,7 +133,11 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, request ai.ChatRequest
 	return p.SendMessageViaChatCompletions(ctx, request)
 }
 
-// SendMessageViaResponses uses the /v1/responses endpoint (OpenAI only)
+// SendMessageViaResponses sends a chat request to the OpenAI /v1/responses endpoint
+// and returns the normalised response. This endpoint is only available on the real
+// OpenAI API (not Azure or third-party compatible hosts). Prefer
+// [OpenAIProvider.SendMessage], which selects the endpoint automatically.
+// Returns an error if the HTTP call fails or the response body contains no output items.
 func (p *OpenAIProvider) SendMessageViaResponses(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
 	span := observability.SpanFromContext(ctx)
 	observer := observability.ObserverFromContext(ctx)
@@ -165,7 +191,11 @@ func (p *OpenAIProvider) SendMessageViaResponses(ctx context.Context, request ai
 	return result, nil
 }
 
-// SendMessageViaChatCompletions uses the /v1/chat/completions endpoint (universal)
+// SendMessageViaChatCompletions sends a chat request to the /v1/chat/completions
+// endpoint and returns the normalised response. This endpoint is supported by
+// virtually all OpenAI-compatible providers. The legacy functions wire format is
+// used automatically when [Capabilities.ToolCallMode] is [ToolCallModeFunctions].
+// Returns an error if the HTTP call fails or the response contains no choices.
 func (p *OpenAIProvider) SendMessageViaChatCompletions(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
 	span := observability.SpanFromContext(ctx)
 	observer := observability.ObserverFromContext(ctx)
@@ -222,7 +252,12 @@ func (p *OpenAIProvider) SendMessageViaChatCompletions(ctx context.Context, requ
 	return result, nil
 }
 
-// IsStopMessage reports whether the given chat response should be treated as a stop/end signal.
+// IsStopMessage reports whether message represents a terminal response that requires
+// no further action. A nil message, a response whose finish reason is "stop",
+// "length", or "content_filter", or a response with no content and no media output
+// are all treated as stop signals. Responses that contain tool calls are never
+// considered stops, even when finish_reason is "stop", because some providers
+// (e.g. certain OpenRouter models) set that field incorrectly.
 func (p *OpenAIProvider) IsStopMessage(message *ai.ChatResponse) bool {
 	if message == nil {
 		return true
@@ -240,8 +275,8 @@ func (p *OpenAIProvider) IsStopMessage(message *ai.ChatResponse) bool {
 		return true
 	}
 
-	// If there's no content and no tool calls, treat as stop
-	if message.Content == "" {
+	// If there's no content, no media outputs, and no tool calls, treat as stop
+	if message.Content == "" && len(message.Images) == 0 && len(message.Audio) == 0 && len(message.Videos) == 0 {
 		return true
 	}
 

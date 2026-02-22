@@ -1,3 +1,8 @@
+// Package main demonstrates cost tracking in the aigo client layer (Layer 2). It creates
+// tools with distinct cost profiles, attaches per-token model pricing and per-second compute
+// pricing to a ReAct agent, and prints detailed cost breakdowns. It also shows how
+// OptimizationStrategy changes tool-selection guidance.
+// Requires the OPENAI_API_KEY environment variable.
 package main
 
 import (
@@ -9,7 +14,7 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 	"github.com/leofalp/aigo/core/client"
 	"github.com/leofalp/aigo/core/cost"
-	"github.com/leofalp/aigo/patterns"
+	"github.com/leofalp/aigo/core/overview"
 	"github.com/leofalp/aigo/patterns/react"
 	"github.com/leofalp/aigo/providers/ai/openai"
 	"github.com/leofalp/aigo/providers/memory/inmemory"
@@ -210,7 +215,7 @@ func main() {
 }
 
 // printCostSummary prints a summary of the costs for an execution
-func printCostSummary(overview *patterns.Overview) {
+func printCostSummary(overview *overview.Overview) {
 	summary := overview.CostSummary()
 
 	fmt.Println("\n💰 Cost Summary:")
@@ -227,7 +232,7 @@ func printCostSummary(overview *patterns.Overview) {
 }
 
 // printDetailedCostBreakdown prints a detailed breakdown of all costs
-func printDetailedCostBreakdown(overview *patterns.Overview) {
+func printDetailedCostBreakdown(overview *overview.Overview) {
 	summary := overview.CostSummary()
 
 	fmt.Println("\n💰 Detailed Cost Breakdown:")

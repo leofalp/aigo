@@ -121,6 +121,27 @@ func TestModelCostCalculateInputCost(t *testing.T) {
 	}
 }
 
+func TestModelCostCalculateInputCostWithTiers(t *testing.T) {
+	mc := ModelCost{
+		InputCostPerMillion: 2.50,
+		ContextTiers: []ContextTier{
+			{InputTokenThreshold: 200_000, InputCostPerMillion: 5.00},
+		},
+	}
+
+	cost := mc.CalculateInputCostWithTiers(100_000)
+	expected := 0.25
+	if cost != expected {
+		t.Errorf("Expected cost %f, got %f", expected, cost)
+	}
+
+	cost = mc.CalculateInputCostWithTiers(300_000)
+	expected = 1.50
+	if cost != expected {
+		t.Errorf("Expected cost %f, got %f", expected, cost)
+	}
+}
+
 func TestModelCostCalculateOutputCost(t *testing.T) {
 	mc := ModelCost{
 		InputCostPerMillion:  2.50,
@@ -139,6 +160,27 @@ func TestModelCostCalculateOutputCost(t *testing.T) {
 	cost = mc.CalculateOutputCost(250_000)
 	expected = 2.50
 
+	if cost != expected {
+		t.Errorf("Expected cost %f, got %f", expected, cost)
+	}
+}
+
+func TestModelCostCalculateOutputCostWithTiers(t *testing.T) {
+	mc := ModelCost{
+		OutputCostPerMillion: 10.00,
+		ContextTiers: []ContextTier{
+			{OutputTokenThreshold: 200_000, OutputCostPerMillion: 20.00},
+		},
+	}
+
+	cost := mc.CalculateOutputCostWithTiers(100_000)
+	expected := 1.00
+	if cost != expected {
+		t.Errorf("Expected cost %f, got %f", expected, cost)
+	}
+
+	cost = mc.CalculateOutputCostWithTiers(300_000)
+	expected = 6.00
 	if cost != expected {
 		t.Errorf("Expected cost %f, got %f", expected, cost)
 	}
@@ -198,10 +240,47 @@ func TestModelCostString(t *testing.T) {
 		InputCostPerMillion:  2.50,
 		OutputCostPerMillion: 10.00,
 	}
-	expected := "Input: $2.500000/M, Output: $10.000000/M"
+	expected := "Input: $2.5000/M, Output: $10.0000/M"
 
 	if mc.String() != expected {
 		t.Errorf("Expected %s, got %s", expected, mc.String())
+	}
+}
+
+func TestModelCostString_WithTiers(t *testing.T) {
+	mc := ModelCost{
+		InputCostPerMillion:  1.25,
+		OutputCostPerMillion: 10.00,
+		ContextTiers: []ContextTier{
+			{
+				InputTokenThreshold:  200_000,
+				InputCostPerMillion:  2.50,
+				OutputTokenThreshold: 200_000,
+				OutputCostPerMillion: 15.00,
+			},
+		},
+	}
+
+	result := mc.String()
+	expectedPrefix := "Input: $1.2500/M, Output: $10.0000/M"
+	if result[:len(expectedPrefix)] != expectedPrefix {
+		t.Errorf("Expected string to start with %q, got %q", expectedPrefix, result)
+	}
+	if !containsMiddle(result, "Tier 1") {
+		t.Errorf("Expected string to contain tier info, got %q", result)
+	}
+}
+
+func TestModelCostString_WithMediaCosts(t *testing.T) {
+	mc := ModelCost{
+		InputCostPerMillion:    2.00,
+		OutputCostPerMillion:   12.00,
+		ImageOutputCostPerUnit: 0.134,
+	}
+
+	result := mc.String()
+	if !containsMiddle(result, "Image: $0.1340/unit") {
+		t.Errorf("Expected string to contain image cost, got %q", result)
 	}
 }
 
@@ -454,3 +533,289 @@ func containsMiddle(s, substr string) bool {
 }
 
 // Note: CostTracker has been removed - costs are now calculated directly in Overview
+
+// --- ContextTier and tiered pricing tests ---
+
+func TestContextTier_InputBelowThreshold_UsesBaseRate(t *testing.T) {
+	mc := ModelCost{
+		InputCostPerMillion:  1.25,
+		OutputCostPerMillion: 10.00,
+		ContextTiers: []ContextTier{
+			{
+				InputTokenThreshold:  200_000,
+				InputCostPerMillion:  2.50,
+				OutputTokenThreshold: 200_000,
+				OutputCostPerMillion: 15.00,
+			},
+		},
+	}
+
+	// 100k input tokens (below 200k threshold) -> base rate $1.25/M
+	totalCost := mc.CalculateTotalCost(100_000, 50_000, 0, 0)
+	expectedInput := (100_000.0 / 1_000_000.0) * 1.25  // $0.125
+	expectedOutput := (50_000.0 / 1_000_000.0) * 10.00 // $0.50
+	expectedTotal := expectedInput + expectedOutput    // $0.625
+
+	if totalCost != expectedTotal {
+		t.Errorf("Expected total cost %f, got %f", expectedTotal, totalCost)
+	}
+}
+
+func TestContextTier_InputAboveThreshold_UsesTierRate(t *testing.T) {
+	mc := ModelCost{
+		InputCostPerMillion:  1.25,
+		OutputCostPerMillion: 10.00,
+		ContextTiers: []ContextTier{
+			{
+				InputTokenThreshold:  200_000,
+				InputCostPerMillion:  2.50,
+				OutputTokenThreshold: 200_000,
+				OutputCostPerMillion: 15.00,
+			},
+		},
+	}
+
+	// 300k input tokens (above 200k threshold) -> tier rate $2.50/M
+	// 300k output tokens (above 200k threshold) -> tier rate $15.00/M
+	totalCost := mc.CalculateTotalCost(300_000, 300_000, 0, 0)
+	expectedInput := (300_000.0 / 1_000_000.0) * 2.50   // $0.75
+	expectedOutput := (300_000.0 / 1_000_000.0) * 15.00 // $4.50
+	expectedTotal := expectedInput + expectedOutput     // $5.25
+
+	if totalCost != expectedTotal {
+		t.Errorf("Expected total cost %f, got %f", expectedTotal, totalCost)
+	}
+}
+
+func TestContextTier_IndependentThresholds(t *testing.T) {
+	mc := ModelCost{
+		InputCostPerMillion:  1.25,
+		OutputCostPerMillion: 10.00,
+		ContextTiers: []ContextTier{
+			{
+				InputTokenThreshold:  200_000,
+				InputCostPerMillion:  2.50,
+				OutputTokenThreshold: 200_000,
+				OutputCostPerMillion: 15.00,
+			},
+		},
+	}
+
+	// Input above threshold (300k), output below threshold (100k)
+	// Input should use tier rate $2.50, output should use base rate $10.00
+	totalCost := mc.CalculateTotalCost(300_000, 100_000, 0, 0)
+	expectedInput := (300_000.0 / 1_000_000.0) * 2.50   // $0.75
+	expectedOutput := (100_000.0 / 1_000_000.0) * 10.00 // $1.00
+	expectedTotal := expectedInput + expectedOutput     // $1.75
+
+	if totalCost != expectedTotal {
+		t.Errorf("Expected total cost %f, got %f", expectedTotal, totalCost)
+	}
+}
+
+func TestContextTier_ExactlyAtThreshold_UsesBaseRate(t *testing.T) {
+	mc := ModelCost{
+		InputCostPerMillion:  1.25,
+		OutputCostPerMillion: 10.00,
+		ContextTiers: []ContextTier{
+			{
+				InputTokenThreshold:  200_000,
+				InputCostPerMillion:  2.50,
+				OutputTokenThreshold: 200_000,
+				OutputCostPerMillion: 15.00,
+			},
+		},
+	}
+
+	// Exactly 200k tokens (not exceeding) -> base rate
+	totalCost := mc.CalculateTotalCost(200_000, 200_000, 0, 0)
+	expectedInput := (200_000.0 / 1_000_000.0) * 1.25   // $0.25
+	expectedOutput := (200_000.0 / 1_000_000.0) * 10.00 // $2.00
+	expectedTotal := expectedInput + expectedOutput     // $2.25
+
+	if totalCost != expectedTotal {
+		t.Errorf("Expected total cost %f, got %f", expectedTotal, totalCost)
+	}
+}
+
+func TestContextTier_EmptyTiers_UsesBaseRate(t *testing.T) {
+	mc := ModelCost{
+		InputCostPerMillion:  1.25,
+		OutputCostPerMillion: 10.00,
+		ContextTiers:         []ContextTier{},
+	}
+
+	totalCost := mc.CalculateTotalCost(300_000, 100_000, 0, 0)
+	expectedInput := (300_000.0 / 1_000_000.0) * 1.25
+	expectedOutput := (100_000.0 / 1_000_000.0) * 10.00
+	expectedTotal := expectedInput + expectedOutput
+
+	if totalCost != expectedTotal {
+		t.Errorf("Expected total cost %f, got %f", expectedTotal, totalCost)
+	}
+}
+
+func TestContextTier_NilTiers_UsesBaseRate(t *testing.T) {
+	mc := ModelCost{
+		InputCostPerMillion:  1.25,
+		OutputCostPerMillion: 10.00,
+	}
+
+	totalCost := mc.CalculateTotalCost(300_000, 100_000, 0, 0)
+	expectedInput := (300_000.0 / 1_000_000.0) * 1.25
+	expectedOutput := (100_000.0 / 1_000_000.0) * 10.00
+	expectedTotal := expectedInput + expectedOutput
+
+	if totalCost != expectedTotal {
+		t.Errorf("Expected total cost %f, got %f", expectedTotal, totalCost)
+	}
+}
+
+func TestContextTier_WithCachedAndReasoning(t *testing.T) {
+	mc := ModelCost{
+		InputCostPerMillion:       1.25,
+		OutputCostPerMillion:      10.00,
+		CachedInputCostPerMillion: 0.625,
+		ReasoningCostPerMillion:   5.00,
+		ContextTiers: []ContextTier{
+			{
+				InputTokenThreshold:  200_000,
+				InputCostPerMillion:  2.50,
+				OutputTokenThreshold: 200_000,
+				OutputCostPerMillion: 15.00,
+			},
+		},
+	}
+
+	// 300k input (tier), 100k output (base), 50k cached, 20k reasoning
+	totalCost := mc.CalculateTotalCost(300_000, 100_000, 50_000, 20_000)
+	expectedInput := (300_000.0 / 1_000_000.0) * 2.50    // $0.75 (tier rate)
+	expectedOutput := (100_000.0 / 1_000_000.0) * 10.00  // $1.00 (base rate)
+	expectedCached := (50_000.0 / 1_000_000.0) * 0.625   // $0.03125
+	expectedReasoning := (20_000.0 / 1_000_000.0) * 5.00 // $0.10
+	expectedTotal := expectedInput + expectedOutput + expectedCached + expectedReasoning
+
+	if totalCost != expectedTotal {
+		t.Errorf("Expected total cost %f, got %f", expectedTotal, totalCost)
+	}
+}
+
+// --- Media cost tests ---
+
+func TestCalculateImageOutputCost(t *testing.T) {
+	mc := ModelCost{
+		ImageOutputCostPerUnit: 0.134,
+	}
+
+	tests := []struct {
+		name     string
+		count    int
+		expected float64
+	}{
+		{"zero images", 0, 0.0},
+		{"one image", 1, 0.134},
+		{"five images", 5, 0.670},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := mc.CalculateImageOutputCost(tt.count)
+			if result != tt.expected {
+				t.Errorf("Expected %f, got %f", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestCalculateVideoOutputCost(t *testing.T) {
+	mc := ModelCost{
+		VideoOutputCostPerUnit: 1.50,
+	}
+
+	result := mc.CalculateVideoOutputCost(3)
+	expected := 4.50
+
+	if result != expected {
+		t.Errorf("Expected %f, got %f", expected, result)
+	}
+}
+
+func TestCalculateAudioOutputCost(t *testing.T) {
+	mc := ModelCost{
+		AudioOutputCostPerUnit: 0.25,
+	}
+
+	result := mc.CalculateAudioOutputCost(4)
+	expected := 1.00
+
+	if result != expected {
+		t.Errorf("Expected %f, got %f", expected, result)
+	}
+}
+
+func TestCalculateMediaCost(t *testing.T) {
+	mc := ModelCost{
+		ImageOutputCostPerUnit: 0.134,
+		VideoOutputCostPerUnit: 1.50,
+		AudioOutputCostPerUnit: 0.25,
+	}
+
+	result := mc.CalculateMediaCost(2, 1, 3)
+	expected := (2 * 0.134) + (1 * 1.50) + (3 * 0.25) // 0.268 + 1.50 + 0.75 = 2.518
+
+	if result != expected {
+		t.Errorf("Expected %f, got %f", expected, result)
+	}
+}
+
+func TestCalculateMediaCost_ZeroCosts(t *testing.T) {
+	mc := ModelCost{} // No media costs set
+
+	result := mc.CalculateMediaCost(10, 5, 3)
+	if result != 0.0 {
+		t.Errorf("Expected 0 media cost when no per-unit costs set, got %f", result)
+	}
+}
+
+func TestCalculateTotalCost_WithTiersAndMedia_Integration(t *testing.T) {
+	// Simulates Gemini 2.5 Pro pricing with image generation
+	mc := ModelCost{
+		InputCostPerMillion:  1.25,
+		OutputCostPerMillion: 10.00,
+		ContextTiers: []ContextTier{
+			{
+				InputTokenThreshold:  200_000,
+				InputCostPerMillion:  2.50,
+				OutputTokenThreshold: 200_000,
+				OutputCostPerMillion: 15.00,
+			},
+		},
+		ImageOutputCostPerUnit: 0.134,
+	}
+
+	// Large prompt (250k input above threshold), small output (50k below threshold)
+	tokenCost := mc.CalculateTotalCost(250_000, 50_000, 0, 0)
+	expectedInput := (250_000.0 / 1_000_000.0) * 2.50   // $0.625 (tier rate)
+	expectedOutput := (50_000.0 / 1_000_000.0) * 10.00  // $0.50 (base rate)
+	expectedTokenCost := expectedInput + expectedOutput // $1.125
+
+	if tokenCost != expectedTokenCost {
+		t.Errorf("Expected token cost %f, got %f", expectedTokenCost, tokenCost)
+	}
+
+	// Plus 3 generated images
+	mediaCost := mc.CalculateMediaCost(3, 0, 0)
+	expectedMediaCost := 3 * 0.134 // $0.402
+
+	if mediaCost != expectedMediaCost {
+		t.Errorf("Expected media cost %f, got %f", expectedMediaCost, mediaCost)
+	}
+
+	// Total = token cost + media cost
+	totalCost := tokenCost + mediaCost
+	expectedTotal := expectedTokenCost + expectedMediaCost // $1.527
+
+	if totalCost != expectedTotal {
+		t.Errorf("Expected total cost %f, got %f", expectedTotal, totalCost)
+	}
+}

@@ -1020,7 +1020,9 @@ func isPrivateOrLocalIP(ip net.IP) bool {
 	return false
 }
 
-// Input represents the input parameters for the URL extractor tool
+// Input holds the configuration parameters for a URL extraction request.
+// URL is the only required field; all other fields are optional and fall back to
+// package-level defaults when zero-valued.
 type Input struct {
 	// URL is the website URL to extract URLs from (can be partial like "example.com")
 	URL string `json:"url" jsonschema:"description=The website URL to extract URLs from (supports partial URLs),required"`
@@ -1052,7 +1054,9 @@ type Input struct {
 	DisableSSRFProtection bool `json:"-"`
 }
 
-// Output represents the output of the URL extractor tool
+// Output holds the results of a URL extraction request.
+// It includes the deduplicated URL list, extraction statistics, and the
+// categorized standard-page map produced by [CategorizeURLs].
 type Output struct {
 	// BaseURL is the canonical base URL after following redirects
 	BaseURL string `json:"base_url" jsonschema:"description=The canonical base URL after following redirects (e.g. www.example.com if example.com redirects to it)"`
@@ -1080,7 +1084,9 @@ type Output struct {
 	StandardPages map[PageCategory][]string `json:"standard_pages,omitempty" jsonschema:"description=URLs categorized by standard page types: home contact about products blog faq privacy login cart. Useful for LLMs to quickly identify key pages."`
 }
 
-// Sitemap represents a sitemap.xml structure
+// Sitemap represents the XML structure of a standard sitemap file (sitemap.xml).
+// It is used to unmarshal the <urlset> root element and collect the <loc> entries
+// within each <url> child element.
 type Sitemap struct {
 	XMLName xml.Name `xml:"urlset"`
 	URLs    []struct {
@@ -1088,7 +1094,10 @@ type Sitemap struct {
 	} `xml:"url"`
 }
 
-// SitemapIndex represents a sitemap index structure
+// SitemapIndex represents the XML structure of a sitemap index file.
+// A sitemap index groups multiple individual sitemap files under a single
+// <sitemapindex> root, with each child <sitemap> element pointing to a
+// subordinate sitemap via its <loc> element.
 type SitemapIndex struct {
 	XMLName  xml.Name `xml:"sitemapindex"`
 	Sitemaps []struct {

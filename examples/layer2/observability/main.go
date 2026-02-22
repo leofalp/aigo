@@ -1,3 +1,7 @@
+// Package main demonstrates the three slogobs output formats (Layer 2): compact single-line
+// with JSON attributes, pretty multi-line with emoji and tree indentation, and standard JSON
+// for log-aggregation pipelines.
+// Requires the OPENAI_API_KEY environment variable.
 package main
 
 import (

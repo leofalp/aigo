@@ -9,9 +9,9 @@ import (
 	"strconv"
 
 	"github.com/leofalp/aigo/core/cost"
+	"github.com/leofalp/aigo/core/overview"
 	"github.com/leofalp/aigo/internal/jsonschema"
 	"github.com/leofalp/aigo/internal/utils"
-	"github.com/leofalp/aigo/patterns"
 	"github.com/leofalp/aigo/providers/ai"
 	"github.com/leofalp/aigo/providers/memory"
 	"github.com/leofalp/aigo/providers/observability"
@@ -63,38 +63,54 @@ type ClientOptions struct {
 	ComputeCost                 *cost.ComputeCost         // Optional: infrastructure/compute cost configuration
 }
 
-// Functional option pattern for ergonomic API
-
+// WithDefaultModel sets the LLM model name used for every request made by the
+// client. If not set here, the value falls back to the AIGO_DEFAULT_LLM_MODEL
+// environment variable.
 func WithDefaultModel(model string) func(*ClientOptions) {
 	return func(o *ClientOptions) {
 		o.DefaultModel = model
 	}
 }
 
+// WithMemory configures a memory provider for the client, enabling stateful
+// (multi-turn) conversations. Without a memory provider the client is stateless
+// and sends only the current prompt on each call.
 func WithMemory(memProvider memory.Provider) func(*ClientOptions) {
 	return func(o *ClientOptions) {
 		o.MemoryProvider = memProvider
 	}
 }
 
+// WithObserver attaches an observability provider that receives tracing spans,
+// log events, and metrics for every LLM request. Omitting this option results
+// in zero overhead (nil observer fast-path).
 func WithObserver(observer observability.Provider) func(*ClientOptions) {
 	return func(o *ClientOptions) {
 		o.Observer = observer
 	}
 }
 
+// WithSystemPrompt sets the global system prompt sent with every request.
+// Individual requests can override this value temporarily using
+// [WithEphemeralSystemPrompt].
 func WithSystemPrompt(prompt string) func(*ClientOptions) {
 	return func(o *ClientOptions) {
 		o.SystemPrompt = prompt
 	}
 }
 
+// WithRequiredTools registers tools that the LLM must always consider when
+// formulating a response. Required tools are included in every request
+// alongside any tools added via [WithTools].
 func WithRequiredTools(tools ...tool.GenericTool) func(*ClientOptions) {
 	return func(o *ClientOptions) {
 		o.RequiredTools = append(o.RequiredTools, tools...)
 	}
 }
 
+// WithTools registers additional tools that the LLM may call during a
+// conversation. Use [WithRequiredTools] for tools that must always be
+// considered.
 func WithTools(tools ...tool.GenericTool) func(*ClientOptions) {
 	return func(o *ClientOptions) {
 		o.Tools = append(o.Tools, tools...)
@@ -553,7 +569,7 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 	}
 	// Start tracing span (only if observer is set)
 	span := c.observeInit(&ctx, "sending message")
-	overview := patterns.OverviewFromContext(&ctx)
+	executionOverview := overview.OverviewFromContext(&ctx)
 	timer := utils.NewTimer()
 
 	// Build messages list based on memory provider availability
@@ -620,22 +636,171 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 		return nil, err
 	}
 
-	overview.AddRequest(&request)
-	overview.AddResponse(response)
-	overview.IncludeUsage(response.Usage)
-	overview.AddToolCalls(response.ToolCalls)
+	executionOverview.AddRequest(&request)
+	executionOverview.AddResponse(response)
+	executionOverview.IncludeUsage(response.Usage)
+	executionOverview.AddToolCalls(response.ToolCalls)
 
 	// Set model cost in overview if configured
 	if c.modelCost != nil {
-		overview.SetModelCost(c.modelCost)
+		executionOverview.SetModelCost(c.modelCost)
 	}
 	if c.computeCost != nil {
-		overview.SetComputeCost(c.computeCost)
+		executionOverview.SetComputeCost(c.computeCost)
 	}
 
 	c.observeSuccess(&ctx, &span, response, timer, "sending message")
 
 	return response, nil
+}
+
+// StreamMessage sends a user message and returns a ChatStream for real-time token delivery.
+// If the underlying provider implements ai.StreamProvider, it uses native streaming.
+// Otherwise, it falls back to a synchronous SendMessage wrapped in a single-event stream.
+//
+// The prompt parameter must be non-empty. Use StreamContinueConversation to continue
+// a conversation without adding a new user message.
+//
+// Memory persistence: when a memory provider is configured, the user message is
+// appended to memory eagerly before the stream starts. The assistant response is NOT
+// automatically persisted — callers are responsible for appending it after consuming
+// the stream:
+//
+//	client.Memory().AppendMessage(ctx, &ai.Message{Role: ai.RoleAssistant, Content: fullResponse})
+//
+// Example:
+//
+//	stream, err := client.StreamMessage(ctx, "Explain quantum computing")
+//	for event, err := range stream.Iter() {
+//	    if err != nil { log.Fatal(err) }
+//	    fmt.Print(event.Content) // print tokens as they arrive
+//	}
+func (c *Client) StreamMessage(ctx context.Context, prompt string, opts ...SendMessageOption) (*ai.ChatStream, error) {
+	// Validate prompt is non-empty
+	if prompt == "" {
+		return nil, errors.New("prompt cannot be empty; use StreamContinueConversation() to continue without adding a user message")
+	}
+
+	// Apply options
+	options := &SendMessageOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	// Build messages list based on memory provider availability
+	var messages []ai.Message
+	if c.memoryProvider != nil {
+		c.memoryProvider.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: prompt})
+		messages = c.memoryProvider.AllMessages()
+	} else {
+		messages = []ai.Message{
+			{Role: ai.RoleUser, Content: prompt},
+		}
+	}
+
+	// Determine which system prompt to use
+	systemPrompt := c.systemPrompt
+	if options.SystemPrompt != "" {
+		systemPrompt = options.SystemPrompt
+	}
+
+	// Build complete request
+	request := ai.ChatRequest{
+		Model:        c.defaultModel,
+		Messages:     messages,
+		SystemPrompt: systemPrompt,
+		Tools:        c.toolDescriptions,
+	}
+
+	// Add response format if output schema is provided
+	schema := options.OutputSchema
+	if schema == nil {
+		schema = c.defaultOutputSchema
+	}
+	if schema != nil {
+		request.ResponseFormat = &ai.ResponseFormat{
+			Type:         "json_schema",
+			OutputSchema: schema,
+		}
+	}
+
+	// Try native streaming if provider supports it
+	if streamProvider, ok := c.llmProvider.(ai.StreamProvider); ok {
+		return streamProvider.StreamMessage(ctx, request)
+	}
+
+	// Fallback: synchronous call wrapped in a single-event stream
+	response, err := c.llmProvider.SendMessage(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+
+	return ai.NewSingleEventStream(response), nil
+}
+
+// StreamContinueConversation continues the conversation via streaming without adding a new user message.
+// This is useful after tool execution to let the LLM process tool results with streaming delivery.
+//
+// This method only works in stateful mode (when a memory provider is configured).
+// If the provider doesn't implement StreamProvider, it falls back to synchronous ContinueConversation.
+//
+// Memory persistence: the assistant response is NOT automatically persisted. After consuming
+// the stream, callers must append the full response to memory manually if multi-turn
+// continuation is needed:
+//
+//	client.Memory().AppendMessage(ctx, &ai.Message{Role: ai.RoleAssistant, Content: fullResponse})
+func (c *Client) StreamContinueConversation(ctx context.Context, opts ...SendMessageOption) (*ai.ChatStream, error) {
+	// Validate that memory provider is configured
+	if c.memoryProvider == nil {
+		return nil, errors.New("StreamContinueConversation requires a memory provider; create client with WithMemory() option")
+	}
+
+	// Apply options
+	options := &SendMessageOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	messages := c.memoryProvider.AllMessages()
+
+	// Determine which system prompt to use
+	systemPrompt := c.systemPrompt
+	if options.SystemPrompt != "" {
+		systemPrompt = options.SystemPrompt
+	}
+
+	// Build complete request
+	request := ai.ChatRequest{
+		Model:        c.defaultModel,
+		Messages:     messages,
+		SystemPrompt: systemPrompt,
+		Tools:        c.toolDescriptions,
+	}
+
+	// Add response format if output schema is provided
+	schema := options.OutputSchema
+	if schema == nil {
+		schema = c.defaultOutputSchema
+	}
+	if schema != nil {
+		request.ResponseFormat = &ai.ResponseFormat{
+			Type:         "json_schema",
+			OutputSchema: schema,
+		}
+	}
+
+	// Try native streaming if provider supports it
+	if streamProvider, ok := c.llmProvider.(ai.StreamProvider); ok {
+		return streamProvider.StreamMessage(ctx, request)
+	}
+
+	// Fallback: synchronous call wrapped in a single-event stream
+	response, err := c.llmProvider.SendMessage(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+
+	return ai.NewSingleEventStream(response), nil
 }
 
 // ContinueConversation continues the conversation without adding a new user message.
@@ -676,7 +841,7 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 
 	// Start tracing span (only if observer is set)
 	span := c.observeInit(&ctx, "continue conversation")
-	overview := patterns.OverviewFromContext(&ctx)
+	executionOverview := overview.OverviewFromContext(&ctx)
 	timer := utils.NewTimer()
 	messages := c.memoryProvider.AllMessages()
 
@@ -728,19 +893,19 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 		return nil, err
 	}
 
-	overview.AddRequest(&request)
-	overview.AddResponse(response)
-	overview.AddToolCalls(response.ToolCalls)
+	executionOverview.AddRequest(&request)
+	executionOverview.AddResponse(response)
+	executionOverview.AddToolCalls(response.ToolCalls)
 	if response.Usage != nil {
-		overview.IncludeUsage(response.Usage)
+		executionOverview.IncludeUsage(response.Usage)
 	}
 
 	// Set model cost in overview if configured
 	if c.modelCost != nil {
-		overview.SetModelCost(c.modelCost)
+		executionOverview.SetModelCost(c.modelCost)
 	}
 	if c.computeCost != nil {
-		overview.SetComputeCost(c.computeCost)
+		executionOverview.SetComputeCost(c.computeCost)
 	}
 
 	c.observeSuccess(&ctx, &span, response, timer, "continue conversation")

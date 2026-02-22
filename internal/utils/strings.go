@@ -10,7 +10,11 @@ const (
 	DefaultMaxStringLength = 500
 )
 
-// JSONToString converts v to its JSON representation.
+// JSONToString serializes object to its JSON representation and returns it as a
+// string. When the optional indent argument is true the output is
+// pretty-printed with two-space indentation. On marshaling failure it returns
+// a JSON-formatted error string rather than panicking, so the result is always
+// safe to use in log output.
 func JSONToString(object interface{}, indent ...bool) string {
 	var encoded []byte
 	var err error
@@ -25,13 +29,16 @@ func JSONToString(object interface{}, indent ...bool) string {
 	return string(encoded)
 }
 
-// ToString uses JSONToString and returns the JSON string.
-// If an error occurs, it returns only the error text.
+// ToString returns the compact JSON representation of object. It is a
+// convenience wrapper around [JSONToString] for the common case where
+// indentation is not needed.
 func ToString(object interface{}) string {
 	return JSONToString(object)
 }
 
-// TruncateString truncates a string to maxLen characters, adding a suffix with the original length
+// TruncateString shortens s to at most maxLen characters, appending a suffix
+// that records the original total length so callers know data was omitted.
+// If maxLen is zero or negative, [DefaultMaxStringLength] is used instead.
 func TruncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
