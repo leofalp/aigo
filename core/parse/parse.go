@@ -220,7 +220,7 @@ func ParseStringAs[T any](content string) (T, error) {
 			var lastErr error
 			for _, candidate := range candidates {
 				// Attempt to repair the JSON candidate
-				repairedJSON, repairErr := jsonrepair.JSONRepair(candidate)
+				repairedJSON, repairErr := jsonrepair.Repair(candidate)
 				if repairErr != nil {
 					lastErr = fmt.Errorf("repair error: %v", repairErr)
 					continue
