@@ -97,6 +97,10 @@ func NewDuckDuckGoSearchAdvancedTool() *tool.Tool[Input, AdvancedOutput] {
 	)
 }
 
+// maxBodySize is the maximum response body size (10 MB). Enforced via
+// io.LimitReader to prevent unbounded memory allocation from rogue responses.
+const maxBodySize int64 = 10 * 1024 * 1024
+
 // fetchDDGResponse is the shared function that performs the API call
 func fetchDDGResponse(ctx context.Context, query string) (*DDGResponse, error) {
 	params := url.Values{}
@@ -125,7 +129,8 @@ func fetchDDGResponse(ctx context.Context, query string) (*DDGResponse, error) {
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	// Cap body reads to maxBodySize to prevent unbounded memory allocation.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
 	if err != nil {
 		return nil, fmt.Errorf("error reading response: %w", err)
 	}

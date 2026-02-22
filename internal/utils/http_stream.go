@@ -75,7 +75,8 @@ func DoPostStream(ctx context.Context, client *http.Client, url string, apiKey s
 	// For non-2xx responses, read the body and close it before returning the error
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		defer CloseWithLog(response.Body)
-		errorBody, readErr := io.ReadAll(response.Body)
+		// Cap body reads to maxResponseBodySize to prevent unbounded memory allocation.
+		errorBody, readErr := io.ReadAll(io.LimitReader(response.Body, maxResponseBodySize))
 		if readErr != nil {
 			return response, fmt.Errorf("non-2xx status %d (failed to read body: %v)", response.StatusCode, readErr)
 		}
@@ -92,6 +93,17 @@ func DoPostStream(ctx context.Context, client *http.Client, url string, apiKey s
 	return response, nil
 }
 
+// maxSSELineSize is the maximum size of a single SSE line (1 MB).
+// The default bufio.Scanner limit is 64 KiB, which is too small for
+// large SSE events such as tool-call arguments or long completions
+// from OpenAI/Gemini. If a line exceeds this limit the scanner will
+// return a wrapped bufio.ErrTooLong via the Next() error path.
+const maxSSELineSize = 1 * 1024 * 1024
+
+// maxResponseBodySize is the maximum response body size (10 MB). Enforced via
+// io.LimitReader to prevent unbounded memory allocation from rogue responses.
+const maxResponseBodySize int64 = 10 * 1024 * 1024
+
 // SSEScanner reads Server-Sent Events (SSE) from an io.Reader.
 // It handles multi-line data fields, skips comments and empty lines,
 // and detects the [DONE] sentinel used by OpenAI-compatible APIs.
@@ -100,9 +112,13 @@ type SSEScanner struct {
 }
 
 // NewSSEScanner creates an SSEScanner that reads SSE events from the given reader.
+// The scanner supports individual SSE lines up to maxSSELineSize (1 MB). Lines
+// exceeding this limit will cause Next() to return an error wrapping bufio.ErrTooLong.
 func NewSSEScanner(reader io.Reader) *SSEScanner {
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxSSELineSize)
 	return &SSEScanner{
-		scanner: bufio.NewScanner(reader),
+		scanner: scanner,
 	}
 }
 

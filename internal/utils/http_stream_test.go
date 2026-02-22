@@ -1,7 +1,9 @@
 package utils
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -189,6 +191,52 @@ func TestSSEScanner_ConsecutiveBlankLines_SkipsEmpty(t *testing.T) {
 	_, err = scanner.Next()
 	if err != io.EOF {
 		t.Errorf("expected io.EOF, got %v", err)
+	}
+}
+
+// TestSSEScanner_LargeEvent_HandlesPayloadOverSixtyFourKiB verifies that the
+// scanner handles SSE data lines larger than the default bufio.Scanner limit
+// of 64 KiB. This is the regression test for the increased buffer size.
+func TestSSEScanner_LargeEvent_HandlesPayloadOverSixtyFourKiB(t *testing.T) {
+	// Build a payload of ~100 KiB — well above the old 64 KiB default,
+	// but below the current maxSSELineSize (1 MB).
+	const payloadSize = 100 * 1024
+	largePayload := strings.Repeat("A", payloadSize)
+
+	input := "data: " + largePayload + "\n\n"
+	scanner := NewSSEScanner(strings.NewReader(input))
+
+	payload, err := scanner.Next()
+	if err != nil {
+		t.Fatalf("expected nil error for %d-byte payload, got %v", payloadSize, err)
+	}
+	if payload != largePayload {
+		t.Errorf("expected payload of length %d, got %d", payloadSize, len(payload))
+	}
+
+	_, err = scanner.Next()
+	if err != io.EOF {
+		t.Errorf("expected io.EOF after last event, got %v", err)
+	}
+}
+
+// TestSSEScanner_ExceedsMaxLineSize_ReturnsScannerError verifies that an SSE
+// data line exceeding maxSSELineSize (1 MB) causes Next() to return an error
+// wrapping bufio.ErrTooLong rather than silently truncating the data.
+func TestSSEScanner_ExceedsMaxLineSize_ReturnsScannerError(t *testing.T) {
+	// Build a payload of ~1.1 MB — above maxSSELineSize (1 MB).
+	const payloadSize = 1*1024*1024 + 100*1024
+	oversizedPayload := strings.Repeat("B", payloadSize)
+
+	input := "data: " + oversizedPayload + "\n\n"
+	scanner := NewSSEScanner(strings.NewReader(input))
+
+	_, err := scanner.Next()
+	if err == nil {
+		t.Fatal("expected error for oversized payload, got nil")
+	}
+	if !errors.Is(err, bufio.ErrTooLong) {
+		t.Errorf("expected error wrapping bufio.ErrTooLong, got: %v", err)
 	}
 }
 

@@ -17,6 +17,10 @@ import (
 
 const (
 	baseURL = "https://api.search.brave.com/res/v1"
+
+	// maxBodySize is the maximum response body size (10 MB). Enforced via
+	// io.LimitReader to prevent unbounded memory allocation from rogue responses.
+	maxBodySize int64 = 10 * 1024 * 1024
 )
 
 // NewBraveSearchTool returns a tool that searches the web via the Brave Search
@@ -406,7 +410,8 @@ func fetchBraveSearchResults(ctx context.Context, input Input) (*BraveAPIRespons
 	defer utils.CloseWithLog(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
-		body, err := io.ReadAll(resp.Body)
+		// Cap body reads to maxBodySize to prevent unbounded memory allocation.
+		body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
 		if err != nil {
 			return nil, fmt.Errorf("unexpected status code %d (failed to read error body: %w)", resp.StatusCode, err)
 		}
@@ -414,8 +419,9 @@ func fetchBraveSearchResults(ctx context.Context, input Input) (*BraveAPIRespons
 	}
 
 	// Go's http.Client automatically handles gzip decompression when
-	// Accept-Encoding is not manually set
-	body, err := io.ReadAll(resp.Body)
+	// Accept-Encoding is not manually set.
+	// Cap body reads to maxBodySize to prevent unbounded memory allocation.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
 	if err != nil {
 		return nil, fmt.Errorf("error reading response: %w", err)
 	}
