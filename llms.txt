@@ -84,7 +84,15 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 - `StreamProvider` interface: embeds `Provider`; adds `StreamMessage(ctx context.Context, req ChatRequest) (*ChatStream, error)` — optional streaming support detected via type assertion
 - `ChatRequest{Model, Messages, SystemPrompt, Tools, ResponseFormat, ...}`
 - `ChatResponse{Id, Content, FinishReason, ToolCalls, Usage, Images, Audio, Videos, ...}`
-- `Message{Role, Content, ToolCallID, Name}` — roles: `RoleUser`, `RoleAssistant`, `RoleTool`, `RoleSystem`
+- `Message{Role, Content, ContentParts []ContentPart, ToolCalls, ToolCallID, Name, CodeExecutions []CodeExecution}` — roles: `RoleUser`, `RoleAssistant`, `RoleTool`, `RoleSystem`; when `ContentParts` is populated it takes precedence over `Content`
+- `ContentType` — enum: `ContentTypeText`, `ContentTypeImage`, `ContentTypeAudio`, `ContentTypeVideo`, `ContentTypeDocument`
+- `ContentPart{Type ContentType, Text, Image *ImageData, Audio *AudioData, Video *VideoData, Document *DocumentData}` — one part of a multimodal message
+- `ImageData{MimeType, Data, URI string}`, `AudioData{MimeType, Data, URI string}`, `VideoData{MimeType, Data, URI string}`, `DocumentData{MimeType, Data, URI string}` — media content holders; exactly one of Data (base64) or URI should be set
+- `NewTextPart(text string) ContentPart`, `NewImagePart(mimeType, base64Data string) ContentPart`, `NewImagePartFromURI(mimeType, uri string) ContentPart` — content part constructors
+- `NewAudioPart(mimeType, base64Data string) ContentPart`, `NewAudioPartFromURI(mimeType, uri string) ContentPart` — audio part constructors
+- `NewVideoPart(mimeType, base64Data string) ContentPart`, `NewVideoPartFromURI(mimeType, uri string) ContentPart` — video part constructors
+- `NewDocumentPart(mimeType, base64Data string) ContentPart`, `NewDocumentPartFromURI(mimeType, uri string) ContentPart` — document part constructors
+- `CodeExecution{Language, Code, Outcome, Output string}` — server-side code execution result; currently supported by Gemini (`_code_execution` tool); paired Language/Code + Outcome/Output fields
 - `Usage{PromptTokens, CompletionTokens, TotalTokens, ReasoningTokens, CachedTokens int}`
 - `StreamEventType` — event kind enum: `StreamEventContent`, `StreamEventToolCall`, `StreamEventReasoning`, `StreamEventUsage`, `StreamEventDone`, `StreamEventError`
 - `StreamEvent{Type, Content, Reasoning, ToolCall *ToolCallDelta, Usage *Usage, FinishReason, Error}` — single delta yielded during streaming
@@ -124,8 +132,8 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 
 ### providers/tool/bravesearch
 
-- `NewBraveSearchTool(apiKey string) *tool.Tool[Input, Output]` — basic web search (requires `BRAVE_SEARCH_API_KEY`)
-- `NewBraveSearchAdvancedTool(apiKey string) *tool.Tool[Input, AdvancedOutput]` — full web + news results with metadata
+- `NewBraveSearchTool() *tool.Tool[Input, Output]` — basic web search (requires `BRAVE_SEARCH_API_KEY`)
+- `NewBraveSearchAdvancedTool() *tool.Tool[Input, AdvancedOutput]` — full web + news results with metadata
 
 ### providers/tool/duckduckgo
 
@@ -134,13 +142,18 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 
 ### providers/tool/exa
 
-- `NewExaSearchTool(apiKey string) *tool.Tool[SearchInput, SearchOutput]` — semantic web search (requires `EXA_API_KEY`)
-- `NewExaSearchAdvancedTool(apiKey string) *tool.Tool[SearchInput, SearchAdvancedOutput]` — with highlights, summaries, and full text
+- `NewExaSearchTool() *tool.Tool[SearchInput, SearchOutput]` — semantic web search (requires `EXA_API_KEY`)
+- `NewExaSearchAdvancedTool() *tool.Tool[SearchInput, SearchAdvancedOutput]` — with highlights, summaries, and full text
+- `NewExaFindSimilarTool() *tool.Tool[SimilarInput, SimilarOutput]` — finds web pages similar to a given URL; `SimilarInput.URL` is required (the Exa API only supports URL-based similarity, not text-only)
+- `NewExaAnswerTool() *tool.Tool[AnswerInput, AnswerOutput]` — AI-generated answer grounded by web citations (~$0.01/query)
+- Input/output types: `SearchInput`, `SearchOutput`, `SearchResult`, `SearchAdvancedOutput`, `SearchResultAdvanced`, `SimilarInput`, `SimilarOutput`, `AnswerInput`, `AnswerOutput`, `Citation`
 
 ### providers/tool/tavily
 
-- `NewTavilySearchTool(apiKey string) *tool.Tool[SearchInput, SearchOutput]` — AI-optimized web search (requires `TAVILY_API_KEY`)
-- `NewTavilySearchAdvancedTool(apiKey string) *tool.Tool[SearchInput, SearchAdvancedOutput]` — with raw content and images
+- `NewTavilySearchTool() *tool.Tool[SearchInput, SearchOutput]` — AI-optimized web search (requires `TAVILY_API_KEY`)
+- `NewTavilySearchAdvancedTool() *tool.Tool[SearchInput, SearchAdvancedOutput]` — with raw content and images
+- `NewTavilyExtractTool() *tool.Tool[ExtractInput, ExtractOutput]` — extracts clean markdown content from up to 20 URLs (~$0.0002/URL)
+- Input/output types: `SearchInput`, `SearchOutput`, `SearchResult`, `SearchAdvancedOutput`, `SearchResultAdvanced`, `ImageResult`, `ExtractInput`, `ExtractOutput`, `ExtractResult`
 
 ### providers/tool/webfetch
 

@@ -650,28 +650,31 @@ type ChatRequest struct {
 }
 
 type ChatResponse struct {
-    Id           string
-    Content      string
-    Reasoning    string
-    Refusal      string
-    FinishReason string
-    ToolCalls    []ToolCall
-    Usage        *Usage
-    Model        string
-    Images       []string
-    Audio        []byte
-    Videos       []string
-    Sources      []Source
+    Id             string          `json:"id"`
+    Model          string          `json:"model"`
+    Content        string          `json:"content"`
+    Reasoning      string          `json:"reasoning,omitempty"`   // Chain-of-thought (o1/o3/gpt-5)
+    Refusal        string          `json:"refusal,omitempty"`
+    FinishReason   string          `json:"finish_reason,omitempty"`
+    ToolCalls      []ToolCall      `json:"tool_calls,omitempty"`
+    Usage          *Usage          `json:"usage,omitempty"`
+    Images         []ImageData     `json:"images,omitempty"`      // Generated images
+    Audio          []AudioData     `json:"audio,omitempty"`       // Generated audio (TTS, native audio)
+    Videos         []VideoData     `json:"videos,omitempty"`      // Generated video
+    CodeExecutions []CodeExecution `json:"code_executions,omitempty"` // Gemini code_execution results
+    Grounding      *GroundingMetadata `json:"grounding,omitempty"` // Web search / RAG citations
 }
 
 type Message struct {
-    Role       string
-    Content    string
-    ToolCallID string
-    Name       string
-    ToolCalls  []ToolCall
-    Reasoning  string
-    Refusal    string
+    Role           string          `json:"role"`
+    Content        string          `json:"content,omitempty"`
+    ContentParts   []ContentPart   `json:"content_parts,omitempty"` // Multimodal; takes precedence over Content
+    ToolCalls      []ToolCall      `json:"tool_calls,omitempty"`
+    ToolCallID     string          `json:"tool_call_id,omitempty"`
+    Name           string          `json:"name,omitempty"`
+    CodeExecutions []CodeExecution `json:"code_executions,omitempty"` // For multi-turn code execution round-trips
+    Reasoning      string          `json:"reasoning,omitempty"`
+    Refusal        string          `json:"refusal,omitempty"`
 }
 
 const (
@@ -679,6 +682,88 @@ const (
     RoleAssistant = "assistant"
     RoleTool      = "tool"
     RoleSystem    = "system"
+)
+
+// --- Multimodal Content Types ---
+
+// ContentType identifies the kind of media in a ContentPart.
+type ContentType string
+
+const (
+    ContentTypeText     ContentType = "text"
+    ContentTypeImage    ContentType = "image"
+    ContentTypeAudio    ContentType = "audio"
+    ContentTypeVideo    ContentType = "video"
+    ContentTypeDocument ContentType = "document"
+)
+
+// ContentPart is one part of a multimodal message.
+// A message may contain multiple parts mixing text, images, audio, video, and documents.
+type ContentPart struct {
+    Type     ContentType   `json:"type"`
+    Text     string        `json:"text,omitempty"`
+    Image    *ImageData    `json:"image,omitempty"`
+    Audio    *AudioData    `json:"audio,omitempty"`
+    Video    *VideoData    `json:"video,omitempty"`
+    Document *DocumentData `json:"document,omitempty"`
+}
+
+// ImageData holds image content; exactly one of Data (base64) or URI should be set.
+type ImageData struct {
+    MimeType string `json:"mime_type"`      // e.g. "image/png", "image/jpeg"
+    Data     string `json:"data,omitempty"` // Base64-encoded image bytes
+    URI      string `json:"uri,omitempty"`  // URL, file URI, or opaque file ID
+}
+
+// AudioData holds audio content; exactly one of Data (base64) or URI should be set.
+type AudioData struct {
+    MimeType string `json:"mime_type"`      // e.g. "audio/wav", "audio/mp3"
+    Data     string `json:"data,omitempty"`
+    URI      string `json:"uri,omitempty"`
+}
+
+// VideoData holds video content; exactly one of Data (base64) or URI should be set.
+type VideoData struct {
+    MimeType string `json:"mime_type"`      // e.g. "video/mp4", "video/webm"
+    Data     string `json:"data,omitempty"`
+    URI      string `json:"uri,omitempty"`
+}
+
+// DocumentData holds document content (PDF, plain text); exactly one of Data or URI should be set.
+type DocumentData struct {
+    MimeType string `json:"mime_type"`      // e.g. "application/pdf", "text/plain"
+    Data     string `json:"data,omitempty"`
+    URI      string `json:"uri,omitempty"`
+}
+
+// Content part constructors — convenience helpers that set the correct Type.
+func NewTextPart(text string) ContentPart
+func NewImagePart(mimeType, base64Data string) ContentPart
+func NewImagePartFromURI(mimeType, uri string) ContentPart
+func NewAudioPart(mimeType, base64Data string) ContentPart
+func NewAudioPartFromURI(mimeType, uri string) ContentPart
+func NewVideoPart(mimeType, base64Data string) ContentPart
+func NewVideoPartFromURI(mimeType, uri string) ContentPart
+func NewDocumentPart(mimeType, base64Data string) ContentPart
+func NewDocumentPartFromURI(mimeType, uri string) ContentPart
+
+// --- Code Execution ---
+
+// CodeExecution represents a server-side sandbox code execution result.
+// The model generates code, runs it, and returns both code and result.
+// Currently supported by: Gemini (ToolCodeExecution pseudo-tool).
+type CodeExecution struct {
+    Language string `json:"language"`          // e.g. "PYTHON"
+    Code     string `json:"code"`              // Generated and executed code
+    Outcome  string `json:"outcome,omitempty"` // "OUTCOME_OK", "OUTCOME_FAILED", "OUTCOME_DEADLINE_EXCEEDED"
+    Output   string `json:"output,omitempty"`  // stdout on success; stderr/error on failure
+}
+
+// Built-in pseudo-tool names for provider-specific capabilities.
+const (
+    ToolGoogleSearch  = "_google_search"  // Web search grounding (Gemini)
+    ToolURLContext    = "_url_context"    // URL content grounding (Gemini)
+    ToolCodeExecution = "_code_execution" // Code execution sandbox (Gemini)
 )
 
 type Usage struct {
@@ -894,11 +979,11 @@ type Output struct {
 
 ```go
 // NewBraveSearchTool creates a basic web search tool using the Brave Search API.
-// Requires BRAVE_SEARCH_API_KEY env var or explicit apiKey parameter.
-func NewBraveSearchTool(apiKey string) *tool.Tool[Input, Output]
+// Reads BRAVE_SEARCH_API_KEY from env.
+func NewBraveSearchTool() *tool.Tool[Input, Output]
 
 // NewBraveSearchAdvancedTool creates an advanced web search tool with full results.
-func NewBraveSearchAdvancedTool(apiKey string) *tool.Tool[Input, AdvancedOutput]
+func NewBraveSearchAdvancedTool() *tool.Tool[Input, AdvancedOutput]
 
 type Input struct {
     Query       string `json:"query"`
@@ -960,66 +1045,156 @@ type Result struct {
 ## package exa (`providers/tool/exa`)
 
 ```go
-// NewExaSearchTool creates a semantic web search tool.
-// Requires EXA_API_KEY env var or explicit apiKey parameter.
-func NewExaSearchTool(apiKey string) *tool.Tool[SearchInput, SearchOutput]
+// NewExaSearchTool creates a semantic web search tool. Reads EXA_API_KEY from env.
+func NewExaSearchTool() *tool.Tool[SearchInput, SearchOutput]
 
-// NewExaSearchAdvancedTool creates an advanced search tool with highlights and summaries.
-func NewExaSearchAdvancedTool(apiKey string) *tool.Tool[SearchInput, SearchAdvancedOutput]
+// NewExaSearchAdvancedTool creates an advanced search tool with highlights and full text.
+func NewExaSearchAdvancedTool() *tool.Tool[SearchInput, SearchAdvancedOutput]
+
+// NewExaFindSimilarTool creates a tool for finding web pages similar to a given URL.
+// BREAKING CHANGE (v0.3.0): SimilarInput.URL is required; text-only similarity is not
+// supported by the Exa API.
+func NewExaFindSimilarTool() *tool.Tool[SimilarInput, SimilarOutput]
+
+// NewExaAnswerTool creates a tool that returns AI-generated answers grounded by web citations.
+// Cost: ~$0.01 per query (includes LLM processing + search).
+func NewExaAnswerTool() *tool.Tool[AnswerInput, AnswerOutput]
+
+// Search performs a semantic web search.
+func Search(ctx context.Context, input SearchInput) (SearchOutput, error)
+
+// SearchAdvanced performs a semantic web search returning full structured results.
+func SearchAdvanced(ctx context.Context, input SearchInput) (SearchAdvancedOutput, error)
+
+// FindSimilar finds web pages semantically similar to the given URL.
+func FindSimilar(ctx context.Context, input SimilarInput) (SimilarOutput, error)
+
+// Answer returns an AI-generated answer grounded by web citations.
+func Answer(ctx context.Context, input AnswerInput) (AnswerOutput, error)
 
 type SearchInput struct {
-    Query         string   `json:"query"`
-    NumResults    int      `json:"num_results,omitempty"`
-    Type          string   `json:"type,omitempty"`    // "neural", "keyword", "auto"
-    Category      string   `json:"category,omitempty"`
-    IncludeDomains []string `json:"include_domains,omitempty"`
-    ExcludeDomains []string `json:"exclude_domains,omitempty"`
-    StartPublishedDate string `json:"start_published_date,omitempty"` // YYYY-MM-DD
-    EndPublishedDate   string `json:"end_published_date,omitempty"`
-    StartCrawlDate     string `json:"start_crawl_date,omitempty"`
-    EndCrawlDate       string `json:"end_crawl_date,omitempty"`
+    Query              string   `json:"query"`                          // Required
+    Type               string   `json:"type,omitempty"`                 // "neural", "keyword", "auto"
+    NumResults         int      `json:"num_results,omitempty"`          // Default 10, max 100
+    IncludeDomains     []string `json:"include_domains,omitempty"`
+    ExcludeDomains     []string `json:"exclude_domains,omitempty"`
+    StartPublishedDate string   `json:"start_published_date,omitempty"` // YYYY-MM-DD
+    EndPublishedDate   string   `json:"end_published_date,omitempty"`
+    StartCrawlDate     string   `json:"start_crawl_date,omitempty"`
+    EndCrawlDate       string   `json:"end_crawl_date,omitempty"`
+    Category           string   `json:"category,omitempty"`             // "company","research paper","news","pdf","github","tweet","personal site","financial report","people"
+    IncludeText        bool     `json:"include_text,omitempty"`
+    IncludeHighlights  bool     `json:"include_highlights,omitempty"`
 }
 
 type SearchOutput struct {
+    Query   string         `json:"query"`
+    Summary string         `json:"summary"` // Formatted, LLM-optimized text summary (capped at 10 results)
     Results []SearchResult `json:"results"`
 }
 
 type SearchResult struct {
-    Title      string  `json:"title"`
-    URL        string  `json:"url"`
+    Title         string   `json:"title"`
+    URL           string   `json:"url"`
+    PublishedDate string   `json:"published_date,omitempty"`
+    Author        string   `json:"author,omitempty"`
+    Text          string   `json:"text,omitempty"`       // Only if IncludeText=true
+    Highlights    []string `json:"highlights,omitempty"` // Only if IncludeHighlights=true
+}
+
+type SearchAdvancedOutput struct {
+    Query              string                 `json:"query"`
+    Results            []SearchResultAdvanced `json:"results"`
+    ResolvedSearchType string                 `json:"resolved_search_type,omitempty"`
+    RequestID          string                 `json:"request_id,omitempty"`
+}
+
+type SearchResultAdvanced struct {
+    ID              string    `json:"id"`
+    Title           string    `json:"title"`
+    URL             string    `json:"url"`
+    Score           float64   `json:"score,omitempty"`
+    PublishedDate   string    `json:"published_date,omitempty"`
+    Author          string    `json:"author,omitempty"`
+    Text            string    `json:"text,omitempty"`
+    Highlights      []string  `json:"highlights,omitempty"`
+    HighlightScores []float64 `json:"highlight_scores,omitempty"`
+    Summary         string    `json:"summary,omitempty"`
+}
+
+// SimilarInput is the input for FindSimilar. URL is required.
+type SimilarInput struct {
+    URL               string   `json:"url"`                        // Required — Exa /findSimilar only supports URL-based similarity
+    NumResults        int      `json:"num_results,omitempty"`      // Default 10, max 100
+    IncludeDomains    []string `json:"include_domains,omitempty"`
+    ExcludeDomains    []string `json:"exclude_domains,omitempty"`
+    IncludeText       bool     `json:"include_text,omitempty"`
+    IncludeHighlights bool     `json:"include_highlights,omitempty"`
+}
+
+type SimilarOutput struct {
+    Source  string         `json:"source"`  // The source URL used for similarity matching
+    Summary string         `json:"summary"` // Formatted text summary
+    Results []SearchResult `json:"results"`
+}
+
+type AnswerInput struct {
+    Query       string `json:"query"`                    // Required
+    IncludeText bool   `json:"include_text,omitempty"`   // Include full citation source text
+}
+
+type AnswerOutput struct {
+    Query     string     `json:"query"`
+    Answer    string     `json:"answer"`     // AI-generated answer grounded by citations
+    Citations []Citation `json:"citations"`  // Web sources used to generate the answer
+}
+
+type Citation struct {
+    Title         string `json:"title"`
+    URL           string `json:"url"`
+    Author        string `json:"author,omitempty"`
     PublishedDate string `json:"published_date,omitempty"`
-    Author     string  `json:"author,omitempty"`
-    Score      float64 `json:"score,omitempty"`
-    ID         string  `json:"id"`
+    Text          string `json:"text,omitempty"` // Only if AnswerInput.IncludeText=true
 }
 ```
 
 ## package tavily (`providers/tool/tavily`)
 
 ```go
-// NewTavilySearchTool creates an AI-optimized web search tool.
-// Requires TAVILY_API_KEY env var or explicit apiKey parameter.
-func NewTavilySearchTool(apiKey string) *tool.Tool[SearchInput, SearchOutput]
+// NewTavilySearchTool creates an AI-optimized web search tool. Reads TAVILY_API_KEY from env.
+func NewTavilySearchTool() *tool.Tool[SearchInput, SearchOutput]
 
-// NewTavilySearchAdvancedTool creates an advanced search tool with raw content.
-func NewTavilySearchAdvancedTool(apiKey string) *tool.Tool[SearchInput, SearchAdvancedOutput]
+// NewTavilySearchAdvancedTool creates an advanced search tool with raw content and images.
+func NewTavilySearchAdvancedTool() *tool.Tool[SearchInput, SearchAdvancedOutput]
+
+// NewTavilyExtractTool creates a tool that extracts clean markdown content from URLs.
+// Supports up to 20 URLs per request. Cost: ~$0.0002 per URL (basic extraction depth).
+func NewTavilyExtractTool() *tool.Tool[ExtractInput, ExtractOutput]
+
+// Search performs a Tavily web search returning a summarized, LLM-optimized output.
+func Search(ctx context.Context, input SearchInput) (SearchOutput, error)
+
+// SearchAdvanced performs a Tavily web search returning the complete structured response.
+func SearchAdvanced(ctx context.Context, input SearchInput) (SearchAdvancedOutput, error)
+
+// Extract retrieves and parses content from the provided URLs, returning markdown.
+func Extract(ctx context.Context, input ExtractInput) (ExtractOutput, error)
 
 type SearchInput struct {
-    Query             string   `json:"query"`
-    MaxResults        int      `json:"max_results,omitempty"`
-    SearchDepth       string   `json:"search_depth,omitempty"`       // "basic", "advanced"
-    IncredeAnswers    bool     `json:"include_answer,omitempty"`
-    IncludeImages     bool     `json:"include_images,omitempty"`
-    IncludeRawContent bool     `json:"include_raw_content,omitempty"`
-    IncludeDomains    []string `json:"include_domains,omitempty"`
-    ExcludeDomains    []string `json:"exclude_domains,omitempty"`
-    Topic             string   `json:"topic,omitempty"` // "general", "news"
-    Days              int      `json:"days,omitempty"`
+    Query          string   `json:"query"`                      // Required
+    SearchDepth    string   `json:"search_depth,omitempty"`     // "basic" (1 credit) or "advanced" (2 credits)
+    MaxResults     int      `json:"max_results,omitempty"`      // Default 10, max 20
+    IncludeDomains []string `json:"include_domains,omitempty"`
+    ExcludeDomains []string `json:"exclude_domains,omitempty"`
+    IncludeAnswer  bool     `json:"include_answer,omitempty"`   // Include AI-generated answer
+    IncludeImages  bool     `json:"include_images,omitempty"`
+    Topic          string   `json:"topic,omitempty"`            // "general" or "news"
 }
 
 type SearchOutput struct {
     Query   string         `json:"query"`
-    Answer  string         `json:"answer,omitempty"`
+    Answer  string         `json:"answer,omitempty"` // AI-generated answer if IncludeAnswer=true
+    Summary string         `json:"summary"`          // Formatted text summary (capped at 10 results)
     Results []SearchResult `json:"results"`
 }
 
@@ -1027,7 +1202,47 @@ type SearchResult struct {
     Title   string  `json:"title"`
     URL     string  `json:"url"`
     Content string  `json:"content"`
-    Score   float64 `json:"score"`
+    Score   float64 `json:"score,omitempty"`
+}
+
+type SearchAdvancedOutput struct {
+    Query        string                 `json:"query"`
+    Answer       string                 `json:"answer,omitempty"`
+    Results      []SearchResultAdvanced `json:"results"`
+    Images       []ImageResult          `json:"images,omitempty"`
+    ResponseTime float64                `json:"response_time"`
+    RequestID    string                 `json:"request_id,omitempty"`
+}
+
+type SearchResultAdvanced struct {
+    Title      string   `json:"title"`
+    URL        string   `json:"url"`
+    Content    string   `json:"content"`
+    RawContent string   `json:"raw_content,omitempty"`
+    Score      float64  `json:"score"`
+    Images     []string `json:"images,omitempty"`
+}
+
+type ImageResult struct {
+    URL         string `json:"url"`
+    Description string `json:"description,omitempty"`
+}
+
+// ExtractInput specifies URLs to extract content from (max 20).
+type ExtractInput struct {
+    URLs         []string `json:"urls"`                       // Required; max 20 URLs
+    ExtractDepth string   `json:"extract_depth,omitempty"`    // "basic" (default) or "advanced"
+}
+
+type ExtractOutput struct {
+    Results []ExtractResult `json:"results"`
+    Summary string          `json:"summary"` // Combined markdown summary with per-URL sections
+}
+
+type ExtractResult struct {
+    URL        string `json:"url"`
+    RawContent string `json:"raw_content"` // Extracted content in markdown format
+    Favicon    string `json:"favicon,omitempty"`
 }
 ```
 
