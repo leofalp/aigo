@@ -101,6 +101,10 @@ func NewDuckDuckGoSearchAdvancedTool() *tool.Tool[Input, AdvancedOutput] {
 // io.LimitReader to prevent unbounded memory allocation from rogue responses.
 const maxBodySize int64 = 10 * 1024 * 1024
 
+// baseURL is the DuckDuckGo Instant Answer API endpoint. It is a variable (not
+// a constant) so that tests can substitute an httptest.Server URL.
+var baseURL = "https://api.duckduckgo.com/"
+
 // fetchDDGResponse is the shared function that performs the API call
 func fetchDDGResponse(ctx context.Context, query string) (*DDGResponse, error) {
 	params := url.Values{}
@@ -109,7 +113,7 @@ func fetchDDGResponse(ctx context.Context, query string) (*DDGResponse, error) {
 	params.Add("no_html", "1")
 	params.Add("skip_disambig", "1")
 
-	fullURL := "https://api.duckduckgo.com/?" + params.Encode()
+	fullURL := baseURL + "?" + params.Encode()
 
 	httpReq, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
 	if err != nil {

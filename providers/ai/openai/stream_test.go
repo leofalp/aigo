@@ -309,3 +309,138 @@ func TestStreamMessage_PreStreamError(t *testing.T) {
 		t.Errorf("expected 401 error, got: %v", err)
 	}
 }
+
+// TestUnmarshalStreamChunk verifies that raw SSE JSON payloads are correctly
+// decoded into chatCompletionStreamChunk structs, covering content deltas,
+// reasoning deltas, tool-call deltas, usage-only chunks, finish-reason chunks,
+// and malformed JSON.
+func TestUnmarshalStreamChunk(t *testing.T) {
+	contentStr := "Hello"
+	emptyStr := ""
+
+	testCases := []struct {
+		name        string
+		data        string
+		wantErr     bool
+		checkResult func(t *testing.T, chunk *chatCompletionStreamChunk)
+	}{
+		{
+			name:    "content delta chunk",
+			data:    `{"id":"chatcmpl-1","object":"chat.completion.chunk","created":1700000000,"model":"gpt-4","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":null}]}`,
+			wantErr: false,
+			checkResult: func(t *testing.T, chunk *chatCompletionStreamChunk) {
+				if chunk.ID != "chatcmpl-1" {
+					t.Errorf("ID = %q, want %q", chunk.ID, "chatcmpl-1")
+				}
+				if len(chunk.Choices) != 1 {
+					t.Fatalf("len(Choices) = %d, want 1", len(chunk.Choices))
+				}
+				if chunk.Choices[0].Delta.Content == nil || *chunk.Choices[0].Delta.Content != contentStr {
+					t.Errorf("Choices[0].Delta.Content = %v, want %q", chunk.Choices[0].Delta.Content, contentStr)
+				}
+				if chunk.Choices[0].FinishReason != nil {
+					t.Errorf("FinishReason = %v, want nil", chunk.Choices[0].FinishReason)
+				}
+			},
+		},
+		{
+			name:    "reasoning delta chunk",
+			data:    `{"id":"chatcmpl-2","object":"chat.completion.chunk","created":1700000000,"model":"o1","choices":[{"index":0,"delta":{"reasoning":"step 1"},"finish_reason":null}]}`,
+			wantErr: false,
+			checkResult: func(t *testing.T, chunk *chatCompletionStreamChunk) {
+				if len(chunk.Choices) != 1 {
+					t.Fatalf("len(Choices) = %d, want 1", len(chunk.Choices))
+				}
+				if chunk.Choices[0].Delta.Reasoning == nil || *chunk.Choices[0].Delta.Reasoning != "step 1" {
+					t.Errorf("Reasoning = %v, want %q", chunk.Choices[0].Delta.Reasoning, "step 1")
+				}
+			},
+		},
+		{
+			name:    "tool call delta chunk",
+			data:    `{"id":"chatcmpl-3","object":"chat.completion.chunk","created":1700000000,"model":"gpt-4","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_abc","type":"function","function":{"name":"Calculator","arguments":""}}]},"finish_reason":null}]}`,
+			wantErr: false,
+			checkResult: func(t *testing.T, chunk *chatCompletionStreamChunk) {
+				if len(chunk.Choices) != 1 {
+					t.Fatalf("len(Choices) = %d, want 1", len(chunk.Choices))
+				}
+				toolCalls := chunk.Choices[0].Delta.ToolCalls
+				if len(toolCalls) != 1 {
+					t.Fatalf("len(ToolCalls) = %d, want 1", len(toolCalls))
+				}
+				if toolCalls[0].ID != "call_abc" {
+					t.Errorf("ToolCall.ID = %q, want %q", toolCalls[0].ID, "call_abc")
+				}
+				if toolCalls[0].Function.Name != "Calculator" {
+					t.Errorf("ToolCall.Function.Name = %q, want %q", toolCalls[0].Function.Name, "Calculator")
+				}
+			},
+		},
+		{
+			name:    "usage-only final chunk",
+			data:    `{"id":"chatcmpl-4","object":"chat.completion.chunk","created":1700000000,"model":"gpt-4","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":20,"total_tokens":30}}`,
+			wantErr: false,
+			checkResult: func(t *testing.T, chunk *chatCompletionStreamChunk) {
+				if chunk.Usage == nil {
+					t.Fatal("Usage is nil, want non-nil")
+				}
+				if chunk.Usage.PromptTokens != 10 {
+					t.Errorf("Usage.PromptTokens = %d, want 10", chunk.Usage.PromptTokens)
+				}
+				if chunk.Usage.CompletionTokens != 20 {
+					t.Errorf("Usage.CompletionTokens = %d, want 20", chunk.Usage.CompletionTokens)
+				}
+			},
+		},
+		{
+			name:    "finish reason stop chunk",
+			data:    `{"id":"chatcmpl-5","object":"chat.completion.chunk","created":1700000000,"model":"gpt-4","choices":[{"index":0,"delta":{"content":""},"finish_reason":"stop"}]}`,
+			wantErr: false,
+			checkResult: func(t *testing.T, chunk *chatCompletionStreamChunk) {
+				if len(chunk.Choices) != 1 {
+					t.Fatalf("len(Choices) = %d, want 1", len(chunk.Choices))
+				}
+				if chunk.Choices[0].FinishReason == nil || *chunk.Choices[0].FinishReason != "stop" {
+					t.Errorf("FinishReason = %v, want %q", chunk.Choices[0].FinishReason, "stop")
+				}
+				// Empty string content should be present (not nil)
+				if chunk.Choices[0].Delta.Content == nil || *chunk.Choices[0].Delta.Content != emptyStr {
+					t.Errorf("Delta.Content = %v, want empty string pointer", chunk.Choices[0].Delta.Content)
+				}
+			},
+		},
+		{
+			name:    "malformed JSON returns error",
+			data:    `{"id": "broken", "choices": [`,
+			wantErr: true,
+			checkResult: func(t *testing.T, chunk *chatCompletionStreamChunk) {
+				// chunk should be nil on error; nothing to check
+			},
+		},
+		{
+			name:    "empty JSON object",
+			data:    `{}`,
+			wantErr: false,
+			checkResult: func(t *testing.T, chunk *chatCompletionStreamChunk) {
+				if chunk.ID != "" {
+					t.Errorf("ID = %q, want empty", chunk.ID)
+				}
+				if chunk.Usage != nil {
+					t.Errorf("Usage = %v, want nil", chunk.Usage)
+				}
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			chunk, err := unmarshalStreamChunk(testCase.data)
+			if (err != nil) != testCase.wantErr {
+				t.Fatalf("unmarshalStreamChunk() error = %v, wantErr = %v", err, testCase.wantErr)
+			}
+			if !testCase.wantErr {
+				testCase.checkResult(t, chunk)
+			}
+		})
+	}
+}

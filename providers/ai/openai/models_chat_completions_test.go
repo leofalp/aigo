@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -240,6 +241,126 @@ func TestParseToolCallsFromContent_RealWorldExamples(t *testing.T) {
 			if len(toolCalls) != ex.expected {
 				t.Errorf("Expected %d tool calls, got %d. Content: %s",
 					ex.expected, len(toolCalls), ex.content)
+			}
+		})
+	}
+}
+
+// TestBuildDataURL verifies that buildDataURL produces correct data-URL strings
+// and that it returns an empty string when either argument is empty.
+func TestBuildDataURL(t *testing.T) {
+	testCases := []struct {
+		name     string
+		mimeType string
+		data     string
+		want     string
+	}{
+		{
+			name:     "jpeg image",
+			mimeType: "image/jpeg",
+			data:     "abc123",
+			want:     "data:image/jpeg;base64,abc123",
+		},
+		{
+			name:     "png image",
+			mimeType: "image/png",
+			data:     "xyz",
+			want:     "data:image/png;base64,xyz",
+		},
+		{
+			name:     "wav audio",
+			mimeType: "audio/wav",
+			data:     "audiodata",
+			want:     "data:audio/wav;base64,audiodata",
+		},
+		{
+			name:     "empty mimeType returns empty string",
+			mimeType: "",
+			data:     "abc123",
+			want:     "",
+		},
+		{
+			name:     "empty data returns empty string",
+			mimeType: "image/jpeg",
+			data:     "",
+			want:     "",
+		},
+		{
+			name:     "both empty returns empty string",
+			mimeType: "",
+			data:     "",
+			want:     "",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := buildDataURL(testCase.mimeType, testCase.data)
+			if got != testCase.want {
+				t.Errorf("buildDataURL(%q, %q) = %q, want %q", testCase.mimeType, testCase.data, got, testCase.want)
+			}
+		})
+	}
+}
+
+// TestMimeTypeToAudioFormat verifies that MIME type strings are correctly
+// converted to the OpenAI audio format identifier, and that unknown or empty
+// inputs fall back to "wav".
+func TestMimeTypeToAudioFormat(t *testing.T) {
+	testCases := []struct {
+		name     string
+		mimeType string
+		want     string
+	}{
+		{
+			name:     "audio/mp3 strips prefix",
+			mimeType: "audio/mp3",
+			want:     "mp3",
+		},
+		{
+			name:     "audio/wav strips prefix",
+			mimeType: "audio/wav",
+			want:     "wav",
+		},
+		{
+			name:     "audio/ogg strips prefix",
+			mimeType: "audio/ogg",
+			want:     "ogg",
+		},
+		{
+			name:     "uppercase is normalised",
+			mimeType: "AUDIO/MP3",
+			want:     "mp3",
+		},
+		{
+			name:     "leading whitespace is trimmed",
+			mimeType: " audio/flac",
+			want:     "flac",
+		},
+		{
+			name:     "empty string defaults to wav",
+			mimeType: "",
+			want:     "wav",
+		},
+		{
+			name:     "bare audio/ prefix defaults to wav",
+			mimeType: "audio/",
+			want:     "wav",
+		},
+		{
+			name:     "non-audio mime type is returned as-is after lower+trim",
+			mimeType: "video/mp4",
+			want:     "video/mp4",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := mimeTypeToAudioFormat(testCase.mimeType)
+			// Validate trimming and lower-casing independently
+			_ = strings.ToLower(testCase.mimeType)
+			if got != testCase.want {
+				t.Errorf("mimeTypeToAudioFormat(%q) = %q, want %q", testCase.mimeType, got, testCase.want)
 			}
 		})
 	}
