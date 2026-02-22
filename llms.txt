@@ -1,6 +1,6 @@
 # aigo
 
-> A lightweight, modular Go framework for building AI applications with LLMs — supporting multi-turn conversations, tool calling, structured output, observability, cost tracking, and agentic patterns (ReAct, DAG graphs).
+> A lightweight, modular Go framework for building AI applications with LLMs — supporting multi-turn conversations, tool calling, structured output, streaming, observability, cost tracking, and agentic patterns (ReAct, DAG graphs).
 
 Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architecture: **Layer 1** (`providers/`) exposes raw LLM/tool/memory/observability I/O; **Layer 2** (`core/`) orchestrates stateful/stateless conversations, cost tracking, and JSON parsing; **Layer 3** (`patterns/`) provides type-safe agentic workflows. AI providers: OpenAI, Gemini (and any OpenAI-compatible API). Install: `go get github.com/leofalp/aigo`. Key env vars: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `AIGO_DEFAULT_LLM_MODEL`.
 
@@ -17,6 +17,7 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 - [Tool: URLExtractor](providers/tool/urlextractor/README.md): URL extraction from text (SSRF-safe)
 - [Tool: SiteDataExtractor](providers/tool/sitedataextractor/README.md): structured company/site data extraction
 - [Examples: ReAct](examples/layer3/react/README.md): type-safe ReAct agent usage guide
+- [Examples: Streaming](examples/layer2/streaming/main.go): streaming responses with real-time token delivery
 - [Examples: Cost Tracking](examples/layer2/cost_tracking/README.md): cost tracking walkthrough
 
 ## API Reference
@@ -25,7 +26,9 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 
 - `New(provider ai.Provider, opts ...func(*ClientOptions)) (*Client, error)` — creates the main LLM orchestrator
 - `(*Client).SendMessage(ctx context.Context, prompt string, opts ...SendMessageOption) (*ai.ChatResponse, error)` — sends a user message; stateless without memory
+- `(*Client).StreamMessage(ctx context.Context, prompt string, opts ...SendMessageOption) (*ai.ChatStream, error)` — streams a response with real-time token delivery; falls back to single-event stream if provider lacks StreamProvider
 - `(*Client).ContinueConversation(ctx context.Context, opts ...SendMessageOption) (*ai.ChatResponse, error)` — continues without new user message (requires memory)
+- `(*Client).StreamContinueConversation(ctx context.Context, opts ...SendMessageOption) (*ai.ChatStream, error)` — streaming continuation without new user message (requires memory); falls back to synchronous if provider lacks StreamProvider
 - `(*Client).Memory() memory.Provider` — returns configured memory provider (nil if stateless)
 - `(*Client).Observer() observability.Provider` — returns configured observer
 - `(*Client).AppendToSystemPrompt(appendix string)` — appends text to the client system prompt
@@ -78,10 +81,19 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 ### providers/ai
 
 - `Provider` interface: `SendMessage(ctx context.Context, req ChatRequest) (*ChatResponse, error)`, `IsStopMessage(*ChatResponse) bool`
+- `StreamProvider` interface: embeds `Provider`; adds `StreamMessage(ctx context.Context, req ChatRequest) (*ChatStream, error)` — optional streaming support detected via type assertion
 - `ChatRequest{Model, Messages, SystemPrompt, Tools, ResponseFormat, ...}`
 - `ChatResponse{Id, Content, FinishReason, ToolCalls, Usage, Images, Audio, Videos, ...}`
 - `Message{Role, Content, ToolCallID, Name}` — roles: `RoleUser`, `RoleAssistant`, `RoleTool`, `RoleSystem`
 - `Usage{PromptTokens, CompletionTokens, TotalTokens, ReasoningTokens, CachedTokens int}`
+- `StreamEventType` — event kind enum: `StreamEventContent`, `StreamEventToolCall`, `StreamEventReasoning`, `StreamEventUsage`, `StreamEventDone`, `StreamEventError`
+- `StreamEvent{Type, Content, Reasoning, ToolCall *ToolCallDelta, Usage *Usage, FinishReason, Error}` — single delta yielded during streaming
+- `ToolCallDelta{Index int, ID, Name, Arguments string}` — incremental tool call update; ID/Name on first chunk only
+- `ChatStream` — wraps `iter.Seq2[StreamEvent, error]`; must be consumed to release underlying resources
+- `NewChatStream(iter iter.Seq2[StreamEvent, error]) *ChatStream` — creates a ChatStream from a raw iterator
+- `NewSingleEventStream(response *ChatResponse) *ChatStream` — wraps a synchronous response as a single-event stream (fallback for non-streaming providers)
+- `(*ChatStream).Iter() iter.Seq2[StreamEvent, error]` — returns iterator for range-over-func loops
+- `(*ChatStream).Collect() (*ChatResponse, error)` — consumes the entire stream and returns accumulated ChatResponse
 
 ### providers/ai/openai
 
@@ -168,6 +180,7 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 - [Stateless vs Stateful](examples/layer2/stateless_vs_stateful/main.go): memory provider comparison
 - [Structured Output](examples/layer2/structured_output/main.go): `StructuredClient[T]` vs manual schema + `ParseStringAs`
 - [Manual Tool Loop](examples/layer2/manual_tool/main.go): manual tool execution with `SendMessage`/`AppendMessage`/`ContinueConversation`
+- [Streaming](examples/layer2/streaming/main.go): `StreamMessage` with Gemini, real-time token printing via `ChatStream.Iter()`
 - [Observability](examples/layer2/observability/main.go): compact, pretty, and JSON log format demos
 - [Cost Tracking](examples/layer2/cost_tracking/main.go): ModelCost, ToolMetrics, ComputeCost, OptimizationStrategy
 

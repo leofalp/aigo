@@ -1,6 +1,6 @@
 # aigo
 
-> A lightweight, modular Go framework for building AI applications with LLMs — supporting multi-turn conversations, tool calling, structured output, observability, cost tracking, and agentic patterns (ReAct, DAG graphs).
+> A lightweight, modular Go framework for building AI applications with LLMs — supporting multi-turn conversations, tool calling, structured output, streaming, observability, cost tracking, and agentic patterns (ReAct, DAG graphs).
 
 Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architecture: **Layer 1** (`providers/`) exposes raw LLM/tool/memory/observability I/O; **Layer 2** (`core/`) orchestrates stateful/stateless conversations, cost tracking, and JSON parsing; **Layer 3** (`patterns/`) provides type-safe agentic workflows. AI providers: OpenAI, Gemini (and any OpenAI-compatible API). Install: `go get github.com/leofalp/aigo`. Key env vars: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `AIGO_DEFAULT_LLM_MODEL`.
 
@@ -12,6 +12,7 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 - [Observability](providers/observability/README.md)
 - [Slog Observer](providers/observability/slogobs/README.md)
 - [Examples: ReAct](examples/layer3/react/README.md)
+- [Examples: Streaming](examples/layer2/streaming/main.go)
 - [Examples: Cost Tracking](examples/layer2/cost_tracking/README.md)
 
 ## API Reference
@@ -37,6 +38,7 @@ A lightweight, modular, and extensible Go framework for building AI applications
 
 - **3-Layer Architecture** - Independent layers for providers, core orchestration, and high-level patterns
 - **Type-Safe Structured Output** - Generic-based responses with automatic JSON parsing and schema generation
+- **Streaming** - Real-time token delivery via SSE with `ChatStream`, `iter.Seq2`-based iteration, and automatic fallback for non-streaming providers
 - **Agentic Patterns** - ReAct, RAG, and chain-based workflows with tool execution loops
 - **Cost Tracking** - Track and optimize spending across models, tools, and infrastructure
 - **Observability** - Built-in tracing, metrics, and logging with zero overhead when disabled
@@ -181,6 +183,7 @@ Reusable components with domain logic that orchestrate multiple providers.
 | Feature | Layer 1 | Layer 2 |
 |---------|---------|---------|
 | API call | ✅ | ✅ Wrapped |
+| Streaming | ✅ StreamProvider | ✅ StreamMessage / StreamContinueConversation |
 | Conversation history | ❌ | ✅ Auto-managed |
 | Tool calling | ❌ | ✅ Full orchestration |
 | Cost tracking | ❌ | ✅ Automatic |
@@ -407,7 +410,9 @@ func WithEphemeralSystemPrompt(prompt string) SendMessageOption
 
 // Client methods
 func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMessageOption) (*ai.ChatResponse, error)
+func (c *Client) StreamMessage(ctx context.Context, prompt string, opts ...SendMessageOption) (*ai.ChatStream, error)
 func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOption) (*ai.ChatResponse, error)
+func (c *Client) StreamContinueConversation(ctx context.Context, opts ...SendMessageOption) (*ai.ChatStream, error)
 func (c *Client) Memory() memory.Provider
 func (c *Client) Observer() observability.Provider
 func (c *Client) ToolCatalog() *tool.Catalog
@@ -623,6 +628,19 @@ type Provider interface {
     IsStopMessage(message *ChatResponse) bool
 }
 
+// StreamProvider is an optional interface that providers can implement to support
+// streaming (SSE-based) responses. Callers detect streaming support via type
+// assertion: provider.(StreamProvider). If the provider does not implement this
+// interface, callers should fall back to the synchronous SendMessage method.
+type StreamProvider interface {
+    Provider
+    // StreamMessage sends a chat request and returns a ChatStream that yields
+    // incremental deltas as they arrive from the API. Pre-stream errors
+    // (auth, bad request, network) are returned as a normal error. Mid-stream
+    // errors are yielded through the iterator.
+    StreamMessage(ctx context.Context, request ChatRequest) (*ChatStream, error)
+}
+
 type ChatRequest struct {
     Model        string
     Messages     []Message
@@ -693,6 +711,81 @@ type ToolCallFunction struct {
 func NewToolResultError(code, message string) *ToolResult
 func NewToolResultSuccess(data any) *ToolResult
 func (tr *ToolResult) ToJSON() (string, error)
+
+// --- Streaming API ---
+
+// StreamEventType identifies the kind of delta carried by a StreamEvent.
+type StreamEventType string
+
+const (
+    StreamEventContent   StreamEventType = "content"    // Text content delta
+    StreamEventToolCall  StreamEventType = "tool_call"  // Incremental tool call delta
+    StreamEventReasoning StreamEventType = "reasoning"  // Reasoning/thinking delta
+    StreamEventUsage     StreamEventType = "usage"      // Token usage metadata
+    StreamEventDone      StreamEventType = "done"       // Stream finished normally
+    StreamEventError     StreamEventType = "error"      // Error that terminated stream
+)
+
+// ToolCallDelta represents an incremental update to a tool call being streamed.
+// The Index field identifies which tool call is being updated (there may be
+// multiple concurrent tool calls). ID and Name are only present on the first
+// chunk for a given index; subsequent chunks carry only Arguments fragments.
+type ToolCallDelta struct {
+    Index     int    `json:"index"`               // Position in the tool calls list
+    ID        string `json:"id,omitempty"`        // Tool call ID (first chunk only)
+    Name      string `json:"name,omitempty"`      // Function name (first chunk only)
+    Arguments string `json:"arguments,omitempty"` // Incremental JSON argument fragment
+}
+
+// StreamEvent represents a single delta yielded during LLM response streaming.
+// Each event carries exactly one type of payload, identified by the Type field.
+type StreamEvent struct {
+    Type         StreamEventType `json:"type"`
+    Content      string          `json:"content,omitempty"`       // Text delta (StreamEventContent)
+    Reasoning    string          `json:"reasoning,omitempty"`     // Reasoning delta (StreamEventReasoning)
+    ToolCall     *ToolCallDelta  `json:"tool_call,omitempty"`     // Tool call delta (StreamEventToolCall)
+    Usage        *Usage          `json:"usage,omitempty"`         // Token usage (StreamEventUsage)
+    FinishReason string          `json:"finish_reason,omitempty"` // Present on StreamEventDone
+    Error        string          `json:"error,omitempty"`         // Error message (StreamEventError)
+}
+
+// ChatStream wraps a streaming iterator and provides automatic accumulation
+// of deltas into a final ChatResponse. It supports both range-based iteration
+// for real-time token processing and a convenience Collect() method for callers
+// who want the complete response.
+//
+// Important: callers must consume the stream, either by iterating with Iter()
+// (including breaking out of the loop early) or by calling Collect(). The
+// underlying provider may hold open resources (such as an HTTP response body)
+// that are only released when the iterator completes or is abandoned via a
+// loop break. Constructing a ChatStream and never iterating it will leak those
+// resources.
+type ChatStream struct { ... }
+
+// NewChatStream creates a ChatStream from a raw streaming iterator.
+// The caller is responsible for consuming the returned ChatStream.
+func NewChatStream(iterator iter.Seq2[StreamEvent, error]) *ChatStream
+
+// NewSingleEventStream wraps a synchronous ChatResponse as a single-event stream.
+// This is used as a fallback when the provider does not support streaming: the
+// entire response is delivered as one content event followed by a done event.
+func NewSingleEventStream(response *ChatResponse) *ChatStream
+
+// Iter returns the underlying iterator for use with range-over-func loops.
+//
+// Example:
+//
+//     for event, err := range stream.Iter() {
+//         if err != nil { handle error }
+//         fmt.Print(event.Content)
+//     }
+func (stream *ChatStream) Iter() iter.Seq2[StreamEvent, error]
+
+// Collect consumes the entire stream and returns the accumulated ChatResponse.
+// This is a convenience method for callers who want the complete response but
+// still benefit from streaming transport (lower time-to-first-byte).
+// Any mid-stream error terminates collection and returns a partial response with the error.
+func (stream *ChatStream) Collect() (*ChatResponse, error)
 ```
 
 ## package openai (`providers/ai/openai`)
@@ -1406,5 +1499,91 @@ func printCostSummary(o *overview.Overview) {
     fmt.Printf("    Input:  %d tokens\n", o.TotalUsage.PromptTokens)
     fmt.Printf("    Output: %d tokens\n", o.TotalUsage.CompletionTokens)
     fmt.Printf("    Total:  %d tokens\n", o.TotalUsage.TotalTokens)
+}
+```
+
+---
+
+# Example: Layer 2 — Streaming (examples/layer2/streaming/main.go)
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+
+    "github.com/leofalp/aigo/core/client"
+    "github.com/leofalp/aigo/providers/ai"
+    "github.com/leofalp/aigo/providers/ai/gemini"
+
+    _ "github.com/joho/godotenv/autoload"
+)
+
+func main() {
+    fmt.Println("=== Streaming Responses with Gemini ===")
+    fmt.Println()
+
+    // Create the Gemini provider. The API key is loaded from GEMINI_API_KEY.
+    provider := gemini.New()
+
+    // Create the client with Gemini 2.5 Flash Lite.
+    geminiClient, err := client.New(
+        provider,
+        client.WithDefaultModel(gemini.Model25FlashLite),
+        client.WithSystemPrompt("You are a helpful assistant. Be concise."),
+    )
+    if err != nil {
+        log.Fatalf("failed to create client: %v", err)
+    }
+
+    ctx := context.Background()
+    prompt := "Write a short poem about the Go programming language."
+
+    fmt.Printf("User: %s\n\n", prompt)
+    fmt.Print("Assistant: ")
+
+    // StreamMessage returns a *ai.ChatStream. Tokens arrive as they are generated,
+    // so we can print each content delta immediately for a live typewriter effect.
+    stream, err := geminiClient.StreamMessage(ctx, prompt)
+    if err != nil {
+        log.Fatalf("streaming failed: %v", err)
+    }
+
+    var finalResponse *ai.ChatResponse
+    for event, iterErr := range stream.Iter() {
+        if iterErr != nil {
+            _, err := fmt.Fprintln(os.Stderr, "\nerror during stream:", iterErr)
+            if err != nil {
+                fmt.Printf("failed to write error to stderr: %v\n", err)
+            }
+            os.Exit(1)
+        }
+
+        switch event.Type {
+        case ai.StreamEventContent:
+            // Print each token as it arrives — no newline so tokens flow inline.
+            fmt.Print(event.Content)
+
+        case ai.StreamEventDone:
+            // Stream finished; collect the full response for metadata inspection.
+            fmt.Println() // End the output line.
+            fullResponse, collectErr := stream.Collect()
+            if collectErr == nil {
+                finalResponse = fullResponse
+            }
+        }
+    }
+
+    // Print usage statistics if available.
+    if finalResponse != nil && finalResponse.Usage != nil {
+        fmt.Println()
+        fmt.Printf("--- Usage ---\n")
+        fmt.Printf("  Prompt tokens:     %d\n", finalResponse.Usage.PromptTokens)
+        fmt.Printf("  Completion tokens: %d\n", finalResponse.Usage.CompletionTokens)
+        fmt.Printf("  Total tokens:      %d\n", finalResponse.Usage.TotalTokens)
+    }
 }
 ```
