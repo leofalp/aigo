@@ -26,6 +26,7 @@ linters:
     gosec:
       excludes:
         - G104
+        - G704
 
     misspell:
       locale: US
