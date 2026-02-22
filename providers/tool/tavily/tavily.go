@@ -25,6 +25,9 @@ const (
 	maxResults = 20
 	// maxSummaryResults caps the number of results included in the text summary.
 	maxSummaryResults = 10
+	// maxBodySize is the maximum response body size (10 MB). Enforced via
+	// io.LimitReader to prevent unbounded memory allocation from rogue responses.
+	maxBodySize = 10 * 1024 * 1024
 )
 
 // httpClient is a shared HTTP client with a default timeout for connection reuse.
@@ -215,7 +218,8 @@ func fetchTavilySearch(ctx context.Context, input SearchInput) (*tavilySearchAPI
 	}
 	defer utils.CloseWithLog(resp.Body)
 
-	body, err := io.ReadAll(resp.Body)
+	// Cap body reads to maxBodySize to prevent unbounded memory allocation.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
 	if err != nil {
 		return nil, fmt.Errorf("error reading response: %w", err)
 	}

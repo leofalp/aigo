@@ -79,7 +79,8 @@ func Answer(ctx context.Context, input AnswerInput) (AnswerOutput, error) {
 	}
 	defer utils.CloseWithLog(resp.Body)
 
-	body, err := io.ReadAll(resp.Body)
+	// Cap body reads to maxBodySize to prevent unbounded memory allocation.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
 	if err != nil {
 		return AnswerOutput{}, fmt.Errorf("error reading response: %w", err)
 	}

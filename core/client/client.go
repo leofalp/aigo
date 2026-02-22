@@ -661,6 +661,13 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 // The prompt parameter must be non-empty. Use StreamContinueConversation to continue
 // a conversation without adding a new user message.
 //
+// Memory persistence: when a memory provider is configured, the user message is
+// appended to memory eagerly before the stream starts. The assistant response is NOT
+// automatically persisted — callers are responsible for appending it after consuming
+// the stream:
+//
+//	client.Memory().AppendMessage(ctx, &ai.Message{Role: ai.RoleAssistant, Content: fullResponse})
+//
 // Example:
 //
 //	stream, err := client.StreamMessage(ctx, "Explain quantum computing")
@@ -736,6 +743,12 @@ func (c *Client) StreamMessage(ctx context.Context, prompt string, opts ...SendM
 //
 // This method only works in stateful mode (when a memory provider is configured).
 // If the provider doesn't implement StreamProvider, it falls back to synchronous ContinueConversation.
+//
+// Memory persistence: the assistant response is NOT automatically persisted. After consuming
+// the stream, callers must append the full response to memory manually if multi-turn
+// continuation is needed:
+//
+//	client.Memory().AppendMessage(ctx, &ai.Message{Role: ai.RoleAssistant, Content: fullResponse})
 func (c *Client) StreamContinueConversation(ctx context.Context, opts ...SendMessageOption) (*ai.ChatStream, error) {
 	// Validate that memory provider is configured
 	if c.memoryProvider == nil {

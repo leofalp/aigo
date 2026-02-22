@@ -84,7 +84,8 @@ func (provider *GeminiProvider) StreamMessage(ctx context.Context, request ai.Ch
 		// Ensure the response body is closed when the iterator is done
 		defer utils.CloseWithLog(httpResponse.Body)
 
-		// Track cumulative text to compute deltas (Gemini sends full text, not incremental)
+		// Track cumulative rune counts to compute deltas (Gemini sends full text, not incremental).
+		// Rune counts rather than byte counts are used to handle multi-byte UTF-8 correctly.
 		previousTextLength := 0
 		previousReasoningLength := 0
 		toolCallsEmitted := false
@@ -187,11 +188,14 @@ func geminiChunkToStreamEvents(
 		*toolCallsEmitted = true
 	}
 
-	// Compute text delta by comparing with previously accumulated text length
+	// Compute text delta by comparing with previously accumulated text length.
+	// Rune-based slicing is used to avoid splitting multi-byte UTF-8 sequences
+	// if a chunk boundary ever lands mid-codepoint.
 	fullText := strings.Join(textParts, "\n")
-	if len(fullText) > *previousTextLength {
-		delta := fullText[*previousTextLength:]
-		*previousTextLength = len(fullText)
+	fullTextRunes := []rune(fullText)
+	if len(fullTextRunes) > *previousTextLength {
+		delta := string(fullTextRunes[*previousTextLength:])
+		*previousTextLength = len(fullTextRunes)
 		events = append(events, ai.StreamEvent{
 			Type:    ai.StreamEventContent,
 			Content: delta,
@@ -200,9 +204,10 @@ func geminiChunkToStreamEvents(
 
 	// Compute reasoning delta
 	fullReasoning := strings.Join(reasoningParts, "\n")
-	if len(fullReasoning) > *previousReasoningLength {
-		delta := fullReasoning[*previousReasoningLength:]
-		*previousReasoningLength = len(fullReasoning)
+	fullReasoningRunes := []rune(fullReasoning)
+	if len(fullReasoningRunes) > *previousReasoningLength {
+		delta := string(fullReasoningRunes[*previousReasoningLength:])
+		*previousReasoningLength = len(fullReasoningRunes)
 		events = append(events, ai.StreamEvent{
 			Type:      ai.StreamEventReasoning,
 			Reasoning: delta,
