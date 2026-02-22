@@ -179,22 +179,22 @@ func TestFindSimilar_MissingAPIKey(t *testing.T) {
 	}
 }
 
-func TestFindSimilar_MissingURLAndText(t *testing.T) {
+func TestFindSimilar_MissingURL(t *testing.T) {
 	os.Setenv("EXA_API_KEY", "test-api-key")
 	defer os.Unsetenv("EXA_API_KEY")
 
 	ctx := context.Background()
 	input := SimilarInput{
-		// Neither URL nor Text provided
+		// URL is empty — required by the Exa /findSimilar API
 	}
 
 	_, err := FindSimilar(ctx, input)
 	if err == nil {
-		t.Error("expected error when neither URL nor text is provided")
+		t.Error("expected error when URL is not provided")
 	}
 
-	if !strings.Contains(err.Error(), "url or text") {
-		t.Errorf("expected error about url or text, got: %s", err.Error())
+	if !strings.Contains(err.Error(), "url is required") {
+		t.Errorf("expected error about url requirement, got: %s", err.Error())
 	}
 }
 

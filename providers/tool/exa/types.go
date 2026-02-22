@@ -68,12 +68,11 @@ type SearchResultAdvanced struct {
 
 // === FIND SIMILAR INPUT/OUTPUT ===
 
-// SimilarInput holds the parameters for a [FindSimilar] call. Either URL or
-// Text must be non-empty; supplying both sends both fields to the API and the
-// API determines how to weight them for similarity matching.
+// SimilarInput holds the parameters for a [FindSimilar] call. URL is required
+// by the Exa API — the /findSimilar endpoint only supports URL-based
+// similarity matching.
 type SimilarInput struct {
-	URL               string   `json:"url,omitempty" jsonschema:"description=URL to find similar content for (provide either url or text)"`
-	Text              string   `json:"text,omitempty" jsonschema:"description=Text to find similar content for (provide either url or text)"`
+	URL               string   `json:"url" jsonschema:"description=URL to find similar content for,required"`
 	NumResults        int      `json:"num_results,omitempty" jsonschema:"description=Number of results to return (default: 10 max: 100),minimum=1,maximum=100"`
 	IncludeDomains    []string `json:"include_domains,omitempty" jsonschema:"description=List of domains to include in results"`
 	ExcludeDomains    []string `json:"exclude_domains,omitempty" jsonschema:"description=List of domains to exclude from results"`
@@ -82,9 +81,9 @@ type SimilarInput struct {
 }
 
 // SimilarOutput contains the result of a [FindSimilar] call, including the
-// source used for similarity matching and a formatted summary of similar pages.
+// source URL used for similarity matching and a formatted summary of similar pages.
 type SimilarOutput struct {
-	Source  string         `json:"source" jsonschema:"description=The source used for similarity search (URL or text-based input indicator)"`
+	Source  string         `json:"source" jsonschema:"description=The source URL used for similarity search"`
 	Summary string         `json:"summary" jsonschema:"description=Formatted summary of similar results"`
 	Results []SearchResult `json:"results" jsonschema:"description=List of similar content results"`
 }

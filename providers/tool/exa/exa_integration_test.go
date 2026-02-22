@@ -5,6 +5,7 @@ package exa
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -169,21 +170,23 @@ func TestExaFindSimilarByText_Integration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// The Exa /findSimilar API requires a URL — text-only similarity is not
+	// supported. This test verifies that FindSimilar correctly rejects
+	// text-only input before hitting the API.
 	input := SimilarInput{
-		Text:       "Go is a statically typed, compiled programming language designed at Google. It is syntactically similar to C, but with memory safety, garbage collection, structural typing, and CSP-style concurrency.",
 		NumResults: 3,
 	}
 
-	output, err := FindSimilar(ctx, input)
-	if err != nil {
-		t.Fatalf("FindSimilar by text failed: %v", err)
+	_, err := FindSimilar(ctx, input)
+	if err == nil {
+		t.Fatal("expected error when URL is empty, but got nil")
 	}
 
-	if len(output.Results) == 0 {
-		t.Error("expected at least one similar result")
+	if !strings.Contains(err.Error(), "url is required") {
+		t.Errorf("expected error about url requirement, got: %s", err.Error())
 	}
 
-	t.Logf("FindSimilar by text returned %d results", len(output.Results))
+	t.Log("Correctly rejected empty URL input")
 }
 
 func TestExaAnswer_Integration(t *testing.T) {

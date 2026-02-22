@@ -16,12 +16,12 @@ import (
 )
 
 // NewExaFindSimilarTool creates a new Exa FindSimilar tool for finding similar content.
-// Returns content similar to a given URL or text.
+// Returns content similar to a given URL.
 func NewExaFindSimilarTool() *tool.Tool[SimilarInput, SimilarOutput] {
 	return tool.NewTool[SimilarInput, SimilarOutput](
 		"ExaFindSimilar",
 		FindSimilar,
-		tool.WithDescription("Find web pages similar to a given URL or text using Exa's semantic similarity search. Useful for: finding related articles, discovering similar research papers, exploring content clusters, finding alternatives to a given resource. Provide either a URL or text to find similar content. Requires EXA_API_KEY environment variable."),
+		tool.WithDescription("Find web pages similar to a given URL using Exa's semantic similarity search. Useful for: finding related articles, discovering similar research papers, exploring content clusters, finding alternatives to a given resource. Requires a URL as input. Requires EXA_API_KEY environment variable."),
 		tool.WithMetrics(cost.ToolMetrics{
 			Amount:                  0.003, // Estimated per search
 			Currency:                "USD",
@@ -33,14 +33,13 @@ func NewExaFindSimilarTool() *tool.Tool[SimilarInput, SimilarOutput] {
 }
 
 // FindSimilar calls the Exa findSimilar endpoint and returns web pages
-// semantically similar to the provided URL or text. At least one of
-// SimilarInput.URL or SimilarInput.Text must be non-empty. Returns an error
-// if both are empty, EXA_API_KEY is not set, or the API returns a non-200
-// status.
+// semantically similar to the provided URL. The Exa API requires a URL for
+// this endpoint — text-only similarity is not supported. Returns an error if
+// URL is empty, EXA_API_KEY is not set, or the API returns a non-200 status.
 func FindSimilar(ctx context.Context, input SimilarInput) (SimilarOutput, error) {
-	// Validate input - need either URL or Text
-	if input.URL == "" && input.Text == "" {
-		return SimilarOutput{}, fmt.Errorf("either url or text must be provided")
+	// The Exa /findSimilar API requires a URL
+	if input.URL == "" {
+		return SimilarOutput{}, fmt.Errorf("url is required for similarity search")
 	}
 
 	apiKey := os.Getenv(envAPIKey)
@@ -48,14 +47,9 @@ func FindSimilar(ctx context.Context, input SimilarInput) (SimilarOutput, error)
 		return SimilarOutput{}, fmt.Errorf("%s environment variable is not set", envAPIKey)
 	}
 
-	// Build request body
-	reqBody := make(map[string]interface{})
-
-	if input.URL != "" {
-		reqBody["url"] = input.URL
-	}
-	if input.Text != "" {
-		reqBody["text"] = input.Text
+	// Build request body — url is the only required field
+	reqBody := map[string]interface{}{
+		"url": input.URL,
 	}
 
 	// Set number of results
@@ -140,13 +134,8 @@ func FindSimilar(ctx context.Context, input SimilarInput) (SimilarOutput, error)
 	results := make([]SearchResult, 0, len(apiResponse.Results))
 	var summaryParts []string
 
-	sourceDesc := "the provided content"
-	if input.URL != "" {
-		sourceDesc = input.URL
-	}
-
 	if len(apiResponse.Results) > 0 {
-		summaryParts = append(summaryParts, fmt.Sprintf("Found %d pages similar to %s:", len(apiResponse.Results), sourceDesc))
+		summaryParts = append(summaryParts, fmt.Sprintf("Found %d pages similar to %s:", len(apiResponse.Results), input.URL))
 	}
 
 	for index, apiResult := range apiResponse.Results {
@@ -185,17 +174,11 @@ func FindSimilar(ctx context.Context, input SimilarInput) (SimilarOutput, error)
 
 	summary := strings.Join(summaryParts, "\n")
 	if summary == "" {
-		summary = fmt.Sprintf("No similar content found for %s.", sourceDesc)
-	}
-
-	// Use URL as source when available, otherwise indicate that text-based search was used.
-	source := input.URL
-	if source == "" {
-		source = "text-based input"
+		summary = fmt.Sprintf("No similar content found for %s.", input.URL)
 	}
 
 	return SimilarOutput{
-		Source:  source,
+		Source:  input.URL,
 		Summary: summary,
 		Results: results,
 	}, nil
