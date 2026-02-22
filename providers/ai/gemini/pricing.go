@@ -7,6 +7,9 @@ import (
 	"github.com/leofalp/aigo/providers/ai"
 )
 
+// Model31ProPreview is the Gemini 3.1 Pro Preview model identifier.
+const Model31ProPreview = "gemini-3.1-pro-preview"
+
 // Model30ProPreview is the Gemini 3.0 Pro Preview model identifier.
 const Model30ProPreview = "gemini-3-pro-preview"
 
@@ -112,6 +115,25 @@ const ModelVeo20 = "veo-2.0-generate-001"
 //
 // Source: https://ai.google.dev/gemini-api/docs/pricing (2025)
 var ModelRegistry = map[string]ai.ModelInfo{
+	// --- Gemini 3.1 Preview models ---
+
+	Model31ProPreview: {
+		ID:               Model31ProPreview,
+		Name:             "Gemini 3.1 Pro Preview",
+		Description:      "Most capable Gemini model with improved thinking, token efficiency, and factual consistency",
+		InputModalities:  []ai.Modality{ai.ModalityText, ai.ModalityImage, ai.ModalityAudio, ai.ModalityVideo},
+		OutputModalities: []ai.Modality{ai.ModalityText},
+		Pricing: &cost.ModelCost{
+			InputCostPerMillion:       2.00,
+			OutputCostPerMillion:      12.00,
+			CachedInputCostPerMillion: 1.00,
+			ReasoningCostPerMillion:   12.00,
+			ContextTiers: []cost.ContextTier{
+				{InputTokenThreshold: 200_000, InputCostPerMillion: 4.00, OutputTokenThreshold: 200_000, OutputCostPerMillion: 18.00},
+			},
+		},
+	},
+
 	// --- Gemini 3.0 Preview models ---
 
 	Model30ProPreview: {

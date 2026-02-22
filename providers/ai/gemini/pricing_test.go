@@ -21,6 +21,7 @@ func TestGetModelCost_KnownModels(t *testing.T) {
 		{Model15Flash, 0.075, 0.30},
 		{Model30ProPreview, 2.00, 12.00},
 		{Model30FlashPreview, 0.50, 3.00},
+		{Model31ProPreview, 2.00, 12.00},
 	}
 
 	for _, tt := range tests {
@@ -246,6 +247,7 @@ func TestGetModelInfo_KnownModels(t *testing.T) {
 	}{
 		{Model25Pro, true, "Gemini 2.5 Pro"},
 		{Model30ProPreview, true, "Gemini 3 Pro Preview"},
+		{Model31ProPreview, true, "Gemini 3.1 Pro Preview"},
 		{Model25FlashImage, true, "Gemini 2.5 Flash Image"},
 		{ModelImagen4, true, "Imagen 4"},
 		{ModelVeo31, true, "Veo 3.1"},
@@ -279,7 +281,7 @@ func TestGetModelInfo_NormalizesVersionedModels(t *testing.T) {
 }
 
 func TestModelRegistry_TieredPricingModels(t *testing.T) {
-	tieredModels := []string{Model25Pro, Model30ProPreview, Model15Pro, Model15Flash, Model15Flash8B}
+	tieredModels := []string{Model25Pro, Model30ProPreview, Model31ProPreview, Model15Pro, Model15Flash, Model15Flash8B}
 
 	for _, model := range tieredModels {
 		t.Run(model, func(t *testing.T) {
