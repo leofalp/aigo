@@ -42,9 +42,18 @@ type Client struct {
 	state               map[string]any
 	modelCost           *cost.ModelCost   // Optional: cost per million tokens for the model
 	computeCost         *cost.ComputeCost // Optional: infrastructure/compute cost configuration
+	sendChain           SendFunc          // nil when no middleware configured; direct provider call
+	streamChain         StreamFunc        // nil when no middleware configured; direct provider call
 }
 
 // ClientOptions contains all configuration for a Client.
+// Use the With* option functions to set each field; do not populate the struct
+// directly.
+//
+// Provider call pipeline: every LLM call passes through the Middlewares chain
+// before reaching the underlying provider. See [WithMiddleware] and the
+// [github.com/leofalp/aigo/core/client/middleware] package for built-in
+// Retry, Timeout, and Logging implementations.
 type ClientOptions struct {
 	// Required
 	LlmProvider ai.Provider
@@ -61,6 +70,7 @@ type ClientOptions struct {
 	ToolOptimizationStrategy    cost.OptimizationStrategy // Strategy for tool selection optimization (empty = no optimization guidance)
 	ModelCost                   *cost.ModelCost           // Optional: cost per million tokens for cost tracking
 	ComputeCost                 *cost.ComputeCost         // Optional: infrastructure/compute cost configuration
+	Middlewares                 []MiddlewareConfig        // Optional: middleware chain applied to every provider call
 }
 
 // WithDefaultModel sets the LLM model name used for every request made by the
@@ -229,6 +239,33 @@ func WithComputeCost(computeCost cost.ComputeCost) func(*ClientOptions) {
 	}
 }
 
+// WithMiddleware appends one or more MiddlewareConfig entries to the client's
+// middleware chain. The chain is executed outermost-first: the first middleware
+// passed here wraps all subsequent ones and the provider call itself.
+//
+// Every MiddlewareConfig must have a non-nil Send field; [New] returns an error
+// if any entry violates this contract. The Stream field is optional — a nil
+// value means streaming calls bypass that entry.
+//
+// Built-in implementations (Retry, Timeout, Logging) are available in the
+// [github.com/leofalp/aigo/core/client/middleware] package.
+//
+// Example:
+//
+//	c, err := client.New(provider,
+//	    client.WithMiddleware(
+//	        middleware.NewTimeoutMiddleware(30*time.Second),  // outermost
+//	        middleware.NewRetryMiddleware(middleware.RetryConfig{MaxRetries: 3}),
+//	        middleware.NewLoggingMiddleware(slog.Default(), middleware.LogLevelStandard),
+//	    ),
+//	)
+//	// Execution order: Timeout → Retry → Logging → Provider
+func WithMiddleware(middlewares ...MiddlewareConfig) func(*ClientOptions) {
+	return func(o *ClientOptions) {
+		o.Middlewares = append(o.Middlewares, middlewares...)
+	}
+}
+
 // New creates a new immutable Client instance.
 // The llmProvider is required as the first argument.
 // All other configuration is provided via functional options.
@@ -298,6 +335,11 @@ func New(llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client, error)
 		systemPrompt = enrichSystemPromptWithTools(systemPrompt, options.Tools, toolDescriptions, options.ToolOptimizationStrategy)
 	}
 
+	sendChain, err := buildChains(options.LlmProvider, options.Middlewares)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Client{
 		systemPrompt:        systemPrompt,
 		defaultModel:        options.DefaultModel,
@@ -311,7 +353,55 @@ func New(llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client, error)
 		state:               map[string]any{},
 		modelCost:           options.ModelCost,
 		computeCost:         options.ComputeCost,
+		sendChain:           sendChain,
+		streamChain:         buildStreamChains(options.LlmProvider, options.Middlewares),
 	}, nil
+}
+
+// buildChains validates and builds the send middleware chain. It returns
+// (nil, nil) when no middlewares are configured, signaling the client to call
+// the provider directly. It returns a non-nil error if any MiddlewareConfig has
+// a nil Send field, which would cause a nil-pointer panic at call time.
+func buildChains(provider ai.Provider, middlewares []MiddlewareConfig) (SendFunc, error) {
+	if len(middlewares) == 0 {
+		return nil, nil
+	}
+
+	for index, mw := range middlewares {
+		if mw.Send == nil {
+			return nil, fmt.Errorf("middleware[%d] has a nil Send field; every MiddlewareConfig must provide a Send middleware", index)
+		}
+	}
+
+	return buildSendChain(provider, middlewares), nil
+}
+
+// buildStreamChains returns a pre-built StreamFunc chain when any middleware has
+// a non-nil Stream field, or nil to indicate that the client should use its
+// own inline streaming logic.
+func buildStreamChains(provider ai.Provider, middlewares []MiddlewareConfig) StreamFunc {
+	if len(middlewares) == 0 {
+		return nil
+	}
+
+	// Check whether any middleware contributes a stream wrapper; if none does
+	// the stream chain is functionally identical to the bare base function and
+	// there is no value in going through a chain allocation.
+	hasStreamMiddleware := false
+
+	for _, mw := range middlewares {
+		if mw.Stream != nil {
+			hasStreamMiddleware = true
+
+			break
+		}
+	}
+
+	if !hasStreamMiddleware {
+		return nil
+	}
+
+	return buildStreamChain(provider, middlewares)
 }
 
 // loadModelCostFromEnv attempts to load ModelCost from environment variables.
@@ -629,8 +719,15 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 		// TODO: consider do add hints to the LLM into the system prompt about the expected structure
 	}
 
-	// Send to LLM provider
-	response, err := c.llmProvider.SendMessage(ctx, request)
+	// Send to LLM provider — go through the middleware chain when configured.
+	var response *ai.ChatResponse
+	var err error
+
+	if c.sendChain != nil {
+		response, err = c.sendChain(ctx, request)
+	} else {
+		response, err = c.llmProvider.SendMessage(ctx, request)
+	}
 
 	timer.Stop()
 
@@ -732,7 +829,12 @@ func (c *Client) StreamMessage(ctx context.Context, prompt string, opts ...SendM
 		}
 	}
 
-	// Try native streaming if provider supports it
+	// Try native streaming if provider supports it, or go through the stream
+	// middleware chain when one has been configured.
+	if c.streamChain != nil {
+		return c.streamChain(ctx, request)
+	}
+
 	if streamProvider, ok := c.llmProvider.(ai.StreamProvider); ok {
 		return streamProvider.StreamMessage(ctx, request)
 	}
@@ -800,7 +902,12 @@ func (c *Client) StreamContinueConversation(ctx context.Context, opts ...SendMes
 		}
 	}
 
-	// Try native streaming if provider supports it
+	// Try native streaming if provider supports it, or go through the stream
+	// middleware chain when one has been configured.
+	if c.streamChain != nil {
+		return c.streamChain(ctx, request)
+	}
+
 	if streamProvider, ok := c.llmProvider.(ai.StreamProvider); ok {
 		return streamProvider.StreamMessage(ctx, request)
 	}
@@ -896,8 +1003,15 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 		}
 	}
 
-	// Send to LLM provider
-	response, err := c.llmProvider.SendMessage(ctx, request)
+	// Send to LLM provider — go through the middleware chain when configured.
+	var response *ai.ChatResponse
+	var err error
+
+	if c.sendChain != nil {
+		response, err = c.sendChain(ctx, request)
+	} else {
+		response, err = c.llmProvider.SendMessage(ctx, request)
+	}
 
 	timer.Stop()
 
