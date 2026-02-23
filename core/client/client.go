@@ -577,7 +577,11 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 	if c.memoryProvider != nil {
 		// Stateful mode: append to memory and use all messages
 		c.memoryProvider.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: prompt})
-		messages = c.memoryProvider.AllMessages()
+		var memErr error
+		messages, memErr = c.memoryProvider.AllMessages(ctx)
+		if memErr != nil {
+			return nil, fmt.Errorf("failed to retrieve messages from memory: %w", memErr)
+		}
 
 		if c.observer != nil {
 			c.observer.Debug(ctx, "Using stateful mode with memory",
@@ -691,7 +695,11 @@ func (c *Client) StreamMessage(ctx context.Context, prompt string, opts ...SendM
 	var messages []ai.Message
 	if c.memoryProvider != nil {
 		c.memoryProvider.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: prompt})
-		messages = c.memoryProvider.AllMessages()
+		var memErr error
+		messages, memErr = c.memoryProvider.AllMessages(ctx)
+		if memErr != nil {
+			return nil, fmt.Errorf("failed to retrieve messages from memory: %w", memErr)
+		}
 	} else {
 		messages = []ai.Message{
 			{Role: ai.RoleUser, Content: prompt},
@@ -761,7 +769,10 @@ func (c *Client) StreamContinueConversation(ctx context.Context, opts ...SendMes
 		opt(options)
 	}
 
-	messages := c.memoryProvider.AllMessages()
+	messages, memErr := c.memoryProvider.AllMessages(ctx)
+	if memErr != nil {
+		return nil, fmt.Errorf("failed to retrieve messages from memory: %w", memErr)
+	}
 
 	// Determine which system prompt to use
 	systemPrompt := c.systemPrompt
@@ -843,7 +854,10 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 	span := c.observeInit(&ctx, "continue conversation")
 	executionOverview := overview.OverviewFromContext(&ctx)
 	timer := utils.NewTimer()
-	messages := c.memoryProvider.AllMessages()
+	messages, memErr := c.memoryProvider.AllMessages(ctx)
+	if memErr != nil {
+		return nil, fmt.Errorf("failed to retrieve messages from memory: %w", memErr)
+	}
 
 	if c.observer != nil {
 		c.observer.Debug(ctx, "Using stateful mode with memory",

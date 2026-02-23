@@ -231,6 +231,9 @@ func exampleUntyped(ctx context.Context) {
 
 	// Show conversation history
 	fmt.Println("Conversation History:")
-	messages := memory.AllMessages()
+	messages, err := memory.AllMessages(ctx)
+	if err != nil {
+		log.Fatalf("Failed to retrieve messages from memory: %v", err)
+	}
 	fmt.Printf("  Total messages: %d\n", len(messages))
 }

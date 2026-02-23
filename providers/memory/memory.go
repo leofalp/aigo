@@ -9,6 +9,13 @@ import (
 // Provider defines the contract for conversation-history storage.
 // Implementations must be safe for concurrent use; the core client calls
 // these methods from multiple goroutines during tool-call loops.
+//
+// All methods accept context.Context for proper cancellation, timeout,
+// and tracing propagation. In-memory implementations may ignore the context.
+//
+// Read methods return error to allow database-backed implementations to
+// surface query failures instead of swallowing them silently.
+//
 // The reference implementation is [github.com/leofalp/aigo/providers/memory/inmemory.ArrayMemory].
 type Provider interface {
 	// AppendMessage adds message to the end of the conversation history.
@@ -17,20 +24,20 @@ type Provider interface {
 	AppendMessage(ctx context.Context, message *ai.Message)
 
 	// Count returns the total number of messages currently stored.
-	Count() int
+	Count(ctx context.Context) (int, error)
 
 	// AllMessages returns a copy of every message in chronological order.
 	// Callers may freely modify the returned slice without affecting stored state.
-	AllMessages() []ai.Message
+	AllMessages(ctx context.Context) ([]ai.Message, error)
 
 	// LastMessages returns a copy of the most recent n messages in chronological order.
 	// If n exceeds the total number of stored messages, all messages are returned.
 	// If n is zero or negative, an empty slice is returned.
-	LastMessages(n int) []ai.Message
+	LastMessages(ctx context.Context, n int) ([]ai.Message, error)
 
 	// PopLastMessage removes and returns the most recent message.
 	// Returns nil when the history is empty.
-	PopLastMessage() *ai.Message
+	PopLastMessage(ctx context.Context) (*ai.Message, error)
 
 	// ClearMessages removes all stored messages.
 	// Implementations should retain any underlying capacity for reuse.
@@ -38,7 +45,7 @@ type Provider interface {
 
 	// FilterByRole returns a copy of all messages whose role matches role.
 	// Returns an empty slice when no matching messages exist.
-	FilterByRole(role ai.MessageRole) []ai.Message
+	FilterByRole(ctx context.Context, role ai.MessageRole) ([]ai.Message, error)
 
 	// Token-aware retrieval and compaction (planned)
 	//GetForTokenBudget(maxTokens int, tokenizer ai.Tokenizer) []ai.Message

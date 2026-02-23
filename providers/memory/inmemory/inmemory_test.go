@@ -8,37 +8,58 @@ import (
 )
 
 func TestArrayMemory_AppendAndAllMessages(t *testing.T) {
+	ctx := context.Background()
 	m := New()
-	if m.Count() != 0 {
+
+	count, err := m.Count(ctx)
+	if err != nil {
+		t.Fatalf("Count returned unexpected error: %v", err)
+	}
+	if count != 0 {
 		t.Fatalf("expected empty memory")
 	}
 
-	m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleUser, Content: "hi"})
-	m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleAssistant, Content: "hello"})
+	m.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: "hi"})
+	m.AppendMessage(ctx, &ai.Message{Role: ai.RoleAssistant, Content: "hello"})
 
-	if m.Count() != 2 {
-		t.Fatalf("expected 2 messages, got %d", m.Count())
+	count, err = m.Count(ctx)
+	if err != nil {
+		t.Fatalf("Count returned unexpected error: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 messages, got %d", count)
 	}
 
-	all := m.AllMessages()
+	all, err := m.AllMessages(ctx)
+	if err != nil {
+		t.Fatalf("AllMessages returned unexpected error: %v", err)
+	}
 	if len(all) != 2 {
 		t.Fatalf("expected AllMessages to return 2, got %d", len(all))
 	}
 
 	// mutate returned slice should not affect internal state
 	all[0].Content = "changed"
-	if m.AllMessages()[0].Content == "changed" {
+	allAgain, err := m.AllMessages(ctx)
+	if err != nil {
+		t.Fatalf("AllMessages returned unexpected error: %v", err)
+	}
+	if allAgain[0].Content == "changed" {
 		t.Fatalf("expected copy protection in AllMessages")
 	}
 }
 
 func TestArrayMemory_LastMessages(t *testing.T) {
+	ctx := context.Background()
 	m := New()
 	for i := 0; i < 5; i++ {
-		m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleUser, Content: string(rune('a' + i))})
+		m.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: string(rune('a' + i))})
 	}
 
-	last := m.LastMessages(2)
+	last, err := m.LastMessages(ctx, 2)
+	if err != nil {
+		t.Fatalf("LastMessages returned unexpected error: %v", err)
+	}
 	if len(last) != 2 {
 		t.Fatalf("expected 2, got %d", len(last))
 	}
@@ -46,47 +67,76 @@ func TestArrayMemory_LastMessages(t *testing.T) {
 		t.Fatalf("unexpected last messages order: %v", last)
 	}
 
-	none := m.LastMessages(0)
+	none, err := m.LastMessages(ctx, 0)
+	if err != nil {
+		t.Fatalf("LastMessages returned unexpected error: %v", err)
+	}
 	if len(none) != 0 {
 		t.Fatalf("expected empty when n <= 0")
 	}
 
-	all := m.LastMessages(10)
+	all, err := m.LastMessages(ctx, 10)
+	if err != nil {
+		t.Fatalf("LastMessages returned unexpected error: %v", err)
+	}
 	if len(all) != 5 {
 		t.Fatalf("expected full slice when n > len, got %d", len(all))
 	}
 }
 
 func TestArrayMemory_PopLastAndClear(t *testing.T) {
+	ctx := context.Background()
 	m := New()
-	if got := m.PopLastMessage(); got != nil {
+
+	got, err := m.PopLastMessage(ctx)
+	if err != nil {
+		t.Fatalf("PopLastMessage returned unexpected error: %v", err)
+	}
+	if got != nil {
 		t.Fatalf("expected nil pop on empty")
 	}
 
-	m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleUser, Content: "1"})
-	m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleUser, Content: "2"})
+	m.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: "1"})
+	m.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: "2"})
 
-	last := m.PopLastMessage()
+	last, err := m.PopLastMessage(ctx)
+	if err != nil {
+		t.Fatalf("PopLastMessage returned unexpected error: %v", err)
+	}
 	if last == nil || last.Content != "2" {
 		t.Fatalf("expected to pop '2', got %#v", last)
 	}
-	if m.Count() != 1 {
-		t.Fatalf("expected 1 message left, got %d", m.Count())
+
+	count, err := m.Count(ctx)
+	if err != nil {
+		t.Fatalf("Count returned unexpected error: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 message left, got %d", count)
 	}
 
-	m.ClearMessages(context.Background())
-	if m.Count() != 0 {
-		t.Fatalf("expected 0 after clear, got %d", m.Count())
+	m.ClearMessages(ctx)
+
+	count, err = m.Count(ctx)
+	if err != nil {
+		t.Fatalf("Count returned unexpected error: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected 0 after clear, got %d", count)
 	}
 }
 
 func TestArrayMemory_FilterByRole(t *testing.T) {
+	ctx := context.Background()
 	m := New()
-	m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleUser, Content: "u1"})
-	m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleAssistant, Content: "a1"})
-	m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleUser, Content: "u2"})
+	m.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: "u1"})
+	m.AppendMessage(ctx, &ai.Message{Role: ai.RoleAssistant, Content: "a1"})
+	m.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: "u2"})
 
-	users := m.FilterByRole(ai.RoleUser)
+	users, err := m.FilterByRole(ctx, ai.RoleUser)
+	if err != nil {
+		t.Fatalf("FilterByRole returned unexpected error: %v", err)
+	}
 	if len(users) != 2 {
 		t.Fatalf("expected 2 user messages, got %d", len(users))
 	}
@@ -94,28 +144,44 @@ func TestArrayMemory_FilterByRole(t *testing.T) {
 		t.Fatalf("unexpected users slice: %#v", users)
 	}
 
-	tools := m.FilterByRole(ai.RoleTool)
+	tools, err := m.FilterByRole(ctx, ai.RoleTool)
+	if err != nil {
+		t.Fatalf("FilterByRole returned unexpected error: %v", err)
+	}
 	if len(tools) != 0 {
 		t.Fatalf("expected 0 tool messages")
 	}
 }
 
 func TestArrayMemory_AppendNilDoesNothing(t *testing.T) {
+	ctx := context.Background()
 	m := New()
 
 	// append nil on empty
-	m.AppendMessage(context.Background(), nil)
-	if m.Count() != 0 {
-		t.Fatalf("expected count 0 after appending nil on empty, got %d", m.Count())
+	m.AppendMessage(ctx, nil)
+	count, err := m.Count(ctx)
+	if err != nil {
+		t.Fatalf("Count returned unexpected error: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected count 0 after appending nil on empty, got %d", count)
 	}
 
 	// append valid, then nil, ensure count not incremented by nil
-	m.AppendMessage(context.Background(), &ai.Message{Role: ai.RoleUser, Content: "hello"})
-	if m.Count() != 1 {
-		t.Fatalf("expected count 1 after valid append, got %d", m.Count())
+	m.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: "hello"})
+	count, err = m.Count(ctx)
+	if err != nil {
+		t.Fatalf("Count returned unexpected error: %v", err)
 	}
-	m.AppendMessage(context.Background(), nil)
-	if m.Count() != 1 {
-		t.Fatalf("expected count to remain 1 after appending nil, got %d", m.Count())
+	if count != 1 {
+		t.Fatalf("expected count 1 after valid append, got %d", count)
+	}
+	m.AppendMessage(ctx, nil)
+	count, err = m.Count(ctx)
+	if err != nil {
+		t.Fatalf("Count returned unexpected error: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected count to remain 1 after appending nil, got %d", count)
 	}
 }

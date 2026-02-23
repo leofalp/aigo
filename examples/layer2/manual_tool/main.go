@@ -178,7 +178,10 @@ func main() {
 
 	// Step 6: Show complete conversation with proper structure
 	fmt.Println("\n\n--- Complete Conversation Structure ---")
-	messages := memory.AllMessages()
+	messages, err := memory.AllMessages(ctx)
+	if err != nil {
+		fmt.Printf("Failed to retrieve messages from memory: %v", err)
+	}
 
 	for i, msg := range messages {
 		fmt.Printf("\nMessage #%d:\n", i+1)

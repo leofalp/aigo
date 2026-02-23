@@ -59,37 +59,43 @@ func (m *ArrayMemory) AppendMessage(ctx context.Context, message *ai.Message) {
 }
 
 // Count returns the number of messages stored.
-func (m *ArrayMemory) Count() int {
+// The context parameter is accepted for interface compliance but is not used
+// by the in-memory implementation. The returned error is always nil.
+func (m *ArrayMemory) Count(_ context.Context) (int, error) {
 	m.mu.RLock()
 	n := len(m.messages)
 	m.mu.RUnlock()
-	return n
+	return n, nil
 }
 
 // AllMessages returns a copy of all messages to avoid external mutation of internal state.
-func (m *ArrayMemory) AllMessages() []ai.Message {
+// The context parameter is accepted for interface compliance but is not used
+// by the in-memory implementation. The returned error is always nil.
+func (m *ArrayMemory) AllMessages(_ context.Context) ([]ai.Message, error) {
 	m.mu.RLock()
 	if len(m.messages) == 0 {
 		m.mu.RUnlock()
-		return []ai.Message{}
+		return []ai.Message{}, nil
 	}
 	out := make([]ai.Message, len(m.messages))
 	copy(out, m.messages)
 	m.mu.RUnlock()
-	return out
+	return out, nil
 }
 
 // LastMessages returns up to the last count messages as a new, independent slice.
 // If count exceeds the total number of stored messages, all messages are returned.
 // Returns an empty, non-nil slice when count is zero or negative, or when the store is empty.
-func (m *ArrayMemory) LastMessages(n int) []ai.Message {
+// The context parameter is accepted for interface compliance but is not used
+// by the in-memory implementation. The returned error is always nil.
+func (m *ArrayMemory) LastMessages(_ context.Context, n int) ([]ai.Message, error) {
 	if n <= 0 {
-		return []ai.Message{}
+		return []ai.Message{}, nil
 	}
 	m.mu.RLock()
 	if len(m.messages) == 0 {
 		m.mu.RUnlock()
-		return []ai.Message{}
+		return []ai.Message{}, nil
 	}
 	if n > len(m.messages) {
 		n = len(m.messages)
@@ -98,21 +104,23 @@ func (m *ArrayMemory) LastMessages(n int) []ai.Message {
 	out := make([]ai.Message, n)
 	copy(out, m.messages[start:])
 	m.mu.RUnlock()
-	return out
+	return out, nil
 }
 
 // PopLastMessage removes and returns the last message, or nil if empty.
-func (m *ArrayMemory) PopLastMessage() *ai.Message {
+// The context parameter is accepted for interface compliance but is not used
+// by the in-memory implementation. The returned error is always nil.
+func (m *ArrayMemory) PopLastMessage(_ context.Context) (*ai.Message, error) {
 	m.mu.Lock()
 	if len(m.messages) == 0 {
 		m.mu.Unlock()
-		return nil
+		return nil, nil
 	}
 	idx := len(m.messages) - 1
 	msg := m.messages[idx]
 	m.messages = m.messages[:idx]
 	m.mu.Unlock()
-	return &msg
+	return &msg, nil
 }
 
 // ClearMessages removes all messages while retaining the underlying slice capacity,
@@ -133,11 +141,13 @@ func (m *ArrayMemory) ClearMessages(ctx context.Context) {
 
 // FilterByRole returns a copy of all messages whose role matches the given role.
 // The returned slice is always non-nil; an empty slice is returned when no messages match.
-func (m *ArrayMemory) FilterByRole(role ai.MessageRole) []ai.Message {
+// The context parameter is accepted for interface compliance but is not used
+// by the in-memory implementation. The returned error is always nil.
+func (m *ArrayMemory) FilterByRole(_ context.Context, role ai.MessageRole) ([]ai.Message, error) {
 	m.mu.RLock()
 	if len(m.messages) == 0 {
 		m.mu.RUnlock()
-		return []ai.Message{}
+		return []ai.Message{}, nil
 	}
 	filtered := make([]ai.Message, 0, len(m.messages))
 	for _, msg := range m.messages {
@@ -147,9 +157,9 @@ func (m *ArrayMemory) FilterByRole(role ai.MessageRole) []ai.Message {
 	}
 	m.mu.RUnlock()
 	if len(filtered) == 0 {
-		return []ai.Message{}
+		return []ai.Message{}, nil
 	}
 	out := make([]ai.Message, len(filtered))
 	copy(out, filtered)
-	return out
+	return out, nil
 }

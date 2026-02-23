@@ -101,7 +101,10 @@ func main() {
 	fmt.Printf("\n\n%s\n", strings.Repeat("━", 80))
 	fmt.Println("Conversation History (Last Query)")
 	fmt.Printf("%s\n", strings.Repeat("━", 80))
-	messages := memory.AllMessages()
+	messages, err := memory.AllMessages(ctx)
+	if err != nil {
+		log.Fatalf("Failed to retrieve messages from memory: %v", err)
+	}
 	fmt.Printf("Total messages in memory: %d\n\n", len(messages))
 
 	// Show last few messages to see tool interaction

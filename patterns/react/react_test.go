@@ -221,7 +221,10 @@ func TestReactPattern_Execute_Success(t *testing.T) {
 	}
 
 	// Check memory has messages
-	messages := memory.AllMessages()
+	messages, memErr := memory.AllMessages(ctx)
+	if memErr != nil {
+		t.Fatalf("AllMessages returned unexpected error: %v", memErr)
+	}
 	if len(messages) == 0 {
 		t.Error("Expected messages in memory after execution")
 	}

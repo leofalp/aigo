@@ -238,8 +238,12 @@ func TestSendMessage_StatefulMode(t *testing.T) {
 	}
 
 	// Verify only user message was saved (SendMessage doesn't auto-save response)
-	if memory.Count() != 1 { // user only
-		t.Errorf("Expected 1 message in memory, got: %d", memory.Count())
+	count, countErr := memory.Count(ctx)
+	if countErr != nil {
+		t.Fatalf("Count returned unexpected error: %v", countErr)
+	}
+	if count != 1 { // user only
+		t.Errorf("Expected 1 message in memory, got: %d", count)
 	}
 
 	// Second message
@@ -249,8 +253,12 @@ func TestSendMessage_StatefulMode(t *testing.T) {
 	}
 
 	// Verify history accumulates (only user messages)
-	if memory.Count() != 2 { // 2 user messages
-		t.Errorf("Expected 2 messages in memory, got: %d", memory.Count())
+	count, countErr = memory.Count(ctx)
+	if countErr != nil {
+		t.Fatalf("Count returned unexpected error: %v", countErr)
+	}
+	if count != 2 { // 2 user messages
+		t.Errorf("Expected 2 messages in memory, got: %d", count)
 	}
 
 	// Verify conversation history was sent to provider
