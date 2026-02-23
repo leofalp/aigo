@@ -403,10 +403,37 @@ func WithEnrichSystemPromptWithToolsDescriptions() func(*ClientOptions)
 func WithEnrichSystemPromptWithToolsCosts(strategy cost.OptimizationStrategy) func(*ClientOptions)
 func WithModelCost(modelCost cost.ModelCost) func(*ClientOptions)
 func WithComputeCost(computeCost cost.ComputeCost) func(*ClientOptions)
+func WithMiddleware(middlewares ...MiddlewareConfig) func(*ClientOptions)
 
 // Per-request options
 func WithOutputSchema(schema *jsonschema.Schema) SendMessageOption
 func WithEphemeralSystemPrompt(prompt string) SendMessageOption
+
+// Middleware types
+// SendFunc is the base function type threaded through the send middleware chain.
+type SendFunc func(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error)
+
+// StreamFunc is the base function type threaded through the stream middleware chain.
+type StreamFunc func(ctx context.Context, request ai.ChatRequest) (*ai.ChatStream, error)
+
+// Middleware intercepts send requests. The first middleware in the slice is the outermost wrapper.
+type Middleware func(next SendFunc) SendFunc
+
+// StreamMiddleware is the streaming counterpart of Middleware. A nil Stream in MiddlewareConfig
+// means streaming calls bypass that middleware entry entirely.
+type StreamMiddleware func(next StreamFunc) StreamFunc
+
+// MiddlewareConfig pairs a send middleware with its optional streaming counterpart.
+// Send is required; Stream is optional (nil means streaming bypasses this entry).
+type MiddlewareConfig struct {
+    Send   Middleware
+    Stream StreamMiddleware // optional; nil skips streaming for this middleware
+}
+
+// NewObservabilityMiddleware creates a MiddlewareConfig that records spans, metrics, and
+// structured logs for every LLM request. Auto-prepended as the outermost middleware by New()
+// when WithObserver() is provided, so it observes the final outcome after retry/timeout.
+func NewObservabilityMiddleware(observer observability.Provider, defaultModel string) MiddlewareConfig
 
 // Client methods
 func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMessageOption) (*ai.ChatResponse, error)
@@ -418,6 +445,51 @@ func (c *Client) Observer() observability.Provider
 func (c *Client) ToolCatalog() *tool.Catalog
 func (c *Client) AppendToSystemPrompt(appendix string)
 func (c *Client) SetDefaultOutputSchema(schema *jsonschema.Schema)
+```
+
+## package middleware (`core/client/middleware`)
+
+```go
+// NewRetryMiddleware constructs a MiddlewareConfig that retries failed send requests.
+// Zero-valued fields in config are replaced with safe defaults.
+// Streaming calls bypass this middleware (mid-stream errors cannot be transparently retried).
+// On exhaustion the error wraps ErrRetryExhausted and the last provider error.
+func NewRetryMiddleware(config RetryConfig) client.MiddlewareConfig
+
+// RetryConfig holds tuning parameters for the retry middleware.
+// Defaults: MaxRetries=3, InitialBackoff=1s, MaxBackoff=30s, BackoffFactor=2.0,
+// JitterFraction=0.1, RetryableFunc retries on HTTP 429/500/502/503/529.
+type RetryConfig struct {
+    MaxRetries     int
+    InitialBackoff time.Duration
+    MaxBackoff     time.Duration
+    BackoffFactor  float64
+    JitterFraction float64
+    RetryableFunc  func(error) bool
+}
+
+// ErrRetryExhausted is returned when all retry attempts are consumed.
+// Use errors.Is(err, middleware.ErrRetryExhausted) to detect exhaustion.
+var ErrRetryExhausted = errors.New("aigo: all retry attempts exhausted")
+
+// NewTimeoutMiddleware enforces a per-request deadline on both send and stream calls.
+// For streams the timeout governs the full stream lifetime, not just time-to-first-byte.
+func NewTimeoutMiddleware(timeout time.Duration) client.MiddlewareConfig
+
+// NewLoggingMiddleware emits structured slog entries before/after every provider call.
+// Both synchronous and streaming calls are covered.
+// The logger parameter must not be nil; use slog.Default() if no custom logger is configured.
+// WARNING: LogLevelVerbose logs raw prompt/response text — do not use in production.
+func NewLoggingMiddleware(logger *slog.Logger, level LogLevel) client.MiddlewareConfig
+
+// LogLevel controls verbosity of the logging middleware.
+type LogLevel int
+
+const (
+    LogLevelMinimal  LogLevel = iota // model + duration + tokens
+    LogLevelStandard                 // + message count + finish reason (recommended)
+    LogLevelVerbose                  // + truncated content (dev-only; may log PII)
+)
 ```
 
 ## package overview (`core/overview`)

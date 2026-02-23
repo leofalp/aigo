@@ -33,8 +33,10 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 - `(*Client).Observer() observability.Provider` — returns configured observer
 - `(*Client).AppendToSystemPrompt(appendix string)` — appends text to the client system prompt
 - `(*Client).SetDefaultOutputSchema(schema *jsonschema.Schema)` — sets default JSON schema for structured output
-- Client options: `WithMemory`, `WithObserver`, `WithSystemPrompt`, `WithTools`, `WithRequiredTools`, `WithDefaultModel`, `WithModelCost`, `WithComputeCost`, `WithDefaultOutputSchema`, `WithEnrichSystemPromptWithToolsDescriptions`, `WithEnrichSystemPromptWithToolsCosts(strategy)`
+- Client options: `WithMemory`, `WithObserver`, `WithSystemPrompt`, `WithTools`, `WithRequiredTools`, `WithDefaultModel`, `WithModelCost`, `WithComputeCost`, `WithDefaultOutputSchema`, `WithEnrichSystemPromptWithToolsDescriptions`, `WithEnrichSystemPromptWithToolsCosts(strategy)`, `WithMiddleware(...MiddlewareConfig)`
 - Per-request options: `WithOutputSchema(schema)`, `WithEphemeralSystemPrompt(prompt)`
+- Middleware types: `SendFunc`, `StreamFunc`, `Middleware`, `StreamMiddleware`, `MiddlewareConfig`
+- `NewObservabilityMiddleware(observer observability.Provider, defaultModel string) MiddlewareConfig` — auto-registered by `WithObserver`; outermost wrapper for spans/metrics/logs including streaming
 - `NewStructured[T any](provider ai.Provider, opts ...func(*ClientOptions)) (*StructuredClient[T], error)` — type-safe structured client (auto-parses response into T)
 
 ### core/overview
@@ -166,6 +168,15 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 ### providers/tool/sitedataextractor
 
 - `NewSiteDataExtractorTool() *tool.Tool[Input, Output]` — extracts structured company/organization data with confidence scores
+
+### core/client/middleware
+
+- `NewRetryMiddleware(config RetryConfig) client.MiddlewareConfig` — retries failed send requests with exponential backoff + jitter; streaming calls are not retried
+- `NewTimeoutMiddleware(timeout time.Duration) client.MiddlewareConfig` — enforces per-request deadlines on both send and stream calls; for streams the timeout governs the full stream lifetime
+- `NewLoggingMiddleware(logger *slog.Logger, level LogLevel) client.MiddlewareConfig` — emits structured slog entries before/after every provider call; covers both send and stream paths
+- `RetryConfig{MaxRetries, InitialBackoff, MaxBackoff, BackoffFactor, JitterFraction, RetryableFunc}` — retry tuning parameters; zero values use safe defaults (3 retries, 1s initial, 30s max, factor 2.0, 10% jitter, retries on 429/500/502/503/529)
+- `LogLevel` — verbosity enum: `LogLevelMinimal` (model + duration + tokens), `LogLevelStandard` (+ message count + finish reason), `LogLevelVerbose` (+ truncated content; dev-only)
+- `ErrRetryExhausted` — sentinel error wrapping the last provider error; check via `errors.Is(err, middleware.ErrRetryExhausted)`
 
 ### providers/observability
 
