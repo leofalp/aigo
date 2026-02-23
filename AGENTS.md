@@ -44,6 +44,28 @@ gofmt -s -w .
 go build ./...
 ```
 
+### pgmemory sub-module
+
+`providers/memory/pgmemory` is a separate Go module. Its tests are not covered
+by `go test ./...` from the repo root. Run them explicitly:
+
+```bash
+# Unit tests (uses pgxmock, no real database required)
+go test -race ./... -C providers/memory/pgmemory
+
+# Integration tests (requires Docker — spins up a PostgreSQL container)
+go test -race -tags=integration ./... -C providers/memory/pgmemory
+```
+
+For local development, a `go.work` file at the repo root links both modules so
+changes to the main module are reflected in pgmemory immediately without
+publishing a new version:
+
+```bash
+# One-time setup (go.work is gitignored)
+go work init . ./providers/memory/pgmemory
+```
+
 ## Architecture
 
 ```
@@ -166,8 +188,9 @@ Optional cost tracking, logging, and tool-specific keys documented in `.env.exam
 
 ## CI/CD
 
-- Tests run on Go 1.24 and 1.25
-- Command: `go test -race -coverprofile=coverage.out ./...`
+- Tests run on Go 1.25 and 1.26
+- CI creates a `go.work` workspace so the pgmemory sub-module is tested against local main-module changes
+- Both `go test -race ./...` (main) and `go test -race ./... -C providers/memory/pgmemory` (pgmemory) run in every build
 - Integration tests NOT run in CI
 
 ## LLM Documentation Files
@@ -203,9 +226,40 @@ Optional cost tracking, logging, and tool-specific keys documented in `.env.exam
 ## Pre-Commit Checklist
 
 1. All unit tests pass: `go test -race ./...`
-2. No linting errors: `golangci-lint run`
-3. Code formatted: `go fmt ./... && gofmt -s -w .`
-4. Checked `internal/utils/` for existing utilities
-5. All exported types/functions have godoc comments
-6. If substantial library changes were made: update `llms.txt` and `llms-full.txt`
-7. If preparing a release: update `CHANGELOG.md` with the new version section
+2. pgmemory unit tests pass: `go test -race ./... -C providers/memory/pgmemory`
+3. No linting errors: `golangci-lint run`
+4. Code formatted: `go fmt ./... && gofmt -s -w .`
+5. Checked `internal/utils/` for existing utilities
+6. All exported types/functions have godoc comments
+7. If substantial library changes were made: update `llms.txt` and `llms-full.txt`
+8. If preparing a release: update `CHANGELOG.md` with the new version section
+
+## Sub-Module Management
+
+`providers/memory/pgmemory` is a separate Go module (`github.com/leofalp/aigo/providers/memory/pgmemory`)
+that isolates the PostgreSQL driver and related dependencies from the main module.
+
+### Local development
+
+Never add a `replace` directive to `providers/memory/pgmemory/go.mod` — it breaks published consumers.
+Use a Go workspace instead:
+
+```bash
+# One-time setup at the repo root (go.work is gitignored)
+go work init . ./providers/memory/pgmemory
+```
+
+With the workspace active, `github.com/leofalp/aigo` resolves to the local working tree for both
+compilation and tests. CI performs this step automatically before running pgmemory tests.
+
+### Release process
+
+When releasing a new version of the main module:
+
+1. Tag and publish the main module: `git tag vX.Y.Z && git push origin vX.Y.Z`
+2. Update the `github.com/leofalp/aigo` version in `providers/memory/pgmemory/go.mod` to the new tag
+3. Run `go mod tidy -C providers/memory/pgmemory` to update the `go.sum`
+4. Tag the pgmemory sub-module: `git tag providers/memory/pgmemory/vA.B.C && git push origin providers/memory/pgmemory/vA.B.C`
+
+The pgmemory sub-module is versioned independently. Its version does not need to match the main module version,
+but the `require github.com/leofalp/aigo` line must always reference a published (non-pseudo) version.

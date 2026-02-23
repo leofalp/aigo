@@ -4,16 +4,17 @@ go 1.25
 
 require (
 	github.com/jackc/pgx/v5 v5.7.5
-	github.com/leofalp/aigo v0.0.0
+	github.com/leofalp/aigo v0.3.0
 	github.com/pashagolub/pgxmock/v4 v4.9.0
 	github.com/testcontainers/testcontainers-go v0.37.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.37.0
 )
 
-// replace points to the local main module so both modules can be developed
-// and tested together. When publishing, replace this with a concrete tagged
-// version in the require block and remove the replace directive.
-replace github.com/leofalp/aigo => ../../../
+// For local development and CI, use a Go workspace (go.work) at the repo root
+// so this module resolves github.com/leofalp/aigo from the local working tree
+// instead of the tagged version above. See AGENTS.md for details.
+//
+// DO NOT add a replace directive here — it breaks published consumers.
 
 require (
 	dario.cat/mergo v1.0.1 // indirect
