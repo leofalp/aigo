@@ -18,6 +18,7 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 - [Tool: SiteDataExtractor](providers/tool/sitedataextractor/README.md): structured company/site data extraction
 - [Examples: ReAct](examples/layer3/react/README.md): type-safe ReAct agent usage guide
 - [Examples: Streaming](examples/layer2/streaming/main.go): streaming responses with real-time token delivery
+- [Examples: ReAct Streaming](examples/layer3/streaming/main.go): streaming ReAct agent with real-time event delivery
 - [Examples: Cost Tracking](examples/layer2/cost_tracking/README.md): cost tracking walkthrough
 
 ## API Reference
@@ -64,6 +65,12 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 
 - `New[T any](client *client.Client, opts ...Option) (*ReAct[T], error)` — creates a type-safe ReAct agent; injects JSON schema into system prompt at construction
 - `(*ReAct[T]).Execute(ctx context.Context, prompt string) (*overview.StructuredOverview[T], error)` — runs the ReAct tool loop and parses final answer into T
+- `(*ReAct[T]).ExecuteStream(ctx context.Context, prompt string) (*ReactStream[T], error)` — streaming variant; returns a ReactStream that yields ReactEvent values in real time; falls back to a single ReactEventFinalAnswer event if the provider lacks StreamProvider
+- `ReactStream[T any]` — wraps the streaming ReAct loop; must be consumed via Iter() or Collect()
+- `(*ReactStream[T]).Iter() iter.Seq2[ReactEvent[T], error]` — returns the underlying iterator for range-over-func loops; breaking early is safe
+- `(*ReactStream[T]).Collect() (*overview.StructuredOverview[T], error)` — consumes the entire stream and returns the structured overview (equivalent to Execute())
+- `ReactEvent[T any]` — single event from the ReAct loop; fields: Type, Iteration, Content, Reasoning, ToolName, ToolInput, ToolOutput, Result *T, Err
+- `ReactEventType` — event kind string enum: `ReactEventIterationStart`, `ReactEventReasoning`, `ReactEventContent`, `ReactEventToolCall`, `ReactEventToolResult`, `ReactEventFinalAnswer`, `ReactEventError`
 - Options: `WithMaxIterations(n int)`, `WithStopOnError(bool)`, `WithSysPromptAnnotation(bool)`
 - Use `T = string` for untyped text output; any struct with json tags for structured output
 
@@ -212,3 +219,4 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 
 - [ReAct](examples/layer3/react/main.go): typed `MathResult`, typed `ResearchResult`, untyped `string`
 - [Brave Search ReAct](examples/layer3/bravesearch-react/main.go): ReAct agent with Brave Search and Calculator tools
+- [Streaming ReAct](examples/layer3/streaming/main.go): real-time streaming ReAct agent with per-event rendering

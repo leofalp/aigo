@@ -13,6 +13,7 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 - [Slog Observer](providers/observability/slogobs/README.md)
 - [Examples: ReAct](examples/layer3/react/README.md)
 - [Examples: Streaming](examples/layer2/streaming/main.go)
+- [Examples: ReAct Streaming](examples/layer3/streaming/main.go)
 - [Examples: Cost Tracking](examples/layer2/cost_tracking/README.md)
 
 ## API Reference
@@ -617,9 +618,56 @@ func New[T any](baseClient *client.Client, opts ...Option) (*ReAct[T], error)
 // Execute runs the ReAct tool loop and parses the final answer into T.
 func (r *ReAct[T]) Execute(ctx context.Context, prompt string) (*overview.StructuredOverview[T], error)
 
+// ExecuteStream is the streaming variant of Execute. It returns a ReactStream immediately
+// without blocking. The caller consumes events via ReactStream.Iter() or ReactStream.Collect().
+// If the underlying provider does not implement ai.StreamProvider, ExecuteStream falls back
+// to a single-event stream delivering ReactEventFinalAnswer.
+func (r *ReAct[T]) ExecuteStream(ctx context.Context, prompt string) (*ReactStream[T], error)
+
+// ReactStream wraps the streaming ReAct agent execution loop.
+// It yields ReactEvent values that describe each phase of the agent's work.
+// Must be consumed via Iter() or Collect() to avoid resource leaks.
+type ReactStream[T any] struct { ... }
+
+// Iter returns the underlying iter.Seq2[ReactEvent[T], error] iterator for range-over-func loops.
+// Breaking out of the loop early is safe — the Go runtime abandons the iterator correctly.
+func (stream *ReactStream[T]) Iter() iter.Seq2[ReactEvent[T], error]
+
+// Collect consumes the entire stream and returns the structured overview,
+// equivalent to what Execute() returns but after streaming all events.
+// Any mid-stream error terminates collection and returns that error.
+func (stream *ReactStream[T]) Collect() (*overview.StructuredOverview[T], error)
+
+// ReactEventType identifies the phase of the ReAct loop that produced an event.
+type ReactEventType string
+
+const (
+    ReactEventIterationStart ReactEventType = "iteration_start" // New reasoning iteration begins
+    ReactEventReasoning      ReactEventType = "reasoning"       // Reasoning/thinking token delta
+    ReactEventContent        ReactEventType = "content"         // LLM content token delta
+    ReactEventToolCall       ReactEventType = "tool_call"       // LLM chose a tool; full call info
+    ReactEventToolResult     ReactEventType = "tool_result"     // Tool finished executing
+    ReactEventFinalAnswer    ReactEventType = "final_answer"    // Parsed final answer (with Result *T)
+    ReactEventError          ReactEventType = "error"           // Fatal error; stream ends after this
+)
+
+// ReactEvent represents a single event from the ReAct agent loop.
+// Each event carries exactly one type of payload identified by Type.
+type ReactEvent[T any] struct {
+    Type       ReactEventType // Event kind
+    Iteration  int            // 1-based iteration number within the ReAct loop
+    Content    string         // Text delta (ReactEventContent) or full content (ReactEventFinalAnswer)
+    Reasoning  string         // Reasoning/thinking delta (ReactEventReasoning only)
+    ToolName   string         // Tool name for ReactEventToolCall / ReactEventToolResult
+    ToolInput  string         // JSON-encoded tool arguments (ReactEventToolCall only)
+    ToolOutput string         // Tool result string (ReactEventToolResult only)
+    Result     *T             // Strongly-typed parsed answer (ReactEventFinalAnswer only)
+    Err        error          // Error value (ReactEventError only; not marshaled to JSON)
+}
+
 // Options
-func WithMaxIterations(max int) Option   // default: 10
-func WithStopOnError(stop bool) Option   // default: false
+func WithMaxIterations(max int) Option    // default: 10
+func WithStopOnError(stop bool) Option    // default: false
 func WithSysPromptAnnotation(bool) Option // enable/disable ReAct hints in system prompt
 ```
 
@@ -1871,6 +1919,102 @@ func main() {
         fmt.Printf("  Prompt tokens:     %d\n", finalResponse.Usage.PromptTokens)
         fmt.Printf("  Completion tokens: %d\n", finalResponse.Usage.CompletionTokens)
         fmt.Printf("  Total tokens:      %d\n", finalResponse.Usage.TotalTokens)
+    }
+}
+```
+
+---
+
+# Example: Layer 3 — Streaming ReAct (examples/layer3/streaming/main.go)
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+
+    "github.com/leofalp/aigo/core/client"
+    "github.com/leofalp/aigo/patterns/react"
+    "github.com/leofalp/aigo/providers/ai/openai"
+    "github.com/leofalp/aigo/providers/memory/inmemory"
+    "github.com/leofalp/aigo/providers/tool/calculator"
+
+    _ "github.com/joho/godotenv/autoload"
+)
+
+// MathResult is the strongly-typed output the agent must produce.
+type MathResult struct {
+    Answer      int    `json:"answer"      jsonschema:"required,description=The numerical answer"`
+    Explanation string `json:"explanation" jsonschema:"required,description=Step-by-step explanation"`
+}
+
+func main() {
+    fmt.Println("=== Streaming ReAct Pattern (Layer 3) ===")
+    fmt.Println()
+
+    ctx := context.Background()
+
+    baseClient, err := client.New(
+        openai.New(),
+        client.WithMemory(inmemory.New()),
+        client.WithTools(calculator.NewCalculatorTool()),
+        client.WithSystemPrompt("You are a helpful math assistant."),
+        client.WithEnrichSystemPromptWithToolsDescriptions(),
+    )
+    if err != nil {
+        log.Fatalf("failed to create client: %v", err)
+    }
+
+    agent, err := react.New[MathResult](
+        baseClient,
+        react.WithMaxIterations(5),
+    )
+    if err != nil {
+        log.Fatalf("failed to create agent: %v", err)
+    }
+
+    prompt := "What is the sum of the squares of the first 4 prime numbers? Show your working."
+    fmt.Printf("User: %s\n\n", prompt)
+
+    // ExecuteStream returns immediately; the iterator drives the loop.
+    stream, err := agent.ExecuteStream(ctx, prompt)
+    if err != nil {
+        log.Fatalf("ExecuteStream failed: %v", err)
+    }
+
+    var finalResult *MathResult
+
+    for event, iterErr := range stream.Iter() {
+        if iterErr != nil {
+            fmt.Fprintf(os.Stderr, "\nstream error: %v\n", iterErr)
+            os.Exit(1)
+        }
+
+        switch event.Type {
+        case react.ReactEventIterationStart:
+            fmt.Printf("\n--- Step %d ---\n", event.Iteration)
+        case react.ReactEventReasoning:
+            fmt.Print(event.Reasoning)
+        case react.ReactEventContent:
+            fmt.Print(event.Content)
+        case react.ReactEventToolCall:
+            fmt.Printf("\n[Calling tool: %s  args: %s]\n", event.ToolName, event.ToolInput)
+        case react.ReactEventToolResult:
+            fmt.Printf("[Tool result: %s]\n", event.ToolOutput)
+        case react.ReactEventFinalAnswer:
+            finalResult = event.Result
+        }
+    }
+
+    if finalResult != nil {
+        fmt.Println()
+        fmt.Println()
+        fmt.Println("--- Final Answer ---")
+        fmt.Printf("  Answer:      %d\n", finalResult.Answer)
+        fmt.Printf("  Explanation: %s\n", finalResult.Explanation)
     }
 }
 ```
