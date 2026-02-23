@@ -2,7 +2,7 @@
 
 > A lightweight, modular Go framework for building AI applications with LLMs — supporting multi-turn conversations, tool calling, structured output, streaming, observability, cost tracking, and agentic patterns (ReAct, DAG graphs).
 
-Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architecture: **Layer 1** (`providers/`) exposes raw LLM/tool/memory/observability I/O; **Layer 2** (`core/`) orchestrates stateful/stateless conversations, cost tracking, and JSON parsing; **Layer 3** (`patterns/`) provides type-safe agentic workflows. AI providers: OpenAI, Gemini (and any OpenAI-compatible API). Install: `go get github.com/leofalp/aigo`. Key env vars: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `AIGO_DEFAULT_LLM_MODEL`.
+Module: `github.com/leofalp/aigo`. Requires Go 1.25+. Uses a 3-layer architecture: **Layer 1** (`providers/`) exposes raw LLM/tool/memory/observability I/O; **Layer 2** (`core/`) orchestrates stateful/stateless conversations, cost tracking, and JSON parsing; **Layer 3** (`patterns/`) provides type-safe agentic workflows. AI providers: OpenAI, Gemini (and any OpenAI-compatible API). Install: `go get github.com/leofalp/aigo`. Key env vars: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `AIGO_DEFAULT_LLM_MODEL`.
 
 ## Docs
 
@@ -11,10 +11,16 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 - [Cost Tracking](core/cost/README.md)
 - [Observability](providers/observability/README.md)
 - [Slog Observer](providers/observability/slogobs/README.md)
+- [Tool: BraveSearch](providers/tool/bravesearch/README.md)
+- [Tool: DuckDuckGo](providers/tool/duckduckgo/README.md)
+- [Tool: WebFetch](providers/tool/webfetch/README.md)
+- [Tool: URLExtractor](providers/tool/urlextractor/README.md)
+- [Tool: SiteDataExtractor](providers/tool/sitedataextractor/README.md)
 - [Examples: ReAct](examples/layer3/react/README.md)
 - [Examples: Streaming](examples/layer2/streaming/main.go)
 - [Examples: ReAct Streaming](examples/layer3/streaming/main.go)
 - [Examples: Cost Tracking](examples/layer2/cost_tracking/README.md)
+- [Examples: Middleware](examples/layer2/middleware/main.go)
 
 ## API Reference
 
@@ -43,9 +49,10 @@ A lightweight, modular, and extensible Go framework for building AI applications
 - **Agentic Patterns** - ReAct, RAG, and chain-based workflows with tool execution loops
 - **Cost Tracking** - Track and optimize spending across models, tools, and infrastructure
 - **Observability** - Built-in tracing, metrics, and logging with zero overhead when disabled
+- **Middleware System** - Composable support for retry, timeout, logging, and observability
 - **Provider Flexibility** - Support for any OpenAI-compatible API
 - **Extensible Tools** - Built-in tools for calculations, web search, and scraping, with easy custom tool creation
-- **Memory Management** - Thread-safe conversation history with pluggable storage backends
+- **Memory Management** - Thread-safe conversation history with pluggable storage backends including in-memory and PostgreSQL
 
 ## Installation
 
@@ -166,7 +173,7 @@ fmt.Println(*result.Data)
 Pure I/O implementations and protocol adapters. Handle communication with external services with zero business logic.
 
 - `providers/ai/` — LLM providers (OpenAI, Gemini)
-- `providers/memory/` — Storage backends (in-memory)
+- `providers/memory/` — Storage backends (in-memory, PostgreSQL)
 - `providers/tool/` — Tool interface and implementations
 - `providers/observability/` — Monitoring and logging
 
@@ -189,6 +196,7 @@ Reusable components with domain logic that orchestrate multiple providers.
 | Tool calling | ❌ | ✅ Full orchestration |
 | Cost tracking | ❌ | ✅ Automatic |
 | Observability | ❌ | ✅ Built-in |
+| Middleware | ❌ | ✅ Composable (retry, timeout, logging) |
 
 ## Layer 3: Patterns (High-Level Abstractions)
 

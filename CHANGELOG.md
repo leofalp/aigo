@@ -9,16 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### New Features
 
-- **Middleware chain** (`core/client/middleware/`) -- Composable middleware framework for the `Client` with `SendFunc`, `StreamFunc`, `Middleware`, `StreamMiddleware`, and `MiddlewareConfig` types. Middlewares are applied outermost-first and can intercept both synchronous and streaming provider calls. Use `WithMiddleware(...)` to register them.
-- **Retry middleware** (`NewRetryMiddleware`) -- Exponential backoff with configurable jitter, max retries, and a pluggable retryable predicate. Defaults to retrying on HTTP 429/500/502/503/529. Streaming calls bypass retry (mid-stream errors cannot be transparently replayed). Sentinel error `ErrRetryExhausted` allows callers to distinguish exhaustion from other failures.
-- **Timeout middleware** (`NewTimeoutMiddleware`) -- Per-request deadline enforcement for both send and stream calls. For streaming, the timeout governs the full stream lifetime (not just time-to-first-byte), and the context cancel is deferred until the stream is consumed or abandoned.
-- **Logging middleware** (`NewLoggingMiddleware`) -- Structured `slog` log entries at configurable verbosity levels (`LogLevelMinimal`, `LogLevelStandard`, `LogLevelVerbose`). Covers both send and stream paths; stream completion is logged when the iterator is fully drained.
-- **Observability middleware** (`NewObservabilityMiddleware`) -- Distributed tracing spans, request/token counters, and duration histograms for every LLM call including streaming. Auto-prepended as the outermost middleware by `New()` when `WithObserver()` is provided, replacing the previous inline observability in `client.go`.
+- **Middleware system** (`core/client/middleware/`) -- Composable chain for LLM calls with built-in support for **Retry** (backoff/jitter), **Timeout** (deadlines), **Logging** (slog), and **Observability** (tracing/metrics). Supports both sync and stream paths.
+- **Streaming ReAct** (`patterns/react/`) -- Real-time event delivery for the ReAct agent via `ExecuteStream`. Yields reasoning, tool calls, and results through an iterator.
+- **PostgreSQL memory provider** (`providers/memory/pgmemory/`) -- Persistent chat history using `pgx/v5` with session isolation and multimodal content support.
 
 ### Refactoring & Improvements
 
-- Moved client-level observability from inline code in `SendMessage`/`ContinueConversation` into `ObservabilityMiddleware`, centralising span/metric/log logic and adding streaming observability that was previously missing.
-- Streaming observability now records spans, counters, and histograms when the `ChatStream` iterator is fully consumed, errored, or abandoned, matching the behaviour of the synchronous path.
+- **Centralized Observability** -- Moved inline logic into `ObservabilityMiddleware`, adding full support for streaming spans and metrics.
+- **Memory Provider Interface** -- Updated methods to accept `context.Context` and return `error` to support database-backed implementations.
+
+### Breaking Changes
+
+- **memory.Provider** -- Interface updated: all methods now take `context.Context`; read methods now return an `error`; `Clear` renamed to `ClearMessages`.
 
 ### Testing
 

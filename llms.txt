@@ -2,7 +2,7 @@
 
 > A lightweight, modular Go framework for building AI applications with LLMs — supporting multi-turn conversations, tool calling, structured output, streaming, observability, cost tracking, and agentic patterns (ReAct, DAG graphs).
 
-Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architecture: **Layer 1** (`providers/`) exposes raw LLM/tool/memory/observability I/O; **Layer 2** (`core/`) orchestrates stateful/stateless conversations, cost tracking, and JSON parsing; **Layer 3** (`patterns/`) provides type-safe agentic workflows. AI providers: OpenAI, Gemini (and any OpenAI-compatible API). Install: `go get github.com/leofalp/aigo`. Key env vars: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `AIGO_DEFAULT_LLM_MODEL`.
+Module: `github.com/leofalp/aigo`. Requires Go 1.25+. Uses a 3-layer architecture: **Layer 1** (`providers/`) exposes raw LLM/tool/memory/observability I/O; **Layer 2** (`core/`) orchestrates stateful/stateless conversations, cost tracking, and JSON parsing; **Layer 3** (`patterns/`) provides type-safe agentic workflows. AI providers: OpenAI, Gemini (and any OpenAI-compatible API). Install: `go get github.com/leofalp/aigo`. Key env vars: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `AIGO_DEFAULT_LLM_MODEL`.
 
 ## Docs
 
@@ -20,6 +20,7 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 - [Examples: Streaming](examples/layer2/streaming/main.go): streaming responses with real-time token delivery
 - [Examples: ReAct Streaming](examples/layer3/streaming/main.go): streaming ReAct agent with real-time event delivery
 - [Examples: Cost Tracking](examples/layer2/cost_tracking/README.md): cost tracking walkthrough
+- [Examples: Middleware](examples/layer2/middleware/main.go): using retry, timeout, and logging middlewares
 
 ## API Reference
 
@@ -125,8 +126,14 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 
 ### providers/memory
 
-- `Provider` interface: `AppendMessage(ctx, *ai.Message)`, `AllMessages() []ai.Message`, `Clear(ctx)`
+- `Provider` interface: `AppendMessage(ctx, *ai.Message)`, `Count(ctx) (int, error)`, `AllMessages(ctx) ([]ai.Message, error)`, `LastMessages(ctx, n) ([]ai.Message, error)`, `PopLastMessage(ctx) (*ai.Message, error)`, `ClearMessages(ctx)`, `FilterByRole(ctx, role) ([]ai.Message, error)`
 - `inmemory.New() memory.Provider` — thread-safe in-memory array-backed implementation
+
+### providers/memory/pgmemory
+
+- `New(db Querier, sessionID string, opts ...Option) *PgMemory` — creates a PostgreSQL-backed memory provider using `pgx/v5`
+- Options: `WithTableName(name string)` (default: "aigo_messages")
+- `Querier` interface: satisfies `*pgxpool.Pool` or `pgx.Tx` for connection pooling or transaction injection
 
 ### providers/tool
 
