@@ -183,6 +183,23 @@ Optional cost tracking, logging, and tool-specific keys documented in `.env.exam
 
 `llms.txt` is the concise navigation index (under 200 lines). `llms-full.txt` is the comprehensive reference including README, architecture docs, exported API signatures, and key examples.
 
+## Changelog
+
+`CHANGELOG.md` at the repo root tracks all notable changes per release following the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+**Update `CHANGELOG.md` on every release.** When preparing a new version:
+
+1. Add a new `## [vX.Y.Z] - YYYY-MM-DD` section at the top (below the header), keeping previous versions below it.
+2. Organize changes under these subsections (omit empty ones):
+   - `### New Features` -- New capabilities, tools, providers, or patterns.
+   - `### Refactoring & Improvements` -- Non-breaking enhancements, renames, documentation improvements.
+   - `### Bug Fixes` -- Defect corrections.
+   - `### Breaking Changes` -- API changes that require consumer updates.
+   - `### Testing` -- Significant test additions or improvements.
+   - `### Build & CI` -- Dependency upgrades, CI changes, tooling updates.
+3. Each entry should be a concise bullet point starting with a **bolded name** followed by a short description.
+4. Add a comparison link at the bottom of the file: `[vX.Y.Z]: https://github.com/leofalp/aigo/compare/vPREV...vX.Y.Z`.
+
 ## Pre-Commit Checklist
 
 1. All unit tests pass: `go test -race ./...`
@@ -191,3 +208,4 @@ Optional cost tracking, logging, and tool-specific keys documented in `.env.exam
 4. Checked `internal/utils/` for existing utilities
 5. All exported types/functions have godoc comments
 6. If substantial library changes were made: update `llms.txt` and `llms-full.txt`
+7. If preparing a release: update `CHANGELOG.md` with the new version section
