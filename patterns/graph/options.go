@@ -111,6 +111,23 @@ func WithStateProvider(provider StateProvider) Option {
 	}
 }
 
+// WithStreamBufferSize sets the internal channel buffer size for streaming events
+// in ExecuteStream. A larger buffer reduces goroutine blocking when the consumer
+// is slower than the producers, at the cost of higher memory usage.
+//
+// A value of 0 (default) uses the default buffer size of 64.
+//
+// Example:
+//
+//	graph.NewGraphBuilder[Result](defaultClient,
+//	    graph.WithStreamBufferSize(128), // larger buffer for many parallel nodes
+//	)
+func WithStreamBufferSize(size int) Option {
+	return func(config *graphConfig) {
+		config.streamBufferSize = size
+	}
+}
+
 // --- Node Options ---
 
 // WithNodeClient sets a node-specific LLM client that overrides the graph's
