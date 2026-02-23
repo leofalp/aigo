@@ -492,3 +492,60 @@ func TestObservabilityMiddleware_EffectiveModel_FallsBackToDefault(t *testing.T)
 		t.Error("expected INFO log even when request model is empty")
 	}
 }
+
+// TestObservabilityMiddleware_EffectiveModel_UsesRequestModel verifies that when
+// the ChatRequest carries a non-empty Model field, the middleware routes the
+// success path (span started + INFO log) rather than treating it as a fallback.
+func TestObservabilityMiddleware_EffectiveModel_UsesRequestModel(t *testing.T) {
+	obs := newMockObserver()
+	mw := NewObservabilityMiddleware(obs, "fallback-model")
+
+	chain := mw.Send(successSendFunc())
+	// Pass a non-empty Model — effectiveModel should return "gpt-4o", not "fallback-model".
+	_, err := chain(context.Background(), ai.ChatRequest{Model: "gpt-4o"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// The span lifecycle must complete normally regardless of which model was used.
+	if obs.spanStartCount != 1 {
+		t.Errorf("expected 1 span start, got %d", obs.spanStartCount)
+	}
+	if obs.spanEndCount != 1 {
+		t.Errorf("expected 1 span end, got %d", obs.spanEndCount)
+	}
+
+	// An INFO log is emitted on the success path — confirms the effective model
+	// was resolved without error.
+	if obs.infoCount == 0 {
+		t.Error("expected INFO log for request with explicit model 'gpt-4o'")
+	}
+
+	// No errors must have been logged — proves the request-model branch succeeded.
+	if obs.errorCount != 0 {
+		t.Errorf("expected no ERROR logs, got %d", obs.errorCount)
+	}
+
+	// The request counter must be incremented with status=success.
+	if obs.counterAdds[observability.MetricClientRequestCount] != 1 {
+		t.Errorf("expected request counter = 1, got %d", obs.counterAdds[observability.MetricClientRequestCount])
+	}
+}
+
+// TestEffectiveModel_ReturnsRequestModelWhenSet is a focused unit test for the
+// effectiveModel helper, verifying that a non-empty requestModel takes precedence.
+func TestEffectiveModel_ReturnsRequestModelWhenSet(t *testing.T) {
+	result := effectiveModel("gpt-4o", "fallback-model")
+	if result != "gpt-4o" {
+		t.Errorf("expected 'gpt-4o', got %q", result)
+	}
+}
+
+// TestEffectiveModel_FallsBackToDefaultWhenEmpty verifies that an empty
+// requestModel causes effectiveModel to return the defaultModel.
+func TestEffectiveModel_FallsBackToDefaultWhenEmpty(t *testing.T) {
+	result := effectiveModel("", "fallback-model")
+	if result != "fallback-model" {
+		t.Errorf("expected 'fallback-model', got %q", result)
+	}
+}

@@ -170,6 +170,118 @@ func TestTimeoutMiddleware_StreamNilField(t *testing.T) {
 	}
 }
 
+// ========== buildStreamTimeout / wrapStreamWithCancel tests ==========
+
+// TestBuildStreamTimeout_PreStreamError verifies that when the underlying
+// provider returns an error before streaming begins, buildStreamTimeout
+// propagates that error and does not return a stream.
+func TestBuildStreamTimeout_PreStreamError(t *testing.T) {
+	providerErr := errors.New("authentication failed")
+
+	failingStreamFunc := func(_ context.Context, _ ai.ChatRequest) (*ai.ChatStream, error) {
+		return nil, providerErr
+	}
+
+	middleware := buildStreamTimeout(time.Second)
+	chain := middleware(failingStreamFunc)
+
+	stream, err := chain(context.Background(), ai.ChatRequest{})
+	if stream != nil {
+		t.Error("expected nil stream on pre-stream error")
+	}
+
+	if !errors.Is(err, providerErr) {
+		t.Errorf("expected providerErr, got %v", err)
+	}
+}
+
+// TestWrapStreamWithCancel_MidStreamError verifies that when the underlying
+// stream yields some events followed by an error, wrapStreamWithCancel
+// propagates the error to the consumer and calls cancel.
+func TestWrapStreamWithCancel_MidStreamError(t *testing.T) {
+	midStreamErr := errors.New("connection reset mid-stream")
+
+	// Build a raw stream: one content event, then an error.
+	rawIterator := func(yield func(ai.StreamEvent, error) bool) {
+		if !yield(ai.StreamEvent{Type: ai.StreamEventContent, Content: "partial"}, nil) {
+			return
+		}
+		yield(ai.StreamEvent{}, midStreamErr)
+	}
+	rawStream := ai.NewChatStream(rawIterator)
+
+	cancelCalled := false
+	cancelFunc := func() { cancelCalled = true }
+
+	wrapped := wrapStreamWithCancel(rawStream, cancelFunc)
+
+	var collectedContent string
+	var streamErr error
+
+	for event, err := range wrapped.Iter() {
+		if err != nil {
+			streamErr = err
+			break
+		}
+		collectedContent += event.Content
+	}
+
+	if collectedContent != "partial" {
+		t.Errorf("expected content 'partial', got %q", collectedContent)
+	}
+
+	if !errors.Is(streamErr, midStreamErr) {
+		t.Errorf("expected midStreamErr, got %v", streamErr)
+	}
+
+	if !cancelCalled {
+		t.Error("expected cancel to be called after mid-stream error")
+	}
+}
+
+// TestWrapStreamWithCancel_EarlyBreak verifies that when the consumer breaks
+// out of the iterator early (before the stream is fully consumed), the cancel
+// function is still called and the function terminates gracefully.
+func TestWrapStreamWithCancel_EarlyBreak(t *testing.T) {
+	// Build a stream with multiple events — consumer will only read the first.
+	rawIterator := func(yield func(ai.StreamEvent, error) bool) {
+		if !yield(ai.StreamEvent{Type: ai.StreamEventContent, Content: "first"}, nil) {
+			return
+		}
+		if !yield(ai.StreamEvent{Type: ai.StreamEventContent, Content: "second"}, nil) {
+			return
+		}
+		yield(ai.StreamEvent{Type: ai.StreamEventDone, FinishReason: "stop"}, nil)
+	}
+	rawStream := ai.NewChatStream(rawIterator)
+
+	cancelCalled := make(chan struct{})
+	cancelFunc := func() { close(cancelCalled) }
+
+	wrapped := wrapStreamWithCancel(rawStream, cancelFunc)
+
+	// Consume only the first event, then break.
+	for event, err := range wrapped.Iter() {
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if event.Content != "first" {
+			t.Errorf("expected first event content 'first', got %q", event.Content)
+		}
+
+		break // Early break — only consume one event.
+	}
+
+	// Cancel must be called within a reasonable time (defer in wrapStreamWithCancel).
+	select {
+	case <-cancelCalled:
+		// Success — cancel was invoked.
+	case <-time.After(time.Second):
+		t.Fatal("cancel was not called within 1s after early break — possible goroutine leak")
+	}
+}
+
 // collectErrors drains a ChatStream and returns all non-nil iterator errors.
 func collectErrors(stream *ai.ChatStream) []error {
 	var errs []error

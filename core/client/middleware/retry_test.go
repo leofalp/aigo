@@ -327,3 +327,101 @@ func TestRetryMiddleware_StreamIsNil(t *testing.T) {
 		t.Error("expected Stream field to be nil for retry middleware")
 	}
 }
+
+// TestComputeBackoff_CapsAtMaxBackoff verifies that computeBackoff never returns
+// a duration that exceeds MaxBackoff (plus the jitter allowance). When the
+// exponential base overflows MaxBackoff, the result must still be bounded.
+func TestComputeBackoff_CapsAtMaxBackoff(t *testing.T) {
+	maxBackoff := 100 * time.Millisecond
+	config := RetryConfig{
+		InitialBackoff: 10 * time.Millisecond,
+		MaxBackoff:     maxBackoff,
+		BackoffFactor:  2.0,
+		JitterFraction: 0.1, // 10 % jitter
+	}
+
+	// With attempt=100 the raw exponential (10ms * 2^100) is astronomically
+	// large, so the function must cap at MaxBackoff before adding jitter.
+	// Maximum possible result: MaxBackoff + MaxBackoff*JitterFraction
+	upperBound := maxBackoff + time.Duration(float64(maxBackoff)*config.JitterFraction)
+
+	// Run multiple iterations to exercise the random jitter path.
+	for i := 0; i < 200; i++ {
+		got := computeBackoff(config, 100)
+
+		if got < 0 {
+			t.Fatalf("iteration %d: backoff must be non-negative, got %v", i, got)
+		}
+
+		if got > upperBound {
+			t.Fatalf("iteration %d: backoff %v exceeds upper bound %v (MaxBackoff + jitter)", i, got, upperBound)
+		}
+
+		// The capped base is MaxBackoff itself, so the result must be at least MaxBackoff
+		// (jitter adds a non-negative amount).
+		if got < maxBackoff {
+			t.Fatalf("iteration %d: backoff %v is below MaxBackoff %v — base should be capped, not reduced", i, got, maxBackoff)
+		}
+	}
+}
+
+// TestDefaultRetryableFunc verifies that the default retryable function returns
+// true only for transient HTTP error codes (429, 500, 502, 503, 529) embedded
+// anywhere in the error message, and false for non-retryable errors or nil.
+func TestDefaultRetryableFunc(t *testing.T) {
+	testCases := []struct {
+		name      string
+		err       error
+		wantRetry bool
+	}{
+		{
+			name:      "nil error is not retryable",
+			err:       nil,
+			wantRetry: false,
+		},
+		{
+			name:      "429 rate limit is retryable",
+			err:       fmt.Errorf("HTTP status 429: rate limited"),
+			wantRetry: true,
+		},
+		{
+			name:      "500 internal server error is retryable",
+			err:       fmt.Errorf("HTTP status 500: internal server error"),
+			wantRetry: true,
+		},
+		{
+			name:      "502 bad gateway is retryable",
+			err:       fmt.Errorf("upstream returned 502 bad gateway"),
+			wantRetry: true,
+		},
+		{
+			name:      "503 service unavailable is retryable",
+			err:       fmt.Errorf("service 503 unavailable"),
+			wantRetry: true,
+		},
+		{
+			name:      "529 overloaded is retryable",
+			err:       fmt.Errorf("code 529: overloaded"),
+			wantRetry: true,
+		},
+		{
+			name:      "400 bad request is not retryable",
+			err:       fmt.Errorf("HTTP status 400: bad request"),
+			wantRetry: false,
+		},
+		{
+			name:      "generic error without status code is not retryable",
+			err:       errors.New("permanent failure"),
+			wantRetry: false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := defaultRetryableFunc(testCase.err)
+			if got != testCase.wantRetry {
+				t.Errorf("defaultRetryableFunc(%v) = %v, want %v", testCase.err, got, testCase.wantRetry)
+			}
+		})
+	}
+}

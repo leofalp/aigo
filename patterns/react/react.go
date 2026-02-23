@@ -343,9 +343,9 @@ func (r *ReAct[T]) executeToolCall(
 				toolCall.Function.Name,
 				strings.Join(getToolNames(toolCatalog), ", ")),
 		)
-		resultJSON, err := toolResult.ToJSON()
-		if err != nil {
-			resultJSON = fmt.Sprintf(`{"error":"failed to serialize tool result: %s"}`, err.Error())
+		resultJSON, jsonErr := toolResult.ToJSON()
+		if jsonErr != nil {
+			resultJSON = fmt.Sprintf(`{"error":"failed to serialize tool result: %s"}`, jsonErr.Error())
 		}
 		mem.AppendMessage(ctx, &ai.Message{
 			Role:       ai.RoleTool,
@@ -389,9 +389,9 @@ func (r *ReAct[T]) executeToolCall(
 
 		// Add error as structured ToolResult to memory
 		toolResult := ai.NewToolResultError("tool_execution_failed", err.Error())
-		resultJSON, err := toolResult.ToJSON()
-		if err != nil {
-			resultJSON = fmt.Sprintf(`{"error":"failed to serialize tool result: %s"}`, err.Error())
+		resultJSON, jsonErr := toolResult.ToJSON()
+		if jsonErr != nil {
+			resultJSON = fmt.Sprintf(`{"error":"failed to serialize tool result: %s"}`, jsonErr.Error())
 		}
 		mem.AppendMessage(ctx, &ai.Message{
 			Role:       ai.RoleTool,

@@ -202,3 +202,39 @@ func TestSearch_EmptyResponse(t *testing.T) {
 		t.Errorf("expected 'No results' fallback, got: %q", output.Summary)
 	}
 }
+
+// TestToResult verifies that a resultResponse is correctly mapped to a Result,
+// including the conversion of relative icon URLs to absolute URLs.
+func TestToResult(t *testing.T) {
+	input := resultResponse{
+		FirstURL: "https://example.com/result",
+		Icon: iconResponse{
+			URL:    "/icon.png",
+			Height: flexibleInt("100"),
+			Width:  flexibleInt("200"),
+		},
+		Result: "HTML result",
+		Text:   "Plain text result",
+	}
+
+	result := input.toResult()
+
+	if result.FirstURL != "https://example.com/result" {
+		t.Errorf("FirstURL = %q, want %q", result.FirstURL, "https://example.com/result")
+	}
+	if result.Icon.URL != "https://duckduckgo.com/icon.png" {
+		t.Errorf("Icon.URL = %q, want %q", result.Icon.URL, "https://duckduckgo.com/icon.png")
+	}
+	if result.Icon.Height != "100" {
+		t.Errorf("Icon.Height = %q, want %q", result.Icon.Height, "100")
+	}
+	if result.Icon.Width != "200" {
+		t.Errorf("Icon.Width = %q, want %q", result.Icon.Width, "200")
+	}
+	if result.Result != "HTML result" {
+		t.Errorf("Result = %q, want %q", result.Result, "HTML result")
+	}
+	if result.Text != "Plain text result" {
+		t.Errorf("Text = %q, want %q", result.Text, "Plain text result")
+	}
+}

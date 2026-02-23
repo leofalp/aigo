@@ -814,6 +814,232 @@ func TestExecuteStream_PreStreamError(t *testing.T) {
 	assertContainsType(t, types, ReactEventError)
 }
 
+// TestExecuteStream_ReasoningDeltas verifies that reasoning chunks are yielded
+// as ReactEventReasoning events.
+func TestExecuteStream_ReasoningDeltas(t *testing.T) {
+	type Result struct {
+		Done bool `json:"done"`
+	}
+
+	memProvider := inmemory.New()
+
+	mockLLM := &mockStreamProvider{
+		streamResponses: []*ai.ChatStream{
+			ai.NewChatStream(func(yield func(ai.StreamEvent, error) bool) {
+				if !yield(ai.StreamEvent{Type: ai.StreamEventReasoning, Reasoning: "thinking "}, nil) {
+					return
+				}
+				if !yield(ai.StreamEvent{Type: ai.StreamEventReasoning, Reasoning: "hard..."}, nil) {
+					return
+				}
+				if !yield(ai.StreamEvent{Type: ai.StreamEventContent, Content: `{"done":true}`}, nil) {
+					return
+				}
+				yield(ai.StreamEvent{Type: ai.StreamEventDone, FinishReason: "stop"}, nil)
+			}),
+		},
+	}
+
+	baseClient, err := client.New(mockLLM, client.WithMemory(memProvider))
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	agent, err := New[Result](baseClient, WithMaxIterations(5))
+	if err != nil {
+		t.Fatalf("failed to create ReAct: %v", err)
+	}
+
+	stream, err := agent.ExecuteStream(context.Background(), "think")
+	if err != nil {
+		t.Fatalf("ExecuteStream returned unexpected error: %v", err)
+	}
+
+	events, iterErr := collectEvents(stream)
+	if iterErr != nil {
+		t.Fatalf("unexpected stream error: %v", iterErr)
+	}
+
+	reasoningCount := countType(eventTypes(events), ReactEventReasoning)
+	if reasoningCount != 2 {
+		t.Errorf("expected 2 ReactEventReasoning events, got %d", reasoningCount)
+	}
+
+	var reasoning string
+	for _, event := range events {
+		if event.Type == ReactEventReasoning {
+			reasoning += event.Reasoning
+		}
+	}
+	if reasoning != "thinking hard..." {
+		t.Errorf("expected reasoning 'thinking hard...', got %q", reasoning)
+	}
+}
+
+// TestExecuteStream_ToolNotFound_StopOnError verifies that a missing tool
+// terminates the stream when stopOnError is true.
+func TestExecuteStream_ToolNotFound_StopOnError(t *testing.T) {
+	memProvider := inmemory.New()
+
+	mockLLM := &mockStreamProvider{
+		streamResponses: []*ai.ChatStream{
+			toolCallStream("unknown_tool", `{}`),
+		},
+	}
+
+	baseClient, err := client.New(mockLLM, client.WithMemory(memProvider))
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	agent, err := New[string](baseClient, WithMaxIterations(5), WithStopOnError(true))
+	if err != nil {
+		t.Fatalf("failed to create ReAct: %v", err)
+	}
+
+	stream, err := agent.ExecuteStream(context.Background(), "call unknown tool")
+	if err != nil {
+		t.Fatalf("ExecuteStream returned unexpected error: %v", err)
+	}
+
+	events, iterErr := collectEvents(stream)
+	if iterErr == nil {
+		t.Fatal("expected stream error when stopOnError=true and tool is not found")
+	}
+
+	if !containsString(iterErr.Error(), "not found in catalog") {
+		t.Errorf("expected error about tool not found, got: %v", iterErr)
+	}
+
+	types := eventTypes(events)
+	assertContainsType(t, types, ReactEventError)
+}
+
+// TestExecuteStream_ToolNotFound_ContinueOnError verifies that when stopOnError
+// is false, the stream continues after an unknown tool call and eventually
+// produces a final answer.
+func TestExecuteStream_ToolNotFound_ContinueOnError(t *testing.T) {
+	type Result struct {
+		Status string `json:"status"`
+	}
+
+	memProvider := inmemory.New()
+
+	mockLLM := &mockStreamProvider{
+		streamResponses: []*ai.ChatStream{
+			toolCallStream("unknown_tool", `{}`),
+			singleContentStream(`{"status":"recovered"}`),
+		},
+	}
+
+	baseClient, err := client.New(mockLLM, client.WithMemory(memProvider))
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	agent, err := New[Result](baseClient, WithMaxIterations(5), WithStopOnError(false))
+	if err != nil {
+		t.Fatalf("failed to create ReAct: %v", err)
+	}
+
+	stream, err := agent.ExecuteStream(context.Background(), "call unknown tool")
+	if err != nil {
+		t.Fatalf("ExecuteStream returned unexpected error: %v", err)
+	}
+
+	events, iterErr := collectEvents(stream)
+	if iterErr != nil {
+		t.Fatalf("unexpected stream error: %v", iterErr)
+	}
+
+	assertContainsType(t, eventTypes(events), ReactEventFinalAnswer)
+}
+
+// TestCollect_WithNoFinalAnswer verifies that Collect() returns an error when
+// the stream reaches max iterations without producing a final answer.
+func TestCollect_WithNoFinalAnswer(t *testing.T) {
+	memProvider := inmemory.New()
+	testTool := &mockTool{name: "noop", result: `{}`}
+
+	mockLLM := &mockStreamProvider{
+		streamResponses: []*ai.ChatStream{
+			toolCallStream("noop", `{}`),
+		},
+	}
+
+	baseClient, err := client.New(
+		mockLLM,
+		client.WithMemory(memProvider),
+		client.WithTools(testTool),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	agent, err := New[string](baseClient, WithMaxIterations(1))
+	if err != nil {
+		t.Fatalf("failed to create ReAct: %v", err)
+	}
+
+	stream, err := agent.ExecuteStream(context.Background(), "Loop forever")
+	if err != nil {
+		t.Fatalf("ExecuteStream returned unexpected error: %v", err)
+	}
+
+	result, collectErr := stream.Collect()
+	if collectErr == nil {
+		t.Fatal("expected error from Collect at max iterations, got nil")
+	}
+	if result != nil {
+		t.Fatal("expected nil result on error")
+	}
+
+	if !containsString(collectErr.Error(), "maximum iterations") {
+		t.Errorf("unexpected error message: %v", collectErr)
+	}
+}
+
+// TestCollect_EmptyStream verifies that Collect() returns an error when the
+// stream immediately yields an error.
+func TestCollect_EmptyStream(t *testing.T) {
+	memProvider := inmemory.New()
+
+	mockLLM := &mockStreamProvider{
+		streamResponses: []*ai.ChatStream{
+			ai.NewChatStream(func(yield func(ai.StreamEvent, error) bool) {
+				yield(ai.StreamEvent{}, errors.New("immediate failure"))
+			}),
+		},
+	}
+
+	baseClient, err := client.New(mockLLM, client.WithMemory(memProvider))
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	agent, err := New[string](baseClient, WithMaxIterations(5))
+	if err != nil {
+		t.Fatalf("failed to create ReAct: %v", err)
+	}
+
+	stream, err := agent.ExecuteStream(context.Background(), "fail immediately")
+	if err != nil {
+		t.Fatalf("ExecuteStream returned unexpected error: %v", err)
+	}
+
+	result, collectErr := stream.Collect()
+	if collectErr == nil {
+		t.Fatal("expected error from Collect, got nil")
+	}
+	if result != nil {
+		t.Fatal("expected nil result on error")
+	}
+
+	if !containsString(collectErr.Error(), "immediate failure") {
+		t.Errorf("unexpected error message: %v", collectErr)
+	}
+}
+
 // --------------------------------------------------------------------------
 // Test helpers
 // --------------------------------------------------------------------------

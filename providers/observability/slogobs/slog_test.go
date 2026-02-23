@@ -469,3 +469,33 @@ func TestSlogObserver_Span_Duration(t *testing.T) {
 		t.Errorf("Expected duration in output, got: %s", output)
 	}
 }
+
+// TestTrace verifies that the Trace log method (level below Debug) emits
+// output when the underlying handler is configured to accept trace-level
+// messages, and that it does not panic.
+func TestTrace(t *testing.T) {
+	var buf bytes.Buffer
+
+	// Use the custom Handler with a level low enough to accept TRACE
+	// (slog.LevelDebug - 4). The standard slog.TextHandler only goes
+	// down to LevelDebug, so we use slogobs.NewHandler instead.
+	obs := New(
+		WithFormat(FormatCompact),
+		WithLevel(slog.LevelDebug-4),
+		WithOutput(&buf),
+	)
+
+	ctx := context.Background()
+	obs.Trace(ctx, "trace message", observability.String("key", "value"))
+
+	output := buf.String()
+	if !strings.Contains(output, "trace message") {
+		t.Errorf("Expected 'trace message' in output, got: %s", output)
+	}
+	if !strings.Contains(output, "TRACE") {
+		t.Errorf("Expected 'TRACE' level label in output, got: %s", output)
+	}
+	if !strings.Contains(output, "key") {
+		t.Errorf("Expected attribute key in output, got: %s", output)
+	}
+}

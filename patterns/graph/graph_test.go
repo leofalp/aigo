@@ -1500,6 +1500,377 @@ func TestInMemoryStateProvider_InitializeAndReset(testCase *testing.T) {
 	}
 }
 
+// --- Observability Failure and Skip Tests ---
+
+// recordingSpan extends testSpan to capture RecordError and SetStatus calls
+// for verifying span-level observability attributes in failure/skip scenarios.
+type recordingSpan struct {
+	name           string
+	observer       *testObserver
+	recordedErrors []error
+	statusCode     observability.StatusCode
+	statusDesc     string
+	attributes     []observability.Attribute
+	mu             sync.Mutex
+}
+
+func (span *recordingSpan) End() {}
+
+func (span *recordingSpan) SetAttributes(attrs ...observability.Attribute) {
+	span.mu.Lock()
+	defer span.mu.Unlock()
+	span.attributes = append(span.attributes, attrs...)
+}
+
+func (span *recordingSpan) SetStatus(code observability.StatusCode, desc string) {
+	span.mu.Lock()
+	defer span.mu.Unlock()
+	span.statusCode = code
+	span.statusDesc = desc
+}
+
+func (span *recordingSpan) RecordError(err error) {
+	span.mu.Lock()
+	defer span.mu.Unlock()
+	span.recordedErrors = append(span.recordedErrors, err)
+}
+
+func (span *recordingSpan) AddEvent(_ string, _ ...observability.Attribute) {}
+
+// recordingObserver extends testObserver to produce recordingSpan instances
+// that capture error recording and status changes for assertion.
+type recordingObserver struct {
+	testObserver
+	recordingSpans []*recordingSpan
+	spansMu        sync.Mutex
+}
+
+func newRecordingObserver() *recordingObserver {
+	return &recordingObserver{
+		testObserver: testObserver{
+			spans:   make([]string, 0),
+			logs:    make([]string, 0),
+			errors:  make([]error, 0),
+			metrics: make(map[string]float64),
+		},
+		recordingSpans: make([]*recordingSpan, 0),
+	}
+}
+
+func (observer *recordingObserver) StartSpan(ctx context.Context, name string, _ ...observability.Attribute) (context.Context, observability.Span) {
+	observer.mu.Lock()
+	defer observer.mu.Unlock()
+	observer.spans = append(observer.spans, name)
+
+	span := &recordingSpan{name: name, observer: &observer.testObserver}
+	observer.spansMu.Lock()
+	observer.recordingSpans = append(observer.recordingSpans, span)
+	observer.spansMu.Unlock()
+
+	return ctx, span
+}
+
+// findSpansByName returns all recording spans matching the given name.
+func (observer *recordingObserver) findSpansByName(name string) []*recordingSpan {
+	observer.spansMu.Lock()
+	defer observer.spansMu.Unlock()
+	var matched []*recordingSpan
+	for _, span := range observer.recordingSpans {
+		if span.name == name {
+			matched = append(matched, span)
+		}
+	}
+	return matched
+}
+
+// newTestClientWithRecordingObserver creates a client using a recordingObserver
+// so that span-level error and status data can be inspected.
+func newTestClientWithRecordingObserver(testingHelper *testing.T, observer *recordingObserver) *client.Client {
+	testingHelper.Helper()
+	testClient, err := client.New(&mockProvider{}, client.WithObserver(observer))
+	if err != nil {
+		testingHelper.Fatalf("failed to create test client with recording observer: %v", err)
+	}
+	return testClient
+}
+
+// TestExecute_NodeError_SpanAttributes verifies that when a node handler
+// returns an error, the observer records the node failure with the correct
+// log messages, metric counters, and span error attributes.
+func TestExecute_NodeError_SpanAttributes(testCase *testing.T) {
+	observer := newRecordingObserver()
+	testClient := newTestClientWithRecordingObserver(testCase, observer)
+	nodeFailure := errors.New("node failure")
+
+	executionGraph, err := NewGraphBuilder[string](testClient).
+		AddNode("root", successExecutor("ok")).
+		AddNode("failing_node", failingExecutor(nodeFailure)).
+		AddEdge("root", "failing_node").
+		Build()
+	if err != nil {
+		testCase.Fatalf("build error: %v", err)
+	}
+
+	_, execErr := executionGraph.Execute(context.Background(), nil)
+
+	// The graph must propagate the error from the failing node.
+	if execErr == nil {
+		testCase.Fatal("expected execution error from failing node, got nil")
+	}
+	if !strings.Contains(execErr.Error(), "node failure") {
+		testCase.Errorf("expected error to contain 'node failure', got: %v", execErr)
+	}
+
+	// Verify the observer logged "node execution failed" (from observeNodeFailed).
+	observer.mu.Lock()
+	logMessages := make([]string, len(observer.logs))
+	copy(logMessages, observer.logs)
+	observer.mu.Unlock()
+
+	foundNodeFailedLog := false
+	for _, logMsg := range logMessages {
+		if logMsg == "node execution failed" {
+			foundNodeFailedLog = true
+			break
+		}
+	}
+	if !foundNodeFailedLog {
+		testCase.Errorf("expected 'node execution failed' log message, got logs: %v", logMessages)
+	}
+
+	// Verify the node failure metric counter was incremented.
+	observer.mu.Lock()
+	nodeCountMetric := observer.metrics[metricGraphNodeCount]
+	observer.mu.Unlock()
+
+	if nodeCountMetric < 1 {
+		testCase.Errorf("expected node count metric >= 1 (for at least the completed + failed nodes), got %v", nodeCountMetric)
+	}
+
+	// Verify the node duration histogram was recorded for the failing node.
+	observer.mu.Lock()
+	_, hasDurationMetric := observer.metrics[metricGraphNodeDuration]
+	observer.mu.Unlock()
+
+	if !hasDurationMetric {
+		testCase.Error("expected node duration histogram to be recorded for the failing node")
+	}
+
+	// Verify that a node span was created and the root span recorded the error.
+	nodeSpans := observer.findSpansByName(spanGraphNodeExecute)
+	if len(nodeSpans) == 0 {
+		testCase.Fatal("expected at least one graph.node.execute span")
+	}
+
+	// The root graph span should have had RecordError called on it.
+	rootSpans := observer.findSpansByName(spanGraphExecute)
+	if len(rootSpans) != 1 {
+		testCase.Fatalf("expected exactly 1 graph.execute root span, got %d", len(rootSpans))
+	}
+	rootSpan := rootSpans[0]
+	rootSpan.mu.Lock()
+	defer rootSpan.mu.Unlock()
+
+	if len(rootSpan.recordedErrors) == 0 {
+		testCase.Error("expected root span to have recorded an error via RecordError")
+	}
+	if rootSpan.statusCode != observability.StatusError {
+		testCase.Errorf("expected root span status to be StatusError, got %v", rootSpan.statusCode)
+	}
+}
+
+// TestExecute_GraphFailed_SpanAttributes verifies that graph-level failure
+// observability is recorded correctly: the root span gets StatusError,
+// RecordError is called, and the "graph execution failed" log message appears.
+func TestExecute_GraphFailed_SpanAttributes(testCase *testing.T) {
+	observer := newRecordingObserver()
+	testClient := newTestClientWithRecordingObserver(testCase, observer)
+
+	executionGraph, err := NewGraphBuilder[string](testClient).
+		AddNode("only_node", failingExecutor(errors.New("critical failure"))).
+		Build()
+	if err != nil {
+		testCase.Fatalf("build error: %v", err)
+	}
+
+	_, execErr := executionGraph.Execute(context.Background(), nil)
+	if execErr == nil {
+		testCase.Fatal("expected execution error, got nil")
+	}
+	if !strings.Contains(execErr.Error(), "critical failure") {
+		testCase.Errorf("expected error to contain 'critical failure', got: %v", execErr)
+	}
+
+	// Verify the observer logged "graph execution failed" (from observeGraphFailed).
+	observer.mu.Lock()
+	logMessages := make([]string, len(observer.logs))
+	copy(logMessages, observer.logs)
+	observer.mu.Unlock()
+
+	foundGraphFailedLog := false
+	for _, logMsg := range logMessages {
+		if logMsg == "graph execution failed" {
+			foundGraphFailedLog = true
+			break
+		}
+	}
+	if !foundGraphFailedLog {
+		testCase.Errorf("expected 'graph execution failed' log message, got logs: %v", logMessages)
+	}
+
+	// Verify graph execution duration histogram was NOT recorded
+	// (observeGraphFailed does not record the execution duration histogram,
+	// only observeGraphCompleted does).
+	observer.mu.Lock()
+	_, hasExecDurationMetric := observer.metrics[metricGraphExecutionDuration]
+	observer.mu.Unlock()
+
+	if hasExecDurationMetric {
+		testCase.Error("expected graph execution duration histogram NOT to be recorded on failure (only on completion)")
+	}
+
+	// Verify root span attributes: RecordError called, status set to error.
+	rootSpans := observer.findSpansByName(spanGraphExecute)
+	if len(rootSpans) != 1 {
+		testCase.Fatalf("expected exactly 1 graph.execute root span, got %d", len(rootSpans))
+	}
+
+	rootSpan := rootSpans[0]
+	rootSpan.mu.Lock()
+	defer rootSpan.mu.Unlock()
+
+	if len(rootSpan.recordedErrors) == 0 {
+		testCase.Error("expected root span to have recorded an error via RecordError")
+	} else {
+		// The error recorded on the root span should reference our failure.
+		recordedErrMsg := rootSpan.recordedErrors[0].Error()
+		if !strings.Contains(recordedErrMsg, "critical failure") {
+			testCase.Errorf("expected recorded error to contain 'critical failure', got: %s", recordedErrMsg)
+		}
+	}
+
+	if rootSpan.statusCode != observability.StatusError {
+		testCase.Errorf("expected root span status to be StatusError, got %v", rootSpan.statusCode)
+	}
+	if !strings.Contains(rootSpan.statusDesc, "failed") {
+		testCase.Errorf("expected root span status description to contain 'failed', got %q", rootSpan.statusDesc)
+	}
+}
+
+// TestExecute_SkippedNode_SpanAttributes verifies that when a conditional edge
+// is not satisfied, the target node is skipped without failing the graph.
+// The observer should record a "node skipped" log and increment the skip counter.
+func TestExecute_SkippedNode_SpanAttributes(testCase *testing.T) {
+	observer := newRecordingObserver()
+	testClient := newTestClientWithRecordingObserver(testCase, observer)
+
+	// Build a graph where "check" sets a low quality score, and the conditional
+	// edge to "premium" requires quality > 0.8. Since 0.3 < 0.8, "premium"
+	// should be skipped. The output node is "check" so the graph still succeeds.
+	executionGraph, err := NewGraphBuilder[string](testClient,
+		WithOutputNode("check"),
+	).
+		AddNode("check", NodeExecutorFunc(func(ctx context.Context, input *NodeInput) (*NodeResult, error) {
+			_ = input.SharedState.Set(ctx, "quality", 0.3)
+			return &NodeResult{Output: "checked"}, nil
+		})).
+		AddNode("premium", successExecutor("premium_output")).
+		AddEdge("check", "premium", WithEdgeCondition(func(ctx context.Context, _ *NodeResult, state StateProvider) bool {
+			value, _, _ := state.Get(ctx, "quality")
+			return value.(float64) > 0.8
+		})).
+		Build()
+	if err != nil {
+		testCase.Fatalf("build error: %v", err)
+	}
+
+	result, execErr := executionGraph.Execute(context.Background(), nil)
+	if execErr != nil {
+		testCase.Fatalf("expected no error (skipped nodes don't fail the graph), got: %v", execErr)
+	}
+
+	// The graph should complete with the "check" node's output.
+	if result.Data == nil || *result.Data != "checked" {
+		testCase.Errorf("expected 'checked' output, got %v", result.Data)
+	}
+
+	// Verify the observer logged "node skipped" (from observeNodeSkipped).
+	observer.mu.Lock()
+	logMessages := make([]string, len(observer.logs))
+	copy(logMessages, observer.logs)
+	observer.mu.Unlock()
+
+	foundNodeSkippedLog := false
+	for _, logMsg := range logMessages {
+		if logMsg == "node skipped" {
+			foundNodeSkippedLog = true
+			break
+		}
+	}
+	if !foundNodeSkippedLog {
+		testCase.Errorf("expected 'node skipped' log message, got logs: %v", logMessages)
+	}
+
+	// Verify the skip counter metric was incremented.
+	observer.mu.Lock()
+	nodeCountMetric := observer.metrics[metricGraphNodeCount]
+	observer.mu.Unlock()
+
+	// Should have at least 2 counts: 1 for the completed "check" node +
+	// 1 for the skipped "premium" node.
+	if nodeCountMetric < 2 {
+		testCase.Errorf("expected node count metric >= 2 (completed + skipped), got %v", nodeCountMetric)
+	}
+
+	// Verify the graph execution completed successfully (not failed).
+	observer.mu.Lock()
+	_, hasExecDuration := observer.metrics[metricGraphExecutionDuration]
+	observer.mu.Unlock()
+
+	if !hasExecDuration {
+		testCase.Error("expected graph execution duration histogram to be recorded (graph succeeded)")
+	}
+
+	// The root span should have StatusOK since the graph completed.
+	rootSpans := observer.findSpansByName(spanGraphExecute)
+	if len(rootSpans) != 1 {
+		testCase.Fatalf("expected exactly 1 graph.execute root span, got %d", len(rootSpans))
+	}
+
+	rootSpan := rootSpans[0]
+	rootSpan.mu.Lock()
+	defer rootSpan.mu.Unlock()
+
+	if rootSpan.statusCode != observability.StatusOK {
+		testCase.Errorf("expected root span status to be StatusOK (graph succeeded despite skip), got %v", rootSpan.statusCode)
+	}
+
+	// The "premium" node should NOT have a node span (it was skipped before
+	// execution started, so observeNodeStart was never called for it).
+	nodeSpans := observer.findSpansByName(spanGraphNodeExecute)
+	for _, nodeSpan := range nodeSpans {
+		// If any node span exists, it should only be for the "check" node.
+		// We can verify by checking the span count: only "check" should have one.
+		_ = nodeSpan // Node spans are for executed nodes only.
+	}
+	// With the "check" node being the only executed node, expect exactly 1 node span.
+	if len(nodeSpans) != 1 {
+		testCase.Errorf("expected 1 node span (only 'check' executed, 'premium' was skipped), got %d", len(nodeSpans))
+	}
+
+	// Verify that "graph execution completed" log was emitted (not "graph execution failed").
+	foundCompletedLog := false
+	for _, logMsg := range logMessages {
+		if logMsg == "graph execution completed" {
+			foundCompletedLog = true
+			break
+		}
+	}
+	if !foundCompletedLog {
+		testCase.Errorf("expected 'graph execution completed' log message, got logs: %v", logMessages)
+	}
+}
+
 // --- Observability Tests ---
 
 func TestExecute_WithObservability(testCase *testing.T) {

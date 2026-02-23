@@ -3,6 +3,8 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/leofalp/aigo/internal/jsonschema"
@@ -483,5 +485,126 @@ func TestStructuredClient_WithOptions(t *testing.T) {
 	}
 	if resp.Data.Output != "result" {
 		t.Errorf("Expected Output='result', got '%s'", resp.Data.Output)
+	}
+}
+
+// TestNewStructured_ProviderNil tests that NewStructured returns an error when provider is nil
+func TestNewStructured_ProviderNil(t *testing.T) {
+	type TestResponse struct {
+		Answer string `json:"answer"`
+	}
+
+	client, err := NewStructured[TestResponse](nil)
+	if err == nil {
+		t.Fatal("Expected error when provider is nil, got nil")
+	}
+	if client != nil {
+		t.Fatal("Expected client to be nil when provider is nil")
+	}
+}
+
+// TestStructuredSendMessage_PropagatesError tests that SendMessage propagates errors from the provider
+func TestStructuredSendMessage_PropagatesError(t *testing.T) {
+	type TestResponse struct {
+		Answer string `json:"answer"`
+	}
+
+	expectedErr := errors.New("provider error")
+	mockProvider := &mockProvider{
+		sendMessageFunc: func(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
+			return nil, expectedErr
+		},
+	}
+
+	client, err := NewStructured[TestResponse](mockProvider)
+	if err != nil {
+		t.Fatalf("Failed to create structured client: %v", err)
+	}
+
+	_, err = client.SendMessage(context.Background(), "test prompt")
+	if err == nil {
+		t.Fatal("Expected SendMessage to return error, got nil")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("Expected error to be '%v', got '%v'", expectedErr, err)
+	}
+}
+
+// TestStructuredContinueConversation_PropagatesError tests that ContinueConversation propagates errors from the provider
+func TestStructuredContinueConversation_PropagatesError(t *testing.T) {
+	type TestResponse struct {
+		Answer string `json:"answer"`
+	}
+
+	expectedErr := errors.New("provider error")
+	mockProvider := &mockProvider{
+		sendMessageFunc: func(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
+			return nil, expectedErr
+		},
+	}
+
+	client, err := NewStructured[TestResponse](mockProvider, WithMemory(inmemory.New()))
+	if err != nil {
+		t.Fatalf("Failed to create structured client: %v", err)
+	}
+
+	_, err = client.ContinueConversation(context.Background())
+	if err == nil {
+		t.Fatal("Expected ContinueConversation to return error, got nil")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("Expected error to be '%v', got '%v'", expectedErr, err)
+	}
+}
+
+// TestStructuredParseResponse_NilContent tests that parseResponse handles nil or empty content appropriately
+func TestStructuredParseResponse_NilContent(t *testing.T) {
+	type TestResponse struct {
+		Answer string `json:"answer"`
+	}
+
+	mockProvider := &mockProvider{
+		sendMessageFunc: func(ctx context.Context, request ai.ChatRequest) (*ai.ChatResponse, error) {
+			return &ai.ChatResponse{
+				Id:           "test",
+				Content:      "", // Empty content should fail parsing
+				FinishReason: "stop",
+			}, nil
+		},
+	}
+
+	client, err := NewStructured[TestResponse](mockProvider)
+	if err != nil {
+		t.Fatalf("Failed to create structured client: %v", err)
+	}
+
+	_, err = client.SendMessage(context.Background(), "test prompt")
+	if err == nil {
+		t.Fatal("Expected SendMessage to return error for empty content, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to parse structured output") {
+		t.Errorf("Expected error to mention parsing failure, got: %v", err)
+	}
+}
+
+// TestStructuredParseResponse_NilResponse tests that parseResponse handles nil response
+func TestStructuredParseResponse_NilResponse(t *testing.T) {
+	type TestResponse struct {
+		Answer string `json:"answer"`
+	}
+
+	mockProvider := &mockProvider{}
+	client, err := NewStructured[TestResponse](mockProvider)
+	if err != nil {
+		t.Fatalf("Failed to create structured client: %v", err)
+	}
+
+	// Call parseResponse directly since SendMessage panics on nil response
+	_, err = client.parseResponse(nil)
+	if err == nil {
+		t.Fatal("Expected parseResponse to return error for nil response, got nil")
+	}
+	if !strings.Contains(err.Error(), "response is nil") {
+		t.Errorf("Expected error to mention 'response is nil', got: %v", err)
 	}
 }

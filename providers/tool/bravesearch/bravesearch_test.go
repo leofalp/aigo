@@ -3,8 +3,10 @@ package bravesearch
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -217,5 +219,219 @@ func TestSearchAdvanced_HappyPath(t *testing.T) {
 	}
 	if output.Web == nil || len(output.Web.Results) != 1 {
 		t.Fatalf("Web.Results len = %v, want 1", output.Web)
+	}
+}
+
+func TestFetchBraveSearchResults_Parameters(t *testing.T) {
+	var lastURL *url.URL
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lastURL = r.URL
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	originalBaseURL := baseURL
+	baseURL = server.URL
+	defer func() { baseURL = originalBaseURL }()
+
+	_ = os.Setenv("BRAVE_SEARCH_API_KEY", "test-key")
+	defer func() { _ = os.Unsetenv("BRAVE_SEARCH_API_KEY") }()
+
+	// Test default count
+	_, _ = fetchBraveSearchResults(context.Background(), Input{Query: "test"})
+	if lastURL.Query().Get("count") != "10" {
+		t.Errorf("Expected default count 10, got %s", lastURL.Query().Get("count"))
+	}
+
+	// Test count > 20
+	_, _ = fetchBraveSearchResults(context.Background(), Input{Query: "test", Count: 25})
+	if lastURL.Query().Get("count") != "20" {
+		t.Errorf("Expected max count 20, got %s", lastURL.Query().Get("count"))
+	}
+
+	// Test all optional params
+	_, _ = fetchBraveSearchResults(context.Background(), Input{
+		Query:      "test",
+		Count:      15,
+		Country:    "us",
+		SearchLang: "en",
+		SafeSearch: "strict",
+		Freshness:  "pd",
+	})
+	q := lastURL.Query()
+	if q.Get("count") != "15" {
+		t.Errorf("Expected count 15, got %s", q.Get("count"))
+	}
+	if q.Get("country") != "us" {
+		t.Errorf("Expected country us, got %s", q.Get("country"))
+	}
+	if q.Get("search_lang") != "en" {
+		t.Errorf("Expected search_lang en, got %s", q.Get("search_lang"))
+	}
+	if q.Get("safesearch") != "strict" {
+		t.Errorf("Expected safesearch strict, got %s", q.Get("safesearch"))
+	}
+	if q.Get("freshness") != "pd" {
+		t.Errorf("Expected freshness pd, got %s", q.Get("freshness"))
+	}
+}
+
+func TestFetchBraveSearchResults_Errors(t *testing.T) {
+	_ = os.Setenv("BRAVE_SEARCH_API_KEY", "test-key")
+	defer func() { _ = os.Unsetenv("BRAVE_SEARCH_API_KEY") }()
+
+	t.Run("Invalid URL", func(t *testing.T) {
+		originalBaseURL := baseURL
+		baseURL = "http://\x00invalid"
+		defer func() { baseURL = originalBaseURL }()
+
+		_, err := fetchBraveSearchResults(context.Background(), Input{Query: "test"})
+		if err == nil {
+			t.Error("Expected error for invalid URL")
+		}
+	})
+
+	t.Run("Network Error", func(t *testing.T) {
+		originalBaseURL := baseURL
+		baseURL = "http://127.0.0.1:0" // Invalid port/connection refused
+		defer func() { baseURL = originalBaseURL }()
+
+		_, err := fetchBraveSearchResults(context.Background(), Input{Query: "test"})
+		if err == nil {
+			t.Error("Expected network error")
+		}
+	})
+
+	t.Run("Malformed JSON", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{invalid json`))
+		}))
+		defer server.Close()
+
+		originalBaseURL := baseURL
+		baseURL = server.URL
+		defer func() { baseURL = originalBaseURL }()
+
+		_, err := fetchBraveSearchResults(context.Background(), Input{Query: "test"})
+		if err == nil || !strings.Contains(err.Error(), "error parsing response") {
+			t.Errorf("Expected JSON parse error, got: %v", err)
+		}
+	})
+}
+
+func TestSearch_ResponseFormatting(t *testing.T) {
+	_ = os.Setenv("BRAVE_SEARCH_API_KEY", "test-key")
+	defer func() { _ = os.Unsetenv("BRAVE_SEARCH_API_KEY") }()
+
+	t.Run("Empty Results", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"type": "search"}`))
+		}))
+		defer server.Close()
+
+		originalBaseURL := baseURL
+		baseURL = server.URL
+		defer func() { baseURL = originalBaseURL }()
+
+		output, err := Search(context.Background(), Input{Query: "test query"})
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if !strings.Contains(output.Summary, "No results found for 'test query'") {
+			t.Errorf("Expected empty results message, got: %s", output.Summary)
+		}
+	})
+
+	t.Run("Rich Results", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+
+			// Create 11 web results and 4 news results
+			resp := BraveAPIResponse{
+				Type: "search",
+				Web: &WebResults{
+					Results: make([]WebResult, 11),
+				},
+				Infobox: &Infobox{
+					Label:     "Test Infobox",
+					ShortDesc: "A short description",
+				},
+				News: &NewsResults{
+					Results: make([]NewsResult, 4),
+				},
+			}
+
+			for i := 0; i < 11; i++ {
+				resp.Web.Results[i] = WebResult{
+					Title:       fmt.Sprintf("Web %d", i),
+					URL:         fmt.Sprintf("http://web%d.com", i),
+					Description: fmt.Sprintf("Desc %d", i),
+				}
+			}
+			for i := 0; i < 4; i++ {
+				resp.News.Results[i] = NewsResult{
+					Title: fmt.Sprintf("News %d", i),
+					Age:   "1h",
+				}
+			}
+
+			jsonBytes, _ := json.Marshal(resp)
+			_, _ = w.Write(jsonBytes)
+		}))
+		defer server.Close()
+
+		originalBaseURL := baseURL
+		baseURL = server.URL
+		defer func() { baseURL = originalBaseURL }()
+
+		output, err := Search(context.Background(), Input{Query: "test"})
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		if len(output.Results) != 10 {
+			t.Errorf("Expected exactly 10 web results, got %d", len(output.Results))
+		}
+
+		if !strings.Contains(output.Summary, "Infobox: Test Infobox") {
+			t.Errorf("Expected infobox label in summary")
+		}
+		if !strings.Contains(output.Summary, "Description: A short description") {
+			t.Errorf("Expected infobox description in summary")
+		}
+
+		// Check news count in summary
+		if !strings.Contains(output.Summary, "Recent news (4 articles):") {
+			t.Errorf("Expected news header in summary")
+		}
+		if !strings.Contains(output.Summary, "- News 0") {
+			t.Errorf("Expected news item in summary")
+		}
+		if strings.Contains(output.Summary, "- News 3") {
+			t.Errorf("Expected 4th news item to be truncated from summary")
+		}
+	})
+}
+
+func TestSearchAdvanced_Error(t *testing.T) {
+	_ = os.Setenv("BRAVE_SEARCH_API_KEY", "test-key")
+	defer func() { _ = os.Unsetenv("BRAVE_SEARCH_API_KEY") }()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error": "server error"}`))
+	}))
+	defer server.Close()
+
+	originalBaseURL := baseURL
+	baseURL = server.URL
+	defer func() { baseURL = originalBaseURL }()
+
+	_, err := SearchAdvanced(context.Background(), Input{Query: "test"})
+	if err == nil {
+		t.Error("Expected error from SearchAdvanced")
 	}
 }

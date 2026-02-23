@@ -126,7 +126,7 @@ func TestTavilySearchWithAnswer_Integration(t *testing.T) {
 	}
 }
 
-func TestTavilyExtract_Integration(t *testing.T) {
+func TestExtract_Integration(t *testing.T) {
 	apiKey := os.Getenv("TAVILY_API_KEY")
 	if apiKey == "" {
 		t.Skip("TAVILY_API_KEY not set, skipping integration test")

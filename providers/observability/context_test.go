@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+	"reflect"
 	"testing"
 )
 
@@ -138,3 +139,86 @@ func (m *mockSpan) SetAttributes(attrs ...Attribute)              {}
 func (m *mockSpan) SetStatus(code StatusCode, description string) {}
 func (m *mockSpan) RecordError(err error)                         {}
 func (m *mockSpan) AddEvent(name string, attrs ...Attribute)      {}
+
+// mockProvider is a minimal Provider implementation used exclusively for
+// Observer context round-trip tests. It carries an identifying label so
+// that test assertions can confirm the exact same instance was stored and
+// retrieved.
+type mockProvider struct {
+	label string
+}
+
+func (m *mockProvider) StartSpan(ctx context.Context, _ string, _ ...Attribute) (context.Context, Span) {
+	return ctx, nil
+}
+func (m *mockProvider) Counter(_ string) Counter                          { return nil }
+func (m *mockProvider) Histogram(_ string) Histogram                      { return nil }
+func (m *mockProvider) Trace(_ context.Context, _ string, _ ...Attribute) {}
+func (m *mockProvider) Debug(_ context.Context, _ string, _ ...Attribute) {}
+func (m *mockProvider) Info(_ context.Context, _ string, _ ...Attribute)  {}
+func (m *mockProvider) Warn(_ context.Context, _ string, _ ...Attribute)  {}
+func (m *mockProvider) Error(_ context.Context, _ string, _ ...Attribute) {}
+
+// --- Observer context tests ---
+
+// TestContextWithObserver_RoundTrip verifies that a Provider stored via
+// ContextWithObserver is the exact same instance returned by ObserverFromContext.
+func TestContextWithObserver_RoundTrip(t *testing.T) {
+	observer := &mockProvider{label: "round-trip-observer"}
+	ctx := ContextWithObserver(context.Background(), observer)
+
+	retrieved := ObserverFromContext(ctx)
+	if retrieved == nil {
+		t.Fatal("ObserverFromContext returned nil; expected the stored observer")
+	}
+	if retrieved != observer {
+		t.Errorf("ObserverFromContext returned a different instance; pointer equality expected")
+	}
+
+	// Confirm identity via the label field as an extra safety check.
+	mock, ok := retrieved.(*mockProvider)
+	if !ok {
+		t.Fatalf("Retrieved observer is not *mockProvider, got %T", retrieved)
+	}
+	if mock.label != "round-trip-observer" {
+		t.Errorf("Expected label 'round-trip-observer', got %q", mock.label)
+	}
+}
+
+// TestObserverFromContext_MissingKey ensures that a plain context with no
+// observer stored returns nil without error.
+func TestObserverFromContext_MissingKey(t *testing.T) {
+	observer := ObserverFromContext(context.Background())
+	if observer != nil {
+		t.Errorf("Expected nil from context without observer, got %v", observer)
+	}
+}
+
+// TestObserverFromContext_NilContext ensures passing a nil context does not
+// panic and returns nil.
+func TestObserverFromContext_NilContext(t *testing.T) {
+	//nolint:staticcheck // intentionally passing nil to verify defensive guard
+	observer := ObserverFromContext(nil)
+	if observer != nil {
+		t.Errorf("Expected nil from nil context, got %v", observer)
+	}
+}
+
+// TestStringSlice verifies that the StringSlice attribute constructor
+// correctly stores the key and a []string value.
+func TestStringSlice(t *testing.T) {
+	input := []string{"a", "b", "c"}
+	attr := StringSlice("tools", input)
+
+	if attr.Key != "tools" {
+		t.Errorf("Expected key 'tools', got %q", attr.Key)
+	}
+
+	value, ok := attr.Value.([]string)
+	if !ok {
+		t.Fatalf("Expected Value to be []string, got %T", attr.Value)
+	}
+	if !reflect.DeepEqual(value, input) {
+		t.Errorf("Expected value %v, got %v", input, value)
+	}
+}
