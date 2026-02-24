@@ -175,6 +175,10 @@ Add to `internal/utils/` only when used in 2+ packages and has no business logic
 - Must have `//go:build integration` on first line
 - Call real external APIs
 - NOT run in CI/CD
+- **Missing API keys must fail with `t.Fatal`, never `t.Skip`.** Integration tests
+  are opt-in via the `integration` build tag, so a missing key is a configuration
+  error that must surface loudly. Use a `requireAPIKey(t)` helper per package
+  (see `providers/ai/anthropic/` for the canonical pattern).
 
 ## Configuration
 

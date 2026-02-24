@@ -8,10 +8,18 @@ import (
 	"testing"
 )
 
-func TestFindSimilar_Integration(t *testing.T) {
+// requireAPIKey fails the test immediately when EXA_API_KEY is not set.
+// Integration tests are opt-in (build tag), so a missing key is a configuration
+// error that should surface loudly rather than be silently skipped.
+func requireAPIKey(t *testing.T) {
+	t.Helper()
 	if os.Getenv("EXA_API_KEY") == "" {
-		t.Skip("EXA_API_KEY not set")
+		t.Fatal("EXA_API_KEY is required for integration tests")
 	}
+}
+
+func TestFindSimilar_Integration(t *testing.T) {
+	requireAPIKey(t)
 
 	ctx := context.Background()
 	input := SimilarInput{
@@ -38,9 +46,7 @@ func TestFindSimilar_Integration(t *testing.T) {
 }
 
 func TestSearchAdvanced_Integration(t *testing.T) {
-	if os.Getenv("EXA_API_KEY") == "" {
-		t.Skip("EXA_API_KEY not set")
-	}
+	requireAPIKey(t)
 
 	ctx := context.Background()
 	input := SearchInput{
@@ -67,9 +73,7 @@ func TestSearchAdvanced_Integration(t *testing.T) {
 }
 
 func TestAnswer_Integration(t *testing.T) {
-	if os.Getenv("EXA_API_KEY") == "" {
-		t.Skip("EXA_API_KEY not set")
-	}
+	requireAPIKey(t)
 
 	ctx := context.Background()
 	input := AnswerInput{

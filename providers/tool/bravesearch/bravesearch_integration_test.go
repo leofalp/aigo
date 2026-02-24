@@ -9,13 +9,21 @@ import (
 	"time"
 )
 
+// requireAPIKey fails the test immediately when BRAVE_SEARCH_API_KEY is not set.
+// Integration tests are opt-in (build tag), so a missing key is a configuration
+// error that should surface loudly rather than be silently skipped.
+func requireAPIKey(t *testing.T) {
+	t.Helper()
+	if os.Getenv("BRAVE_SEARCH_API_KEY") == "" {
+		t.Fatal("BRAVE_SEARCH_API_KEY is required for integration tests")
+	}
+}
+
 // TestAPIIntegration_BasicSearch verifies the tool works with real Brave Search API.
 // Run with: go test -tags=integration ./providers/tool/bravesearch/...
 // Requires: BRAVE_SEARCH_API_KEY environment variable
 func TestAPIIntegration_BasicSearch(t *testing.T) {
-	if os.Getenv("BRAVE_SEARCH_API_KEY") == "" {
-		t.Skip("BRAVE_SEARCH_API_KEY not set, skipping integration test")
-	}
+	requireAPIKey(t)
 
 	ctx := context.Background()
 	input := Input{
@@ -58,9 +66,7 @@ func TestAPIIntegration_BasicSearch(t *testing.T) {
 // Run with: go test -tags=integration ./providers/tool/bravesearch/...
 // Requires: BRAVE_SEARCH_API_KEY environment variable
 func TestAPIIntegration_AdvancedSearch(t *testing.T) {
-	if os.Getenv("BRAVE_SEARCH_API_KEY") == "" {
-		t.Skip("BRAVE_SEARCH_API_KEY not set, skipping integration test")
-	}
+	requireAPIKey(t)
 
 	// Respect rate limit between tests
 	time.Sleep(2 * time.Second)

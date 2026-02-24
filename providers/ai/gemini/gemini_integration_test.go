@@ -11,13 +11,20 @@ import (
 	"github.com/leofalp/aigo/providers/ai"
 )
 
+// requireAPIKey fails the test immediately when GEMINI_API_KEY is not set.
+// Integration tests are opt-in (build tag), so a missing key is a configuration
+// error that should surface loudly rather than be silently skipped.
+func requireAPIKey(t *testing.T) {
+	t.Helper()
+	if os.Getenv("GEMINI_API_KEY") == "" {
+		t.Fatal("GEMINI_API_KEY is required for integration tests")
+	}
+}
+
 // TestGeminiSendMessage_Integration verifies that the Gemini provider can
 // complete a basic chat request against the real Google API. Requires GEMINI_API_KEY.
 func TestGeminiSendMessage_Integration(t *testing.T) {
-	apiKey := os.Getenv("GEMINI_API_KEY")
-	if apiKey == "" {
-		t.Skip("GEMINI_API_KEY not set, skipping integration test")
-	}
+	requireAPIKey(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -65,10 +72,7 @@ func TestGeminiSendMessage_Integration(t *testing.T) {
 
 // TestGeminiSendMessageWithSystemPrompt_Integration verifies system prompt handling.
 func TestGeminiSendMessageWithSystemPrompt_Integration(t *testing.T) {
-	apiKey := os.Getenv("GEMINI_API_KEY")
-	if apiKey == "" {
-		t.Skip("GEMINI_API_KEY not set, skipping integration test")
-	}
+	requireAPIKey(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -98,10 +102,7 @@ func TestGeminiSendMessageWithSystemPrompt_Integration(t *testing.T) {
 // TestGeminiIsStopMessage_Integration verifies that a normal completion is
 // recognized as a stop message.
 func TestGeminiIsStopMessage_Integration(t *testing.T) {
-	apiKey := os.Getenv("GEMINI_API_KEY")
-	if apiKey == "" {
-		t.Skip("GEMINI_API_KEY not set, skipping integration test")
-	}
+	requireAPIKey(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -129,10 +130,7 @@ func TestGeminiIsStopMessage_Integration(t *testing.T) {
 // Iter and Collect are mutually exclusive (both consume the same underlying
 // iterator), so each is tested in its own subtest with a fresh stream.
 func TestGeminiStreamMessage_Integration(t *testing.T) {
-	apiKey := os.Getenv("GEMINI_API_KEY")
-	if apiKey == "" {
-		t.Skip("GEMINI_API_KEY not set, skipping integration test")
-	}
+	requireAPIKey(t)
 
 	// newStreamRequest returns a fresh ChatRequest for each subtest.
 	newStreamRequest := func() ai.ChatRequest {
@@ -210,10 +208,7 @@ func TestGeminiStreamMessage_Integration(t *testing.T) {
 // TestGeminiDefaultModel_Integration verifies that the provider works with its
 // default model when no model is specified in the request.
 func TestGeminiDefaultModel_Integration(t *testing.T) {
-	apiKey := os.Getenv("GEMINI_API_KEY")
-	if apiKey == "" {
-		t.Skip("GEMINI_API_KEY not set, skipping integration test")
-	}
+	requireAPIKey(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -243,10 +238,7 @@ func TestGeminiDefaultModel_Integration(t *testing.T) {
 // TestGeminiMultiTurn_Integration verifies that multi-turn conversations work
 // correctly with the real API.
 func TestGeminiMultiTurn_Integration(t *testing.T) {
-	apiKey := os.Getenv("GEMINI_API_KEY")
-	if apiKey == "" {
-		t.Skip("GEMINI_API_KEY not set, skipping integration test")
-	}
+	requireAPIKey(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

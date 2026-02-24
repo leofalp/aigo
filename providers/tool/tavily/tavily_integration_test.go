@@ -11,11 +11,18 @@ import (
 	"github.com/leofalp/aigo/internal/utils"
 )
 
-func TestTavilySearch_Integration(t *testing.T) {
-	apiKey := os.Getenv("TAVILY_API_KEY")
-	if apiKey == "" {
-		t.Skip("TAVILY_API_KEY not set, skipping integration test")
+// requireAPIKey fails the test immediately when TAVILY_API_KEY is not set.
+// Integration tests are opt-in (build tag), so a missing key is a configuration
+// error that should surface loudly rather than be silently skipped.
+func requireAPIKey(t *testing.T) {
+	t.Helper()
+	if os.Getenv("TAVILY_API_KEY") == "" {
+		t.Fatal("TAVILY_API_KEY is required for integration tests")
 	}
+}
+
+func TestTavilySearch_Integration(t *testing.T) {
+	requireAPIKey(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -57,10 +64,7 @@ func TestTavilySearch_Integration(t *testing.T) {
 }
 
 func TestTavilySearchAdvanced_Integration(t *testing.T) {
-	apiKey := os.Getenv("TAVILY_API_KEY")
-	if apiKey == "" {
-		t.Skip("TAVILY_API_KEY not set, skipping integration test")
-	}
+	requireAPIKey(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -99,10 +103,7 @@ func TestTavilySearchAdvanced_Integration(t *testing.T) {
 }
 
 func TestTavilySearchWithAnswer_Integration(t *testing.T) {
-	apiKey := os.Getenv("TAVILY_API_KEY")
-	if apiKey == "" {
-		t.Skip("TAVILY_API_KEY not set, skipping integration test")
-	}
+	requireAPIKey(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -127,10 +128,7 @@ func TestTavilySearchWithAnswer_Integration(t *testing.T) {
 }
 
 func TestExtract_Integration(t *testing.T) {
-	apiKey := os.Getenv("TAVILY_API_KEY")
-	if apiKey == "" {
-		t.Skip("TAVILY_API_KEY not set, skipping integration test")
-	}
+	requireAPIKey(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -168,10 +166,7 @@ func TestExtract_Integration(t *testing.T) {
 }
 
 func TestTavilyExtractAdvanced_Integration(t *testing.T) {
-	apiKey := os.Getenv("TAVILY_API_KEY")
-	if apiKey == "" {
-		t.Skip("TAVILY_API_KEY not set, skipping integration test")
-	}
+	requireAPIKey(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -194,10 +189,7 @@ func TestTavilyExtractAdvanced_Integration(t *testing.T) {
 }
 
 func TestTavilySearchWithDomainFilters_Integration(t *testing.T) {
-	apiKey := os.Getenv("TAVILY_API_KEY")
-	if apiKey == "" {
-		t.Skip("TAVILY_API_KEY not set, skipping integration test")
-	}
+	requireAPIKey(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
