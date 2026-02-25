@@ -4,21 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"strings"
-
 	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/providers/ai"
 	"github.com/leofalp/aigo/providers/observability"
+	"io"
 )
 
 // StreamMessage implements ai.StreamProvider for the Gemini API.
 // It uses the streamGenerateContent endpoint with alt=sse to receive
 // incremental response chunks as SSE events.
 //
-// Unlike OpenAI, Gemini SSE events each carry a full generateContentResponse
-// (not a delta). To produce content deltas, we track the cumulative text length
-// across events and emit only the new portion.
+// Like OpenAI and Anthropic, Gemini streaming returns text deltas (only the new
+// portion) in each SSE chunk, so events are passed through directly.
 func (provider *GeminiProvider) StreamMessage(ctx context.Context, request ai.ChatRequest) (*ai.ChatStream, error) {
 	// Get observability context
 	span := observability.SpanFromContext(ctx)
@@ -84,10 +81,6 @@ func (provider *GeminiProvider) StreamMessage(ctx context.Context, request ai.Ch
 		// Ensure the response body is closed when the iterator is done
 		defer utils.CloseWithLog(httpResponse.Body)
 
-		// Track cumulative rune counts to compute deltas (Gemini sends full text, not incremental).
-		// Rune counts rather than byte counts are used to handle multi-byte UTF-8 correctly.
-		previousTextLength := 0
-		previousReasoningLength := 0
 		toolCallsEmitted := false
 
 		for {
@@ -115,7 +108,7 @@ func (provider *GeminiProvider) StreamMessage(ctx context.Context, request ai.Ch
 			}
 
 			// Extract events from this chunk
-			events := geminiChunkToStreamEvents(&geminiResponse, &previousTextLength, &previousReasoningLength, &toolCallsEmitted)
+			events := geminiChunkToStreamEvents(&geminiResponse, &toolCallsEmitted)
 			for _, event := range events {
 				if !yield(event, nil) {
 					return // Caller stopped iterating
@@ -128,12 +121,11 @@ func (provider *GeminiProvider) StreamMessage(ctx context.Context, request ai.Ch
 }
 
 // geminiChunkToStreamEvents converts a Gemini generateContentResponse (from streaming)
-// into StreamEvents. It computes text deltas by comparing against previously seen text
-// lengths. Tool calls are emitted as complete events (Gemini sends them whole, not incremental).
+// into StreamEvents. Each SSE chunk carries text deltas (only the new portion),
+// so text and reasoning parts are emitted directly without cumulative tracking.
+// Tool calls are emitted as complete events (Gemini sends them whole, not incremental).
 func geminiChunkToStreamEvents(
 	response *generateContentResponse,
-	previousTextLength *int,
-	previousReasoningLength *int,
 	toolCallsEmitted *bool,
 ) []ai.StreamEvent {
 	var events []ai.StreamEvent
@@ -188,29 +180,19 @@ func geminiChunkToStreamEvents(
 		*toolCallsEmitted = true
 	}
 
-	// Compute text delta by comparing with previously accumulated text length.
-	// Rune-based slicing is used to avoid splitting multi-byte UTF-8 sequences
-	// if a chunk boundary ever lands mid-codepoint.
-	fullText := strings.Join(textParts, "\n")
-	fullTextRunes := []rune(fullText)
-	if len(fullTextRunes) > *previousTextLength {
-		delta := string(fullTextRunes[*previousTextLength:])
-		*previousTextLength = len(fullTextRunes)
+	// Emit text delta directly — each Gemini streaming chunk already contains only the new text.
+	for _, textPart := range textParts {
 		events = append(events, ai.StreamEvent{
 			Type:    ai.StreamEventContent,
-			Content: delta,
+			Content: textPart,
 		})
 	}
 
-	// Compute reasoning delta
-	fullReasoning := strings.Join(reasoningParts, "\n")
-	fullReasoningRunes := []rune(fullReasoning)
-	if len(fullReasoningRunes) > *previousReasoningLength {
-		delta := string(fullReasoningRunes[*previousReasoningLength:])
-		*previousReasoningLength = len(fullReasoningRunes)
+	// Emit reasoning delta directly — same delta-based behaviour as text.
+	for _, reasoningPart := range reasoningParts {
 		events = append(events, ai.StreamEvent{
 			Type:      ai.StreamEventReasoning,
-			Reasoning: delta,
+			Reasoning: reasoningPart,
 		})
 	}
 

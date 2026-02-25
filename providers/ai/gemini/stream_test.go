@@ -19,17 +19,17 @@ func writeSSE(writer http.ResponseWriter, data string) {
 	}
 }
 
-// TestGeminiStreamMessage_ContentStreaming verifies that Gemini's cumulative text responses
-// are correctly converted to incremental deltas and can be collected.
+// TestGeminiStreamMessage_ContentStreaming verifies that Gemini's delta text responses
+// are correctly collected into the final content string.
 func TestGeminiStreamMessage_ContentStreaming(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "text/event-stream")
 		writer.WriteHeader(http.StatusOK)
 
-		// Gemini sends cumulative text in each chunk (not deltas)
+		// Gemini sends text deltas (only the new portion) in each chunk
 		writeSSE(writer, `{"candidates":[{"content":{"parts":[{"text":"Hello"}],"role":"model"}}]}`)
-		writeSSE(writer, `{"candidates":[{"content":{"parts":[{"text":"Hello world"}],"role":"model"}}]}`)
-		writeSSE(writer, `{"candidates":[{"content":{"parts":[{"text":"Hello world!"}],"role":"model"},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":3,"totalTokenCount":8}}`)
+		writeSSE(writer, `{"candidates":[{"content":{"parts":[{"text":" world"}],"role":"model"}}]}`)
+		writeSSE(writer, `{"candidates":[{"content":{"parts":[{"text":"!"}],"role":"model"},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":3,"totalTokenCount":8}}`)
 	}))
 	defer server.Close()
 
@@ -119,10 +119,10 @@ func TestGeminiStreamMessage_UsageMetadata(t *testing.T) {
 		writer.Header().Set("Content-Type", "text/event-stream")
 		writer.WriteHeader(http.StatusOK)
 
-		// First chunk without usage
+		// First chunk with partial text
 		writeSSE(writer, `{"candidates":[{"content":{"parts":[{"text":"Result"}],"role":"model"}}]}`)
-		// Final chunk with usage and finish reason
-		writeSSE(writer, `{"candidates":[{"content":{"parts":[{"text":"Result"}],"role":"model"},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":20,"candidatesTokenCount":10,"totalTokenCount":30,"thoughtsTokenCount":5,"cachedContentTokenCount":8}}`)
+		// Final chunk with remaining text, usage and finish reason
+		writeSSE(writer, `{"candidates":[{"content":{"parts":[{"text":""}],"role":"model"},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":20,"candidatesTokenCount":10,"totalTokenCount":30,"thoughtsTokenCount":5,"cachedContentTokenCount":8}}`)
 	}))
 	defer server.Close()
 
@@ -164,15 +164,16 @@ func TestGeminiStreamMessage_UsageMetadata(t *testing.T) {
 }
 
 // TestGeminiStreamMessage_RangeIteration verifies that the stream works correctly
-// with a for-range loop, yielding incremental deltas from Gemini's cumulative format.
+// with a for-range loop, yielding text deltas from Gemini's streaming format.
 func TestGeminiStreamMessage_RangeIteration(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "text/event-stream")
 		writer.WriteHeader(http.StatusOK)
 
+		// Gemini sends text deltas (only the new portion) in each chunk
 		writeSSE(writer, `{"candidates":[{"content":{"parts":[{"text":"A"}],"role":"model"}}]}`)
-		writeSSE(writer, `{"candidates":[{"content":{"parts":[{"text":"AB"}],"role":"model"}}]}`)
-		writeSSE(writer, `{"candidates":[{"content":{"parts":[{"text":"ABC"}],"role":"model"},"finishReason":"STOP"}]}`)
+		writeSSE(writer, `{"candidates":[{"content":{"parts":[{"text":"B"}],"role":"model"}}]}`)
+		writeSSE(writer, `{"candidates":[{"content":{"parts":[{"text":"C"}],"role":"model"},"finishReason":"STOP"}]}`)
 	}))
 	defer server.Close()
 
