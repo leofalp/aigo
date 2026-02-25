@@ -5,26 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.4.0] - 2025-02-25
 
 ### New Features
 
-- **Middleware system** (`core/client/middleware/`) -- Composable chain for LLM calls with built-in support for **Retry** (backoff/jitter), **Timeout** (deadlines), **Logging** (slog), and **Observability** (tracing/metrics). Supports both sync and stream paths.
-- **Streaming ReAct** (`patterns/react/`) -- Real-time event delivery for the ReAct agent via `ExecuteStream`. Yields reasoning, tool calls, and results through an iterator.
-- **PostgreSQL memory provider** (`providers/memory/pgmemory/`) -- Persistent chat history using `pgx/v5` with session isolation and multimodal content support.
-
-### Refactoring & Improvements
-
-- **Centralized Observability** -- Moved inline logic into `ObservabilityMiddleware`, adding full support for streaming spans and metrics.
-- **Memory Provider Interface** -- Updated methods to accept `context.Context` and return `error` to support database-backed implementations.
+- **Anthropic AI provider** (`providers/ai/anthropic/`) -- Full support for Claude Messages API (Claude 3.5/3.7) with streaming, tool calling, vision (multimodal input), extended thinking, prompt caching, and configurable beta features via `Capabilities` and `WithCapabilities`. Reads `ANTHROPIC_API_KEY` / `ANTHROPIC_API_BASE_URL` from env.
+- **Middleware system** (`core/client/middleware/`) -- Composable chain for LLM calls with built-in support for **Retry** (exponential backoff with jitter), **Timeout** (context deadlines), **Logging** (structured logging with slog), and **Observability** (distributed tracing and metrics). Supports both sync and stream execution paths.
+- **Streaming ReAct & Graph** (`patterns/react/`, `patterns/graph/`) -- Native streaming implementation for ReAct agents and execution graphs via `ExecuteStream`. Real-time event delivery yields reasoning steps, tool calls, and results through an iterator with async handling of tool execution loops.
+- **PostgreSQL memory provider** (`providers/memory/pgmemory/`) -- Sub-module implementing the `memory.Provider` interface using `pgx/v5` for persistent chat history storage. Features session isolation, multimodal content support, and full CRUD operations on conversation history.
 
 ### Breaking Changes
 
-- **memory.Provider** -- Interface updated: all methods now take `context.Context`; read methods now return an `error`; `Clear` renamed to `ClearMessages`.
+- **memory.Provider** -- Interface updated: all methods (`Count`, `AllMessages`, `LastMessages`, `PopLastMessage`, `FilterByRole`) now accept `context.Context` as first parameter and return an `error`. The `Clear` method has been renamed to `ClearMessages`. Custom implementations must be updated accordingly.
+
+### Refactoring & Improvements
+
+- **Client Orchestrator** -- Migrated observability logic from inline implementation into the new `ObservabilityMiddleware`, providing unified tracing and metrics for both sync and streaming LLM calls.
+- **Built-in Tools** -- Enhanced documentation and inline comments for Tavily, Exa, and BraveSearch tool providers, improving developer experience and API clarity.
+- **Documentation** -- Updated `AGENTS.md`, `llms.txt`, and `llms-full.txt` with new architectural patterns, streaming capabilities, and sub-module release processes.
 
 ### Testing
 
-- Added comprehensive unit tests for Retry, Timeout, Logging, and Observability middlewares covering success/error/streaming/context-propagation scenarios.
+- **Coverage** -- Increased global test coverage to **88.7%** with comprehensive unit tests across all new features.
+- **Integration Tests** -- Introduced `requireAPIKey` helper that forces explicit test failure (`t.Fatal`) when credentials are missing, preventing silent skips and ensuring proper CI validation.
+- **Sub-module Testing** -- Added complete test suite for `pgmemory` provider including unit tests (with mocks) and integration tests (with Docker-based PostgreSQL containers).
+- **Middleware Tests** -- Added comprehensive test coverage for Retry, Timeout, Logging, and Observability middlewares, validating success/error/streaming/context-propagation scenarios.
+
+### Build & CI
+
+- **Go Workspace** -- Configured `.github/workflows/ci.yml` to initialize a Go workspace (`go work`) during CI runs. This enables testing the `pgmemory` sub-module against local changes in the main module before release, ensuring compatibility.
+- **Dependency Management** -- Removed `replace` directives from `pgmemory`'s `go.mod` to guarantee compatibility with external consumers and proper module resolution.
 
 ## [v0.3.0] - 2025-02-22
 

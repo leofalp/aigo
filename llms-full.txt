@@ -2,7 +2,7 @@
 
 > A lightweight, modular Go framework for building AI applications with LLMs — supporting multi-turn conversations, tool calling, structured output, streaming, observability, cost tracking, and agentic patterns (ReAct, DAG graphs).
 
-Module: `github.com/leofalp/aigo`. Requires Go 1.25+. Uses a 3-layer architecture: **Layer 1** (`providers/`) exposes raw LLM/tool/memory/observability I/O; **Layer 2** (`core/`) orchestrates stateful/stateless conversations, cost tracking, and JSON parsing; **Layer 3** (`patterns/`) provides type-safe agentic workflows. AI providers: OpenAI, Gemini (and any OpenAI-compatible API). Install: `go get github.com/leofalp/aigo`. Key env vars: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `AIGO_DEFAULT_LLM_MODEL`.
+Module: `github.com/leofalp/aigo`. Requires Go 1.25+. Uses a 3-layer architecture: **Layer 1** (`providers/`) exposes raw LLM/tool/memory/observability I/O; **Layer 2** (`core/`) orchestrates stateful/stateless conversations, cost tracking, and JSON parsing; **Layer 3** (`patterns/`) provides type-safe agentic workflows. AI providers: OpenAI, Gemini, Anthropic (and any OpenAI-compatible API). Install: `go get github.com/leofalp/aigo`. Key env vars: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `AIGO_DEFAULT_LLM_MODEL`.
 
 ## Docs
 
@@ -556,19 +556,47 @@ func ParseStringAs[T any](content string) (T, error)
 ## package cost (`core/cost`)
 
 ```go
-type ModelCost struct {
-    InputCostPerMillion       float64
-    OutputCostPerMillion      float64
-    CachedInputCostPerMillion float64
-    ReasoningCostPerMillion   float64
+// ContextTier defines a pricing tier that activates when token usage exceeds the threshold.
+// Used by Gemini and Anthropic for tiered pricing (e.g., different rates above 200k tokens).
+// Input and output thresholds are independent.
+type ContextTier struct {
+    InputTokenThreshold  int     // Activate when input tokens exceed this value
+    InputCostPerMillion  float64 // Higher rate for large inputs
+    OutputTokenThreshold int     // Activate when output tokens exceed this value
+    OutputCostPerMillion float64 // Higher rate for large outputs
 }
+
+type ModelCost struct {
+    InputCostPerMillion        float64
+    OutputCostPerMillion       float64
+    CachedInputCostPerMillion  float64        // Optional
+    ReasoningCostPerMillion    float64        // Optional (o1/o3/gpt-5 style models)
+    ContextTiers               []ContextTier  // Optional; enables tiered pricing
+    ImageOutputCostPerUnit     float64        // Optional; cost per generated image
+    VideoOutputCostPerUnit     float64        // Optional; cost per generated video
+    AudioOutputCostPerUnit     float64        // Optional; cost per generated audio segment
+}
+
+// Token cost helpers — flat rate
 func (mc ModelCost) CalculateInputCost(tokens int) float64
 func (mc ModelCost) CalculateOutputCost(tokens int) float64
 func (mc ModelCost) CalculateCachedCost(tokens int) float64
 func (mc ModelCost) CalculateReasoningCost(tokens int) float64
-func (mc ModelCost) CalculateTotalCost(input, output, cached, reasoning int) float64
+
+// Token cost helpers — tier-aware
 func (mc ModelCost) CalculateInputCostWithTiers(tokens int) float64
 func (mc ModelCost) CalculateOutputCostWithTiers(tokens int) float64
+
+// CalculateTotalCost calculates total token cost with tier-aware input/output rates.
+func (mc ModelCost) CalculateTotalCost(input, output, cached, reasoning int) float64
+
+// Media generation cost helpers
+func (mc ModelCost) CalculateImageOutputCost(count int) float64
+func (mc ModelCost) CalculateVideoOutputCost(count int) float64
+func (mc ModelCost) CalculateAudioOutputCost(count int) float64
+
+// CalculateMediaCost returns the combined cost for all generated media outputs.
+func (mc ModelCost) CalculateMediaCost(images, videos, audios int) float64
 
 type ToolMetrics struct {
     Amount                  float64
@@ -1013,6 +1041,47 @@ func (p *OpenAIProvider) WithBaseURL(baseURL string) ai.Provider
 func (p *OpenAIProvider) WithHttpClient(httpClient *http.Client) ai.Provider
 ```
 
+## package anthropic (`providers/ai/anthropic`)
+
+```go
+// New creates a new Anthropic provider. Reads ANTHROPIC_API_KEY and ANTHROPIC_API_BASE_URL from env.
+func New() *AnthropicProvider
+
+// Fluent configuration methods
+func (p *AnthropicProvider) WithAPIKey(apiKey string) ai.Provider
+func (p *AnthropicProvider) WithBaseURL(baseURL string) ai.Provider
+func (p *AnthropicProvider) WithHttpClient(httpClient *http.Client) ai.Provider
+
+// WithCapabilities configures optional Anthropic-specific features.
+func (p *AnthropicProvider) WithCapabilities(cap Capabilities) *AnthropicProvider
+
+// GetCapabilities returns the current capabilities configuration.
+func (p *AnthropicProvider) GetCapabilities() Capabilities
+
+// Capabilities describes configurable features for the Anthropic provider.
+// All fields default to false/empty.
+type Capabilities struct {
+    ExtendedThinking bool     // Enable extended thinking (thinking blocks in responses)
+    PDFInput         bool     // Model supports PDF document input
+    PromptCaching    bool     // Endpoint supports prompt caching
+    Vision           bool     // Model supports image/multimodal input
+    Effort           string   // Output effort level: "low", "medium", "high", "max"
+    Speed            string   // Speed mode: "fast" for research preview fast mode
+    BetaFeatures     []string // Optional anthropic-beta header values
+}
+
+// Beta feature constants for Capabilities.BetaFeatures.
+const (
+    BetaInterleavedThinking = "interleaved-thinking-2025-05-14"
+    BetaAdvancedToolUse     = "advanced-tool-use-2025-11-20"
+    BetaToolExamples        = "tool-examples-2025-10-29"
+    BetaCodeExecution       = "code-execution-2025-08-25"
+    BetaContextManagement   = "context-management-2025-06-27"
+    BetaWebFetch            = "web-fetch-2026-02-09"
+    BetaContextCompaction   = "context-compaction-2026-02-14"
+)
+```
+
 ## package gemini (`providers/ai/gemini`)
 
 ```go
@@ -1024,27 +1093,110 @@ func (p *GeminiProvider) WithAPIKey(apiKey string) ai.Provider
 func (p *GeminiProvider) WithBaseURL(baseURL string) ai.Provider
 func (p *GeminiProvider) WithHttpClient(httpClient *http.Client) ai.Provider
 
-// Model constants
+// GetCapabilities returns detected feature capabilities for the configured default model.
+func (p *GeminiProvider) GetCapabilities() Capabilities
+
+// Model constants — Gemini 3.x preview
 const (
-    Model25Flash     = "gemini-2.5-flash-preview-04-17"
-    Model25FlashLite = "gemini-2.5-flash-lite-preview-06-17"
-    Model25Pro       = "gemini-2.5-pro-preview-06-05"
-    Model20Flash     = "gemini-2.0-flash"
-    Model20FlashLite = "gemini-2.0-flash-lite"
-    Model15Flash     = "gemini-1.5-flash"
-    Model15Pro       = "gemini-1.5-pro"
-    // ...and more
+    Model31ProPreview      = "gemini-3.1-pro-preview-05-27"
+    Model30ProPreview      = "gemini-3.0-pro-preview"
+    Model30ProImagePreview = "gemini-3.0-pro-preview-image"
+    Model30FlashPreview    = "gemini-3.0-flash-preview"
 )
+
+// Model constants — Gemini 2.5
+const (
+    Model25Pro               = "gemini-2.5-pro-preview-06-05"
+    Model25ProLatest         = "gemini-2.5-pro-latest"
+    Model25ProPreview        = "gemini-2.5-pro-preview"
+    Model25Flash             = "gemini-2.5-flash-preview-04-17"
+    Model25FlashLatest       = "gemini-2.5-flash-latest"
+    Model25FlashPreview      = "gemini-2.5-flash-preview"
+    Model25FlashImage        = "gemini-2.5-flash-preview-image"
+    Model25FlashNativeAudio  = "gemini-2.5-flash-preview-native-audio-dialog"
+    Model25FlashLite         = "gemini-2.5-flash-lite-preview-06-17"
+    Model25FlashLiteLatest   = "gemini-2.5-flash-lite-latest"
+    Model25FlashLitePreview  = "gemini-2.5-flash-lite-preview"
+    Model25ProTTS            = "gemini-2.5-pro-preview-tts"
+    Model25FlashTTS          = "gemini-2.5-flash-preview-tts"
+)
+
+// Model constants — Gemini 2.0
+const (
+    Model20Flash      = "gemini-2.0-flash"
+    Model20FlashLatest = "gemini-2.0-flash-latest"
+    Model20FlashExp   = "gemini-2.0-flash-exp"
+    Model20FlashLite  = "gemini-2.0-flash-lite"
+)
+
+// Model constants — Gemini 1.5 legacy
+const (
+    Model15Pro        = "gemini-1.5-pro"
+    Model15ProLatest  = "gemini-1.5-pro-latest"
+    Model15Flash      = "gemini-1.5-flash"
+    Model15Flash8B    = "gemini-1.5-flash-8b"
+    Model15Flash8BExp = "gemini-1.5-flash-8b-exp-0924"
+)
+
+// Model constants — specialized (image, video, robotics)
+const (
+    ModelRoboticsER15  = "gemini-robotics-er-1.5"
+    ModelImagen4       = "imagen-4.0-generate-preview-05-20"
+    ModelImagen4Ultra  = "imagen-4.0-ultra-generate-preview-05-20"
+    ModelImagen4Fast   = "imagen-4.0-fast-generate-preview-05-20"
+    ModelVeo31         = "veo-3.1-generate-preview"
+    ModelVeo31Fast     = "veo-3.1-generate-preview-fast"
+    ModelVeo20         = "veo-2.0-generate-001"
+)
+
+// GetModelInfo returns full model metadata (capabilities + pricing) for the given model name.
+// Returns false if the model is not found in the registry.
+func GetModelInfo(model string) (ai.ModelInfo, bool)
+
+// GetModelCost returns pricing for a model, handling aliases and version suffixes.
+func GetModelCost(model string) cost.ModelCost
+
+// CalculateCost is a convenience function that calculates total cost from usage.
+func CalculateCost(model string, usage *ai.Usage) float64
+
+// CalculateCostBreakdown returns a detailed per-category cost breakdown.
+func CalculateCostBreakdown(model string, usage *ai.Usage) CostBreakdown
+
+// CalculateCostBreakdownWithMedia returns a breakdown that also includes media generation costs.
+func CalculateCostBreakdownWithMedia(model string, usage *ai.Usage, images, videos, audios int) CostBreakdown
+
+// CostBreakdown holds per-category costs for a single Gemini request.
+type CostBreakdown struct {
+    Input    float64
+    Output   float64
+    Cached   float64
+    Reasoning float64
+    Images   float64
+    Videos   float64
+    Audio    float64
+    Total    float64
+}
+
+// ModelRegistry is the full registry of all supported Gemini models with metadata and pricing.
+var ModelRegistry map[string]ai.ModelInfo
+
+// ModelPricing is deprecated; use ModelRegistry / GetModelInfo instead.
+var ModelPricing map[string]cost.ModelCost
 ```
 
 ## package memory (`providers/memory`)
 
 ```go
 // Provider is the interface for conversation memory storage.
+// All methods accept a context.Context to support database-backed implementations.
 type Provider interface {
     AppendMessage(ctx context.Context, message *ai.Message)
-    AllMessages() []ai.Message
-    Clear(ctx context.Context)
+    Count(ctx context.Context) (int, error)
+    AllMessages(ctx context.Context) ([]ai.Message, error)
+    LastMessages(ctx context.Context, n int) ([]ai.Message, error)
+    PopLastMessage(ctx context.Context) (*ai.Message, error)
+    ClearMessages(ctx context.Context)
+    FilterByRole(ctx context.Context, role string) ([]ai.Message, error)
 }
 ```
 

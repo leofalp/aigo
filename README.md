@@ -9,12 +9,14 @@ A lightweight, modular, and extensible Go framework for building AI applications
 
 - **3-Layer Architecture** - Independent layers for providers, core orchestration, and high-level patterns
 - **Type-Safe Structured Output** - Generic-based responses with automatic JSON parsing and schema generation
+- **Streaming** - Real-time token delivery via SSE with `ChatStream`, `iter.Seq2`-based iteration, and automatic fallback for non-streaming providers
 - **Agentic Patterns** - ReAct, RAG, and chain-based workflows with tool execution loops
 - **Cost Tracking** - Track and optimize spending across models, tools, and infrastructure
 - **Observability** - Built-in tracing, metrics, and logging with zero overhead when disabled
+- **Middleware System** - Composable support for retry, timeout, logging, and observability
 - **Provider Flexibility** - Support for any OpenAI-compatible API
 - **Extensible Tools** - Built-in tools for calculations, web search, and scraping, with easy custom tool creation
-- **Memory Management** - Thread-safe conversation history with pluggable storage backends
+- **Memory Management** - Thread-safe conversation history with pluggable storage backends including in-memory and PostgreSQL
 
 ## Architecture Overview
 

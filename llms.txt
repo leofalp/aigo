@@ -2,7 +2,7 @@
 
 > A lightweight, modular Go framework for building AI applications with LLMs — supporting multi-turn conversations, tool calling, structured output, streaming, observability, cost tracking, and agentic patterns (ReAct, DAG graphs).
 
-Module: `github.com/leofalp/aigo`. Requires Go 1.25+. Uses a 3-layer architecture: **Layer 1** (`providers/`) exposes raw LLM/tool/memory/observability I/O; **Layer 2** (`core/`) orchestrates stateful/stateless conversations, cost tracking, and JSON parsing; **Layer 3** (`patterns/`) provides type-safe agentic workflows. AI providers: OpenAI, Gemini (and any OpenAI-compatible API). Install: `go get github.com/leofalp/aigo`. Key env vars: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `AIGO_DEFAULT_LLM_MODEL`.
+Module: `github.com/leofalp/aigo`. Requires Go 1.25+. Uses a 3-layer architecture: **Layer 1** (`providers/`) exposes raw LLM/tool/memory/observability I/O; **Layer 2** (`core/`) orchestrates stateful/stateless conversations, cost tracking, and JSON parsing; **Layer 3** (`patterns/`) provides type-safe agentic workflows. AI providers: OpenAI, Gemini, Anthropic (and any OpenAI-compatible API). Install: `go get github.com/leofalp/aigo`. Key env vars: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `AIGO_DEFAULT_LLM_MODEL`.
 
 ## Docs
 
@@ -52,7 +52,12 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.25+. Uses a 3-layer architectur
 
 ### core/cost
 
-- `ModelCost{InputCostPerMillion, OutputCostPerMillion, CachedInputCostPerMillion, ReasoningCostPerMillion float64}` — model pricing per million tokens
+- `ContextTier{InputTokenThreshold, InputCostPerMillion, OutputTokenThreshold, OutputCostPerMillion float64}` — tiered pricing override; activates when token count exceeds the threshold (used by Gemini and Anthropic)
+- `ModelCost{InputCostPerMillion, OutputCostPerMillion, CachedInputCostPerMillion, ReasoningCostPerMillion float64; ContextTiers []ContextTier; ImageOutputCostPerUnit, VideoOutputCostPerUnit, AudioOutputCostPerUnit float64}` — model pricing; supports flat, tiered, and per-unit media costs
+- `(ModelCost).CalculateInputCost(tokens int) float64`, `CalculateInputCostWithTiers`, `CalculateOutputCost`, `CalculateOutputCostWithTiers`, `CalculateCachedCost`, `CalculateReasoningCost` — per-category token cost helpers
+- `(ModelCost).CalculateImageOutputCost(count int) float64`, `CalculateVideoOutputCost`, `CalculateAudioOutputCost` — per-unit media generation cost helpers
+- `(ModelCost).CalculateMediaCost(images, videos, audios int) float64` — combined media cost
+- `(ModelCost).CalculateTotalCost(input, output, cached, reasoning int) float64` — total token cost with tier-aware rates
 - `ToolMetrics{Amount float64, Currency, CostDescription string, Accuracy float64, AverageDurationInMillis int64}` — tool cost and quality metadata
 - `ComputeCost{CostPerSecond float64}` — infrastructure/VM cost tracking
 - `CostSummary` — breakdown: TotalCost, TotalToolCost, TotalModelCost, ComputeCost, ToolCosts map, ToolExecutionCount map
@@ -122,7 +127,29 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.25+. Uses a 3-layer architectur
 
 - `New() *GeminiProvider` — reads `GEMINI_API_KEY`, `GEMINI_API_BASE_URL` from env
 - Fluent: `.WithAPIKey(key string) ai.Provider`, `.WithBaseURL(url string) ai.Provider`, `.WithHttpClient(c *http.Client) ai.Provider`
-- Model constants: `Model25Flash`, `Model25FlashLite`, `Model25Pro`, `Model20Flash`, `Model20FlashLite`, `Model15Flash`, `Model15Pro`
+- `.GetCapabilities() Capabilities` — returns detected feature capabilities for the default model
+- Model constants (Gemini 3.x preview): `Model31ProPreview`, `Model30ProPreview`, `Model30ProImagePreview`, `Model30FlashPreview`
+- Model constants (Gemini 2.5): `Model25Pro`, `Model25ProLatest`, `Model25ProPreview`, `Model25Flash`, `Model25FlashLatest`, `Model25FlashPreview`, `Model25FlashImage`, `Model25FlashNativeAudio`, `Model25FlashLite`, `Model25FlashLiteLatest`, `Model25FlashLitePreview`, `Model25ProTTS`, `Model25FlashTTS`
+- Model constants (Gemini 2.0): `Model20Flash`, `Model20FlashLatest`, `Model20FlashExp`, `Model20FlashLite`
+- Model constants (Gemini 1.5 legacy): `Model15Pro`, `Model15ProLatest`, `Model15Flash`, `Model15Flash8B`, `Model15Flash8BExp`
+- Model constants (specialized): `ModelRoboticsER15`, `ModelImagen4`, `ModelImagen4Ultra`, `ModelImagen4Fast`, `ModelVeo31`, `ModelVeo31Fast`, `ModelVeo20`
+- `GetModelInfo(model string) (ai.ModelInfo, bool)` — returns full model metadata including capabilities and pricing
+- `GetModelCost(model string) cost.ModelCost` — returns pricing for a model (handles aliases and version suffixes)
+- `CalculateCost(model string, usage *ai.Usage) float64` — convenience cost calculation
+- `CalculateCostBreakdown(model string, usage *ai.Usage) CostBreakdown` — detailed per-category cost breakdown
+- `CalculateCostBreakdownWithMedia(model string, usage *ai.Usage, images, videos, audios int) CostBreakdown` — breakdown including media generation costs
+- `CostBreakdown` — detailed struct with per-category costs (input, output, cached, reasoning, images, videos, audio)
+- `ModelRegistry map[string]ai.ModelInfo` — full registry of all supported models with metadata and pricing
+- `ModelPricing map[string]cost.ModelCost` — deprecated; use `ModelRegistry` / `GetModelInfo` instead
+
+### providers/ai/anthropic
+
+- `New() *AnthropicProvider` — reads `ANTHROPIC_API_KEY`, `ANTHROPIC_API_BASE_URL` from env
+- Fluent: `.WithAPIKey(key string) ai.Provider`, `.WithBaseURL(url string) ai.Provider`, `.WithHttpClient(c *http.Client) ai.Provider`
+- `.WithCapabilities(cap Capabilities) *AnthropicProvider` — configures optional features (extended thinking, PDF input, prompt caching, vision, output effort/speed)
+- `.GetCapabilities() Capabilities` — returns the current capabilities configuration
+- `Capabilities{ExtendedThinking, PDFInput, PromptCaching, Vision bool; Effort, Speed string; BetaFeatures []string}` — optional feature flags sent via `anthropic-beta` header
+- Beta constants: `BetaInterleavedThinking`, `BetaAdvancedToolUse`, `BetaToolExamples`, `BetaCodeExecution`, `BetaContextManagement`, `BetaWebFetch`, `BetaContextCompaction`
 
 ### providers/memory
 
