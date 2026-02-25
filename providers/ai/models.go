@@ -57,9 +57,12 @@ type ToolDescription struct {
 // Currently supported by: Gemini. Other providers may add support or ignore them.
 // Prefix with underscore to distinguish from user-defined tools.
 const (
-	ToolGoogleSearch  = "_google_search"  // Web search grounding (Gemini)
-	ToolURLContext    = "_url_context"    // URL content grounding (Gemini)
-	ToolCodeExecution = "_code_execution" // Code execution sandbox (Gemini)
+	// ToolGoogleSearch enables web search grounding (Gemini).
+	ToolGoogleSearch = "_google_search"
+	// ToolURLContext enables URL content grounding (Gemini).
+	ToolURLContext = "_url_context"
+	// ToolCodeExecution enables the code execution sandbox (Gemini).
+	ToolCodeExecution = "_code_execution"
 )
 
 // IsBuiltinTool returns true if the tool name is a built-in pseudo-tool.
