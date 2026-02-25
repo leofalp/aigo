@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.4.1] - 2025-02-25
+
+### Bug Fixes
+
+- **Gemini streaming** -- Fixed text truncation in `streamGenerateContent` responses. The streaming parser incorrectly assumed Gemini returned cumulative text in each SSE chunk and applied rune-based slicing to compute deltas. In reality, Gemini returns deltas (only the new text) in each chunk — identical to OpenAI and Anthropic. The slicing logic mangled multi-chunk responses (e.g., "Hello world!" became "Hellod").
+
+### Testing
+
+- **Gemini streaming unit tests** -- Updated mock SSE data from cumulative to delta format, matching the actual Gemini API behaviour.
+- **Gemini streaming integration test** -- Added `TestGeminiStreamDeltaIntegrity_Integration` regression test that cross-validates streamed delta concatenation (`Iter()`), collected output (`Collect()`), and non-streaming baseline (`SendMessage`) to prevent future truncation regressions.
+
 ## [v0.4.0] - 2025-02-25
 
 ### New Features
@@ -89,6 +100,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ReAct agent pattern** -- Ready-to-use agentic pattern with automatic tool execution loops.
 - **Minimal dependencies** -- Lightweight framework with few external requirements.
 
+[v0.4.1]: https://github.com/leofalp/aigo/compare/v0.4.0...v0.4.1
+[v0.4.0]: https://github.com/leofalp/aigo/compare/v0.3.0...v0.4.0
 [v0.3.0]: https://github.com/leofalp/aigo/compare/v0.2.0...v0.3.0
 [v0.2.0]: https://github.com/leofalp/aigo/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/leofalp/aigo/commits/v0.1.0
