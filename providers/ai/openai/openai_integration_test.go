@@ -17,6 +17,16 @@ const (
 	defaultTestModel = "gpt-4.1-nano"
 )
 
+// requireAPIKey fails the test immediately when OPENAI_API_KEY is not set.
+// Integration tests are opt-in (build tag), so a missing key is a configuration
+// error that should surface loudly rather than be silently skipped.
+func requireAPIKey(t *testing.T) {
+	t.Helper()
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		t.Fatal("OPENAI_API_KEY is required for integration tests")
+	}
+}
+
 // testModel returns the model to use for integration tests. It reads
 // OPENAI_TEST_MODEL first, then AIGO_DEFAULT_LLM_MODEL, falling back to
 // defaultTestModel. This allows running against OpenRouter or other
@@ -34,9 +44,7 @@ func testModel() string {
 // TestOpenAISendMessage_Integration verifies that the OpenAI provider can
 // complete a basic chat request against the real API. Requires OPENAI_API_KEY.
 func TestOpenAISendMessage_Integration(t *testing.T) {
-	if os.Getenv("OPENAI_API_KEY") == "" {
-		t.Skip("OPENAI_API_KEY not set, skipping integration test")
-	}
+	requireAPIKey(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -85,9 +93,7 @@ func TestOpenAISendMessage_Integration(t *testing.T) {
 
 // TestOpenAISendMessageWithSystemPrompt_Integration verifies system prompt handling.
 func TestOpenAISendMessageWithSystemPrompt_Integration(t *testing.T) {
-	if os.Getenv("OPENAI_API_KEY") == "" {
-		t.Skip("OPENAI_API_KEY not set, skipping integration test")
-	}
+	requireAPIKey(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -118,9 +124,7 @@ func TestOpenAISendMessageWithSystemPrompt_Integration(t *testing.T) {
 // TestOpenAIIsStopMessage_Integration verifies that a normal completion is
 // recognized as a stop message.
 func TestOpenAIIsStopMessage_Integration(t *testing.T) {
-	if os.Getenv("OPENAI_API_KEY") == "" {
-		t.Skip("OPENAI_API_KEY not set, skipping integration test")
-	}
+	requireAPIKey(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -149,9 +153,7 @@ func TestOpenAIIsStopMessage_Integration(t *testing.T) {
 // Iter and Collect are mutually exclusive (both consume the same underlying
 // iterator), so each is tested in its own subtest with a fresh stream.
 func TestOpenAIStreamMessage_Integration(t *testing.T) {
-	if os.Getenv("OPENAI_API_KEY") == "" {
-		t.Skip("OPENAI_API_KEY not set, skipping integration test")
-	}
+	requireAPIKey(t)
 
 	model := testModel()
 
@@ -231,9 +233,7 @@ func TestOpenAIStreamMessage_Integration(t *testing.T) {
 // TestOpenAIViaChatCompletions_Integration explicitly tests the /chat/completions
 // endpoint to ensure backward-compatible providers still work.
 func TestOpenAIViaChatCompletions_Integration(t *testing.T) {
-	if os.Getenv("OPENAI_API_KEY") == "" {
-		t.Skip("OPENAI_API_KEY not set, skipping integration test")
-	}
+	requireAPIKey(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

@@ -172,8 +172,12 @@ func TestStreamMessage_WithMemory(t *testing.T) {
 		t.Errorf("expected message content %q, got %q", "first message", capturedRequest.Messages[0].Content)
 	}
 	// The memory provider should have the user message persisted.
-	if memoryProvider.Count() != 1 {
-		t.Errorf("expected 1 message in memory, got %d", memoryProvider.Count())
+	count, countErr := memoryProvider.Count(context.Background())
+	if countErr != nil {
+		t.Fatalf("Count returned unexpected error: %v", countErr)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 message in memory, got %d", count)
 	}
 }
 

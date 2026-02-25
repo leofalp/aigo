@@ -10,8 +10,9 @@
 // Graph[T] is generic over the final output type T: the last node (or a designated
 // output node) produces the result, which is parsed into T using parse.ParseStringAs[T].
 //
-// The main entry points are [NewGraphBuilder] to construct a graph and
-// [Graph.Execute] to run it. Use [NewInMemoryStateProvider] for in-process
+// The main entry points are [NewGraphBuilder] to construct a graph,
+// [Graph.Execute] to run it synchronously, and [Graph.ExecuteStream] to run it
+// with real-time event streaming. Use [NewInMemoryStateProvider] for in-process
 // workflows, or implement [StateProvider] for persistent or distributed execution.
 //
 // Key features:
@@ -23,8 +24,9 @@
 //   - Full observability integration (spans, counters, histograms)
 //   - Pluggable state persistence via StateProvider interface
 //   - Cost tracking aggregated across all nodes
+//   - Streaming execution with multiplexed per-node events via [GraphStream]
 //
-// Example usage:
+// Example (synchronous):
 //
 //	type FinalReport struct {
 //	    Summary string `json:"summary"`
@@ -40,11 +42,20 @@
 //	result, err := g.Execute(ctx, map[string]any{"input": "data"})
 //	fmt.Println(result.Data.Summary)
 //
+// Example (streaming):
+//
+//	stream, err := g.ExecuteStream(ctx, map[string]any{"input": "data"})
+//	for event, err := range stream.Iter() {
+//	    if err != nil { log.Fatal(err) }
+//	    if event.Type == graph.GraphEventNodeContent {
+//	        fmt.Printf("[%s] %s", event.NodeID, event.Content)
+//	    }
+//	}
+//
 // TODO: Future enhancements:
 //   - Cycle support with WithAllowCycles() and max iterations per node
 //   - SubGraph / nesting (nested graphs as nodes)
 //   - ForEach / dynamic spawn (runtime node creation)
-//   - Streaming / real-time event support
 //   - Automatic retry per node
 //   - Additional StateProvider implementations (PostgreSQL, Redis, etc.)
 package graph

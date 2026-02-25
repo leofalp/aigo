@@ -2,7 +2,7 @@
 
 > A lightweight, modular Go framework for building AI applications with LLMs — supporting multi-turn conversations, tool calling, structured output, streaming, observability, cost tracking, and agentic patterns (ReAct, DAG graphs).
 
-Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architecture: **Layer 1** (`providers/`) exposes raw LLM/tool/memory/observability I/O; **Layer 2** (`core/`) orchestrates stateful/stateless conversations, cost tracking, and JSON parsing; **Layer 3** (`patterns/`) provides type-safe agentic workflows. AI providers: OpenAI, Gemini (and any OpenAI-compatible API). Install: `go get github.com/leofalp/aigo`. Key env vars: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `AIGO_DEFAULT_LLM_MODEL`.
+Module: `github.com/leofalp/aigo`. Requires Go 1.25+. Uses a 3-layer architecture: **Layer 1** (`providers/`) exposes raw LLM/tool/memory/observability I/O; **Layer 2** (`core/`) orchestrates stateful/stateless conversations, cost tracking, and JSON parsing; **Layer 3** (`patterns/`) provides type-safe agentic workflows. AI providers: OpenAI, Gemini (and any OpenAI-compatible API). Install: `go get github.com/leofalp/aigo`. Key env vars: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `AIGO_DEFAULT_LLM_MODEL`.
 
 ## Docs
 
@@ -18,7 +18,9 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 - [Tool: SiteDataExtractor](providers/tool/sitedataextractor/README.md): structured company/site data extraction
 - [Examples: ReAct](examples/layer3/react/README.md): type-safe ReAct agent usage guide
 - [Examples: Streaming](examples/layer2/streaming/main.go): streaming responses with real-time token delivery
+- [Examples: ReAct Streaming](examples/layer3/streaming/main.go): streaming ReAct agent with real-time event delivery
 - [Examples: Cost Tracking](examples/layer2/cost_tracking/README.md): cost tracking walkthrough
+- [Examples: Middleware](examples/layer2/middleware/main.go): using retry, timeout, and logging middlewares
 
 ## API Reference
 
@@ -33,8 +35,10 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 - `(*Client).Observer() observability.Provider` — returns configured observer
 - `(*Client).AppendToSystemPrompt(appendix string)` — appends text to the client system prompt
 - `(*Client).SetDefaultOutputSchema(schema *jsonschema.Schema)` — sets default JSON schema for structured output
-- Client options: `WithMemory`, `WithObserver`, `WithSystemPrompt`, `WithTools`, `WithRequiredTools`, `WithDefaultModel`, `WithModelCost`, `WithComputeCost`, `WithDefaultOutputSchema`, `WithEnrichSystemPromptWithToolsDescriptions`, `WithEnrichSystemPromptWithToolsCosts(strategy)`
+- Client options: `WithMemory`, `WithObserver`, `WithSystemPrompt`, `WithTools`, `WithRequiredTools`, `WithDefaultModel`, `WithModelCost`, `WithComputeCost`, `WithDefaultOutputSchema`, `WithEnrichSystemPromptWithToolsDescriptions`, `WithEnrichSystemPromptWithToolsCosts(strategy)`, `WithMiddleware(...MiddlewareConfig)`
 - Per-request options: `WithOutputSchema(schema)`, `WithEphemeralSystemPrompt(prompt)`
+- Middleware types: `SendFunc`, `StreamFunc`, `Middleware`, `StreamMiddleware`, `MiddlewareConfig`
+- `NewObservabilityMiddleware(observer observability.Provider, defaultModel string) MiddlewareConfig` — auto-registered by `WithObserver`; outermost wrapper for spans/metrics/logs including streaming
 - `NewStructured[T any](provider ai.Provider, opts ...func(*ClientOptions)) (*StructuredClient[T], error)` — type-safe structured client (auto-parses response into T)
 
 ### core/overview
@@ -62,6 +66,12 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 
 - `New[T any](client *client.Client, opts ...Option) (*ReAct[T], error)` — creates a type-safe ReAct agent; injects JSON schema into system prompt at construction
 - `(*ReAct[T]).Execute(ctx context.Context, prompt string) (*overview.StructuredOverview[T], error)` — runs the ReAct tool loop and parses final answer into T
+- `(*ReAct[T]).ExecuteStream(ctx context.Context, prompt string) (*ReactStream[T], error)` — streaming variant; returns a ReactStream that yields ReactEvent values in real time; falls back to a single ReactEventFinalAnswer event if the provider lacks StreamProvider
+- `ReactStream[T any]` — wraps the streaming ReAct loop; must be consumed via Iter() or Collect()
+- `(*ReactStream[T]).Iter() iter.Seq2[ReactEvent[T], error]` — returns the underlying iterator for range-over-func loops; breaking early is safe
+- `(*ReactStream[T]).Collect() (*overview.StructuredOverview[T], error)` — consumes the entire stream and returns the structured overview (equivalent to Execute())
+- `ReactEvent[T any]` — single event from the ReAct loop; fields: Type, Iteration, Content, Reasoning, ToolName, ToolInput, ToolOutput, Result *T, Err
+- `ReactEventType` — event kind string enum: `ReactEventIterationStart`, `ReactEventReasoning`, `ReactEventContent`, `ReactEventToolCall`, `ReactEventToolResult`, `ReactEventFinalAnswer`, `ReactEventError`
 - Options: `WithMaxIterations(n int)`, `WithStopOnError(bool)`, `WithSysPromptAnnotation(bool)`
 - Use `T = string` for untyped text output; any struct with json tags for structured output
 
@@ -116,8 +126,14 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 
 ### providers/memory
 
-- `Provider` interface: `AppendMessage(ctx, *ai.Message)`, `AllMessages() []ai.Message`, `Clear(ctx)`
+- `Provider` interface: `AppendMessage(ctx, *ai.Message)`, `Count(ctx) (int, error)`, `AllMessages(ctx) ([]ai.Message, error)`, `LastMessages(ctx, n) ([]ai.Message, error)`, `PopLastMessage(ctx) (*ai.Message, error)`, `ClearMessages(ctx)`, `FilterByRole(ctx, role) ([]ai.Message, error)`
 - `inmemory.New() memory.Provider` — thread-safe in-memory array-backed implementation
+
+### providers/memory/pgmemory
+
+- `New(db Querier, sessionID string, opts ...Option) *PgMemory` — creates a PostgreSQL-backed memory provider using `pgx/v5`
+- Options: `WithTableName(name string)` (default: "aigo_messages")
+- `Querier` interface: satisfies `*pgxpool.Pool` or `pgx.Tx` for connection pooling or transaction injection
 
 ### providers/tool
 
@@ -167,6 +183,15 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 
 - `NewSiteDataExtractorTool() *tool.Tool[Input, Output]` — extracts structured company/organization data with confidence scores
 
+### core/client/middleware
+
+- `NewRetryMiddleware(config RetryConfig) client.MiddlewareConfig` — retries failed send requests with exponential backoff + jitter; streaming calls are not retried
+- `NewTimeoutMiddleware(timeout time.Duration) client.MiddlewareConfig` — enforces per-request deadlines on both send and stream calls; for streams the timeout governs the full stream lifetime
+- `NewLoggingMiddleware(logger *slog.Logger, level LogLevel) client.MiddlewareConfig` — emits structured slog entries before/after every provider call; covers both send and stream paths
+- `RetryConfig{MaxRetries, InitialBackoff, MaxBackoff, BackoffFactor, JitterFraction, RetryableFunc}` — retry tuning parameters; zero values use safe defaults (3 retries, 1s initial, 30s max, factor 2.0, 10% jitter, retries on 429/500/502/503/529)
+- `LogLevel` — verbosity enum: `LogLevelMinimal` (model + duration + tokens), `LogLevelStandard` (+ message count + finish reason), `LogLevelVerbose` (+ truncated content; dev-only)
+- `ErrRetryExhausted` — sentinel error wrapping the last provider error; check via `errors.Is(err, middleware.ErrRetryExhausted)`
+
 ### providers/observability
 
 - `Provider` interface: `StartSpan`, `Counter`, `Histogram`, `Trace/Debug/Info/Warn/Error`
@@ -201,3 +226,4 @@ Module: `github.com/leofalp/aigo`. Requires Go 1.24+. Uses a 3-layer architectur
 
 - [ReAct](examples/layer3/react/main.go): typed `MathResult`, typed `ResearchResult`, untyped `string`
 - [Brave Search ReAct](examples/layer3/bravesearch-react/main.go): ReAct agent with Brave Search and Calculator tools
+- [Streaming ReAct](examples/layer3/streaming/main.go): real-time streaming ReAct agent with per-event rendering

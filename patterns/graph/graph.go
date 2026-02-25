@@ -191,6 +191,11 @@ type graphConfig struct {
 	// stateProvider is the storage backend for graph state.
 	// If nil, InMemoryStateProvider is used.
 	stateProvider StateProvider
+
+	// streamBufferSize is the internal channel buffer size for streaming events.
+	// Used by ExecuteStream to control backpressure between node goroutines
+	// and the consumer. Zero means use the default (defaultStreamBufferSize).
+	streamBufferSize int
 }
 
 // Graph represents a validated, executable directed acyclic graph of LLM processing steps.

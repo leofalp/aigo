@@ -343,9 +343,9 @@ func (r *ReAct[T]) executeToolCall(
 				toolCall.Function.Name,
 				strings.Join(getToolNames(toolCatalog), ", ")),
 		)
-		resultJSON, err := toolResult.ToJSON()
-		if err != nil {
-			resultJSON = fmt.Sprintf(`{"error":"failed to serialize tool result: %s"}`, err.Error())
+		resultJSON, jsonErr := toolResult.ToJSON()
+		if jsonErr != nil {
+			resultJSON = fmt.Sprintf(`{"error":"failed to serialize tool result: %s"}`, jsonErr.Error())
 		}
 		mem.AppendMessage(ctx, &ai.Message{
 			Role:       ai.RoleTool,
@@ -389,9 +389,9 @@ func (r *ReAct[T]) executeToolCall(
 
 		// Add error as structured ToolResult to memory
 		toolResult := ai.NewToolResultError("tool_execution_failed", err.Error())
-		resultJSON, err := toolResult.ToJSON()
-		if err != nil {
-			resultJSON = fmt.Sprintf(`{"error":"failed to serialize tool result: %s"}`, err.Error())
+		resultJSON, jsonErr := toolResult.ToJSON()
+		if jsonErr != nil {
+			resultJSON = fmt.Sprintf(`{"error":"failed to serialize tool result: %s"}`, jsonErr.Error())
 		}
 		mem.AppendMessage(ctx, &ai.Message{
 			Role:       ai.RoleTool,
@@ -723,6 +723,458 @@ func (r *ReAct[T]) observeInit(ctx *context.Context, prompt string, toolCatalog 
 	)
 
 	r.state["span"] = span
+}
+
+// ExecuteStream starts the ReAct reasoning loop with streaming output.
+// Unlike Execute(), which blocks until completion, ExecuteStream returns
+// immediately with a ReactStream that yields events as the agent works.
+//
+// The stream must be consumed (either via Iter() or Collect()) to avoid
+// resource leaks. Internally, each LLM call uses StreamMessage /
+// StreamContinueConversation while tool execution remains synchronous between
+// LLM calls.
+//
+// Returns an error immediately (before any streaming) only if the prompt is
+// empty or memory is not configured. All other errors are delivered as
+// ReactEventError events through the stream.
+//
+// Example:
+//
+//	stream, err := agent.ExecuteStream(ctx, "What are the latest advances in fusion energy?")
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	for event, err := range stream.Iter() {
+//	    if err != nil { log.Fatal(err) }
+//	    switch event.Type {
+//	    case react.ReactEventContent:
+//	        fmt.Print(event.Content)
+//	    case react.ReactEventFinalAnswer:
+//	        fmt.Printf("\nResult: %+v\n", event.Result)
+//	    }
+//	}
+func (r *ReAct[T]) ExecuteStream(ctx context.Context, prompt string) (*ReactStream[T], error) {
+	if prompt == "" {
+		return nil, fmt.Errorf("prompt cannot be empty")
+	}
+
+	if r.client.Memory() == nil {
+		return nil, fmt.Errorf("memory provider is required for ExecuteStream; configure it with client.WithMemory()")
+	}
+
+	carrier := &contextCarrier{}
+
+	iteratorFunc := func(yield func(ReactEvent[T], error) bool) {
+		iteration := 0
+		iterationTimer := utils.NewTimer()
+		execTimer := utils.NewTimer()
+		reactMemory := r.client.Memory()
+		toolCatalog := r.client.ToolCatalog()
+		executionOverview := overview.OverviewFromContext(&ctx)
+
+		// Start execution timing for compute cost tracking
+		executionOverview.StartExecution()
+		defer func() {
+			executionOverview.EndExecution()
+			// Capture the final overview so Collect() can read it
+			carrier.overview = overview.OverviewFromContext(&ctx)
+		}()
+
+		// Set up observability (mirrors Execute())
+		observer := r.client.Observer()
+		if observer == nil {
+			observer = observability.ObserverFromContext(ctx)
+		}
+
+		r.state["observer"] = observer
+		r.state["iterationTimer"] = iterationTimer
+		r.state["execTimer"] = execTimer
+
+		r.observeInit(&ctx, prompt, toolCatalog)
+
+		execTimer.Start()
+
+		// Main ReAct loop
+		for iteration < r.maxIterations {
+			iteration++
+
+			r.observeStartIteration(&ctx, iteration)
+
+			// Emit iteration start event
+			if !yield(ReactEvent[T]{Type: ReactEventIterationStart, Iteration: iteration}, nil) {
+				return
+			}
+
+			iterationTimer.Start()
+
+			// Obtain a streaming response from the LLM.
+			// First iteration uses StreamMessage (adds user message to memory).
+			// Subsequent iterations use StreamContinueConversation (no new user message).
+			var chatStream *ai.ChatStream
+			var streamErr error
+
+			if iteration == 1 {
+				chatStream, streamErr = r.client.StreamMessage(ctx, prompt)
+			} else {
+				chatStream, streamErr = r.client.StreamContinueConversation(ctx)
+			}
+
+			if streamErr != nil {
+				r.observeIterationError(&ctx, streamErr, iteration)
+				yield(ReactEvent[T]{Type: ReactEventError, Iteration: iteration, Err: streamErr}, streamErr)
+				return
+			}
+
+			// Consume the stream, yielding content/reasoning deltas and accumulating
+			// tool call deltas. Returns the fully assembled ChatResponse.
+			response, consumeErr := consumeStreamWithEvents(ctx, chatStream, iteration, yield)
+			if consumeErr != nil {
+				r.observeIterationError(&ctx, consumeErr, iteration)
+				yield(ReactEvent[T]{Type: ReactEventError, Iteration: iteration, Err: consumeErr}, consumeErr)
+				return
+			}
+			// nil response means the consumer broke out of the iterator early — stop cleanly.
+			if response == nil {
+				return
+			}
+
+			iterationTimer.Stop()
+
+			// Step 2: No tool calls = final answer
+			if len(response.ToolCalls) == 0 {
+				data, parseErr := parse.ParseStringAs[T](response.Content)
+
+				if parseErr != nil {
+					// Parse failed — retry once with an explicit JSON format request
+					r.observeParseError(&ctx, parseErr, response.Content)
+					r.observeRequestingStructuredFinalAnswer(&ctx, iteration)
+
+					// Append the assistant response to memory before retrying
+					reactMemory.AppendMessage(ctx, &ai.Message{
+						Role:    ai.RoleAssistant,
+						Content: response.Content,
+					})
+
+					// Send the JSON-format retry request via streaming
+					const retryPrompt = "Please provide your answer in valid JSON format only, with no additional text."
+
+					retryStream, retryErr := r.client.StreamMessage(ctx, retryPrompt)
+					if retryErr != nil {
+						r.observeIterationError(&ctx, retryErr, iteration)
+						yield(ReactEvent[T]{Type: ReactEventError, Iteration: iteration, Err: retryErr}, retryErr)
+						return
+					}
+
+					// Consume retry stream, yielding deltas under the same iteration number
+					retryResponse, retryConsumeErr := consumeStreamWithEvents(ctx, retryStream, iteration, yield)
+					if retryConsumeErr != nil {
+						r.observeIterationError(&ctx, retryConsumeErr, iteration)
+						yield(ReactEvent[T]{Type: ReactEventError, Iteration: iteration, Err: retryConsumeErr}, retryConsumeErr)
+						return
+					}
+					// nil response means the consumer broke out of the iterator early — stop cleanly.
+					if retryResponse == nil {
+						return
+					}
+
+					// Try parsing the retry response
+					data, parseErr = parse.ParseStringAs[T](retryResponse.Content)
+					if parseErr != nil {
+						r.observeParseError(&ctx, parseErr, retryResponse.Content)
+						finalErr := fmt.Errorf("failed to parse final answer after retry into type %T: %w", data, parseErr)
+						yield(ReactEvent[T]{Type: ReactEventError, Iteration: iteration, Err: finalErr}, finalErr)
+						return
+					}
+
+					// Parse succeeded after retry
+					r.observeSuccess(&ctx, retryResponse, iteration)
+					yield(ReactEvent[T]{
+						Type:      ReactEventFinalAnswer,
+						Iteration: iteration,
+						Content:   retryResponse.Content,
+						Result:    &data,
+					}, nil)
+					return
+				}
+
+				// Parse succeeded on first try
+				r.observeSuccess(&ctx, response, iteration)
+				yield(ReactEvent[T]{
+					Type:      ReactEventFinalAnswer,
+					Iteration: iteration,
+					Content:   response.Content,
+					Result:    &data,
+				}, nil)
+				return
+			}
+
+			// Step 3: Execute tool calls
+			r.observeTools(&ctx, response, iteration)
+
+			// Append assistant message (with tool calls) to memory
+			reactMemory.AppendMessage(ctx, &ai.Message{
+				Role:      ai.RoleAssistant,
+				Content:   response.Content,
+				ToolCalls: response.ToolCalls,
+				Reasoning: response.Reasoning,
+				Refusal:   response.Refusal,
+			})
+
+			// Yield a ReactEventToolCall for each complete tool call, then execute it
+			toolsExecuted := 0
+			for _, toolCall := range response.ToolCalls {
+				if !yield(ReactEvent[T]{
+					Type:      ReactEventToolCall,
+					Iteration: iteration,
+					ToolName:  toolCall.Function.Name,
+					ToolInput: toolCall.Function.Arguments,
+				}, nil) {
+					return
+				}
+
+				toolErr := r.executeToolCallWithResult(ctx, observer, reactMemory, toolCatalog, toolCall,
+					func(toolOutput string) {
+						// Yield tool result event (ignore yield return value; we check it on next iteration)
+						yield(ReactEvent[T]{
+							Type:       ReactEventToolResult,
+							Iteration:  iteration,
+							ToolName:   toolCall.Function.Name,
+							ToolOutput: toolOutput,
+						}, nil)
+					},
+				)
+
+				if toolErr != nil {
+					r.observeToolError(&ctx, toolErr, iteration, toolCall.Function.Name)
+					if r.stopOnError {
+						r.observeStopOnError(&ctx, iteration, toolErr)
+						yield(ReactEvent[T]{Type: ReactEventError, Iteration: iteration, Err: toolErr}, toolErr)
+						return
+					}
+				} else {
+					toolsExecuted++
+				}
+			}
+
+			r.observeNextIteration(&ctx, iteration, toolsExecuted, response)
+		}
+
+		execTimer.Stop()
+		r.observeMaxIteration(&ctx)
+
+		maxErr := fmt.Errorf("reached maximum iterations (%d) without final answer", r.maxIterations)
+		yield(ReactEvent[T]{Type: ReactEventError, Iteration: iteration, Err: maxErr}, maxErr)
+	}
+
+	return &ReactStream[T]{
+		iterator: iteratorFunc,
+		ctxPtr:   carrier,
+	}, nil
+}
+
+// consumeStreamWithEvents drains a ChatStream, forwarding content and reasoning
+// deltas as ReactEvents via yield, and assembles the complete ChatResponse from
+// accumulated deltas. Returns the assembled response or the first stream error.
+// If yield returns false (consumer broke out of the range loop), the function
+// returns immediately with a nil response and nil error — the caller is
+// responsible for halting the outer loop.
+func consumeStreamWithEvents[T any](
+	ctx context.Context,
+	chatStream *ai.ChatStream,
+	iteration int,
+	yield func(ReactEvent[T], error) bool,
+) (*ai.ChatResponse, error) {
+	var contentBuilder strings.Builder
+	var reasoningBuilder strings.Builder
+	var toolCallBuilders []reactToolCallBuilder
+	var usage *ai.Usage
+	var finishReason string
+
+	for event, err := range chatStream.Iter() {
+		if err != nil {
+			return nil, err
+		}
+
+		switch event.Type {
+		case ai.StreamEventContent:
+			contentBuilder.WriteString(event.Content)
+			if !yield(ReactEvent[T]{Type: ReactEventContent, Iteration: iteration, Content: event.Content}, nil) {
+				// Consumer broke out — stop streaming but don't return an error
+				return nil, nil
+			}
+
+		case ai.StreamEventReasoning:
+			reasoningBuilder.WriteString(event.Reasoning)
+			if !yield(ReactEvent[T]{Type: ReactEventReasoning, Iteration: iteration, Reasoning: event.Reasoning}, nil) {
+				return nil, nil
+			}
+
+		case ai.StreamEventToolCall:
+			// Accumulate incremental tool call deltas — do not yield yet.
+			// Complete tool calls are emitted after the full stream is consumed.
+			if event.ToolCall != nil {
+				toolCallBuilders = accumulateReactToolCallDelta(toolCallBuilders, event.ToolCall)
+			}
+
+		case ai.StreamEventUsage:
+			usage = event.Usage
+
+		case ai.StreamEventDone:
+			finishReason = event.FinishReason
+
+		case ai.StreamEventError:
+			// The actual error comes through the iterator's error channel on the next iteration;
+			// this case is informational and handled above.
+		}
+	}
+
+	// Build the complete ChatResponse from accumulated stream data
+	response := &ai.ChatResponse{
+		Content:      contentBuilder.String(),
+		Reasoning:    reasoningBuilder.String(),
+		ToolCalls:    buildToolCallsFromBuilders(toolCallBuilders),
+		Usage:        usage,
+		FinishReason: finishReason,
+	}
+
+	return response, nil
+}
+
+// executeToolCallWithResult executes a tool call, adds its result to memory
+// (same as executeToolCall), and also calls onResult with the output string so
+// the streaming loop can emit a ReactEventToolResult event.
+func (r *ReAct[T]) executeToolCallWithResult(
+	ctx context.Context,
+	observer observability.Provider,
+	mem memory.Provider,
+	toolCatalog *tool.Catalog,
+	toolCall ai.ToolCall,
+	onResult func(toolOutput string),
+) error {
+	// Get overview for cost tracking
+	executionOverview := overview.OverviewFromContext(&ctx)
+	var span observability.Span
+
+	if observer != nil {
+		ctx, span = observer.StartSpan(ctx, "react.execute_tool",
+			observability.String("tool_name", toolCall.Function.Name),
+		)
+		defer span.End()
+	}
+
+	start := time.Now()
+	toolInstance, exists := toolCatalog.Get(toolCall.Function.Name)
+	if !exists {
+		err := fmt.Errorf("tool '%s' not found in catalog (case-insensitive lookup)", toolCall.Function.Name)
+		duration := time.Since(start)
+		if observer != nil {
+			span.RecordError(err)
+			span.SetStatus(observability.StatusError, "Tool not found")
+			observer.Error(ctx, "Tool call failed - not found",
+				observability.String("tool", toolCall.Function.Name),
+				observability.Duration("duration", duration),
+				observability.Error(err),
+			)
+		}
+
+		// Add error as structured ToolResult to memory
+		toolResult := ai.NewToolResultError(
+			"tool_not_found",
+			fmt.Sprintf("Tool '%s' not found. Available tools: %s",
+				toolCall.Function.Name,
+				strings.Join(getToolNames(toolCatalog), ", ")),
+		)
+		resultJSON, jsonErr := toolResult.ToJSON()
+		if jsonErr != nil {
+			resultJSON = fmt.Sprintf(`{"error":"failed to serialize tool result: %s"}`, jsonErr.Error())
+		}
+		mem.AppendMessage(ctx, &ai.Message{
+			Role:       ai.RoleTool,
+			Content:    resultJSON,
+			ToolCallID: toolCall.ID,
+			Name:       toolCall.Function.Name,
+		})
+		onResult(resultJSON)
+
+		return err
+	}
+
+	// Execute the tool
+	result, err := toolInstance.Call(ctx, toolCall.Function.Arguments)
+	duration := time.Since(start)
+
+	// Prepare compact log attributes
+	logAttrs := []observability.Attribute{
+		observability.String("tool", toolCall.Function.Name),
+		observability.Duration("duration", duration),
+	}
+
+	// Parse and add arguments as structured attributes
+	var argsMap map[string]interface{}
+	if jsonErr := json.Unmarshal([]byte(toolCall.Function.Arguments), &argsMap); jsonErr == nil {
+		for k, v := range argsMap {
+			logAttrs = append(logAttrs, observability.String("in."+k, fmt.Sprintf("%v", v)))
+		}
+	} else {
+		logAttrs = append(logAttrs, observability.String("input", utils.TruncateString(toolCall.Function.Arguments, 100)))
+	}
+
+	if err != nil {
+		logAttrs = append(logAttrs, observability.Error(err))
+
+		if observer != nil {
+			span.RecordError(err)
+			span.SetStatus(observability.StatusError, "Tool execution error")
+			observer.Error(ctx, "Tool call failed", logAttrs...)
+		}
+
+		// Add error as structured ToolResult to memory
+		toolResult := ai.NewToolResultError("tool_execution_failed", err.Error())
+		resultJSON, jsonErr := toolResult.ToJSON()
+		if jsonErr != nil {
+			resultJSON = fmt.Sprintf(`{"error":"failed to serialize tool result: %s"}`, jsonErr.Error())
+		}
+		mem.AppendMessage(ctx, &ai.Message{
+			Role:       ai.RoleTool,
+			Content:    resultJSON,
+			ToolCallID: toolCall.ID,
+			Name:       toolCall.Function.Name,
+		})
+		onResult(resultJSON)
+
+		return err
+	}
+
+	// Add successful result to memory
+	mem.AppendMessage(ctx, &ai.Message{
+		Role:       ai.RoleTool,
+		Content:    result,
+		ToolCallID: toolCall.ID,
+		Name:       toolCall.Function.Name,
+	})
+	onResult(result)
+
+	// Track tool execution cost if available
+	if toolMetrics := toolInstance.GetMetrics(); toolMetrics != nil {
+		executionOverview.AddToolExecutionCost(toolCall.Function.Name, toolMetrics)
+	}
+
+	// Parse and add result as structured attributes if it's JSON
+	var resultMap map[string]interface{}
+	if jsonErr := json.Unmarshal([]byte(result), &resultMap); jsonErr == nil {
+		for k, v := range resultMap {
+			logAttrs = append(logAttrs, observability.String("out."+k, fmt.Sprintf("%v", v)))
+		}
+	} else {
+		logAttrs = append(logAttrs, observability.String("output", utils.TruncateString(result, 100)))
+	}
+
+	if observer != nil {
+		span.SetStatus(observability.StatusOK, "Tool executed successfully")
+		observer.Info(ctx, "Tool call completed", logAttrs...)
+	}
+
+	return nil
 }
 
 // getToolNames returns a list of tool names from the catalog.

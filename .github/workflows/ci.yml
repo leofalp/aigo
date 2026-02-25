@@ -25,17 +25,28 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
 
+      # Create a Go workspace so both the main module and the pgmemory
+      # sub-module resolve github.com/leofalp/aigo from the local working
+      # tree. This ensures that unreleased changes to the main module are
+      # tested against the sub-module in the same PR.
+      - name: Setup Go workspace
+        run: go work init . ./providers/memory/pgmemory
+
       - name: Download dependencies
-        run: go mod download
+        run: go mod download && go mod download -C providers/memory/pgmemory
 
       - name: Run tests
         run: go test -race -coverprofile=coverage.out ./...
+
+      - name: Run pgmemory tests
+        run: go test -race -coverprofile=coverage-pgmemory.out ./...
+        working-directory: providers/memory/pgmemory
 
       - name: Upload coverage
         if: matrix.go-version == '1.26'
         uses: codecov/codecov-action@v4
         with:
-          files: coverage.out
+          files: coverage.out,providers/memory/pgmemory/coverage-pgmemory.out
           fail_ci_if_error: false
 
   lint:

@@ -11,7 +11,6 @@ import (
 	"github.com/leofalp/aigo/core/cost"
 	"github.com/leofalp/aigo/core/overview"
 	"github.com/leofalp/aigo/internal/jsonschema"
-	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/providers/ai"
 	"github.com/leofalp/aigo/providers/memory"
 	"github.com/leofalp/aigo/providers/observability"
@@ -42,9 +41,18 @@ type Client struct {
 	state               map[string]any
 	modelCost           *cost.ModelCost   // Optional: cost per million tokens for the model
 	computeCost         *cost.ComputeCost // Optional: infrastructure/compute cost configuration
+	sendChain           SendFunc          // nil when no middleware configured; direct provider call
+	streamChain         StreamFunc        // nil when no middleware configured; direct provider call
 }
 
 // ClientOptions contains all configuration for a Client.
+// Use the With* option functions to set each field; do not populate the struct
+// directly.
+//
+// Provider call pipeline: every LLM call passes through the Middlewares chain
+// before reaching the underlying provider. See [WithMiddleware] and the
+// [github.com/leofalp/aigo/core/client/middleware] package for built-in
+// Retry, Timeout, and Logging implementations.
 type ClientOptions struct {
 	// Required
 	LlmProvider ai.Provider
@@ -61,6 +69,7 @@ type ClientOptions struct {
 	ToolOptimizationStrategy    cost.OptimizationStrategy // Strategy for tool selection optimization (empty = no optimization guidance)
 	ModelCost                   *cost.ModelCost           // Optional: cost per million tokens for cost tracking
 	ComputeCost                 *cost.ComputeCost         // Optional: infrastructure/compute cost configuration
+	Middlewares                 []MiddlewareConfig        // Optional: middleware chain applied to every provider call
 }
 
 // WithDefaultModel sets the LLM model name used for every request made by the
@@ -229,6 +238,33 @@ func WithComputeCost(computeCost cost.ComputeCost) func(*ClientOptions) {
 	}
 }
 
+// WithMiddleware appends one or more MiddlewareConfig entries to the client's
+// middleware chain. The chain is executed outermost-first: the first middleware
+// passed here wraps all subsequent ones and the provider call itself.
+//
+// Every MiddlewareConfig must have a non-nil Send field; [New] returns an error
+// if any entry violates this contract. The Stream field is optional — a nil
+// value means streaming calls bypass that entry.
+//
+// Built-in implementations (Retry, Timeout, Logging) are available in the
+// [github.com/leofalp/aigo/core/client/middleware] package.
+//
+// Example:
+//
+//	c, err := client.New(provider,
+//	    client.WithMiddleware(
+//	        middleware.NewTimeoutMiddleware(30*time.Second),  // outermost
+//	        middleware.NewRetryMiddleware(middleware.RetryConfig{MaxRetries: 3}),
+//	        middleware.NewLoggingMiddleware(slog.Default(), middleware.LogLevelStandard),
+//	    ),
+//	)
+//	// Execution order: Timeout → Retry → Logging → Provider
+func WithMiddleware(middlewares ...MiddlewareConfig) func(*ClientOptions) {
+	return func(o *ClientOptions) {
+		o.Middlewares = append(o.Middlewares, middlewares...)
+	}
+}
+
 // New creates a new immutable Client instance.
 // The llmProvider is required as the first argument.
 // All other configuration is provided via functional options.
@@ -298,6 +334,19 @@ func New(llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client, error)
 		systemPrompt = enrichSystemPromptWithTools(systemPrompt, options.Tools, toolDescriptions, options.ToolOptimizationStrategy)
 	}
 
+	// Auto-prepend observability middleware when an observer is configured.
+	// Placing it at the front makes it the outermost wrapper so it observes
+	// the final outcome after any retry or timeout middleware in the chain.
+	if options.Observer != nil {
+		obsMW := NewObservabilityMiddleware(options.Observer, options.DefaultModel)
+		options.Middlewares = append([]MiddlewareConfig{obsMW}, options.Middlewares...)
+	}
+
+	sendChain, err := buildChains(options.LlmProvider, options.Middlewares)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Client{
 		systemPrompt:        systemPrompt,
 		defaultModel:        options.DefaultModel,
@@ -311,7 +360,55 @@ func New(llmProvider ai.Provider, opts ...func(*ClientOptions)) (*Client, error)
 		state:               map[string]any{},
 		modelCost:           options.ModelCost,
 		computeCost:         options.ComputeCost,
+		sendChain:           sendChain,
+		streamChain:         buildStreamChains(options.LlmProvider, options.Middlewares),
 	}, nil
+}
+
+// buildChains validates and builds the send middleware chain. It returns
+// (nil, nil) when no middlewares are configured, signaling the client to call
+// the provider directly. It returns a non-nil error if any MiddlewareConfig has
+// a nil Send field, which would cause a nil-pointer panic at call time.
+func buildChains(provider ai.Provider, middlewares []MiddlewareConfig) (SendFunc, error) {
+	if len(middlewares) == 0 {
+		return nil, nil
+	}
+
+	for index, mw := range middlewares {
+		if mw.Send == nil {
+			return nil, fmt.Errorf("middleware[%d] has a nil Send field; every MiddlewareConfig must provide a Send middleware", index)
+		}
+	}
+
+	return buildSendChain(provider, middlewares), nil
+}
+
+// buildStreamChains returns a pre-built StreamFunc chain when any middleware has
+// a non-nil Stream field, or nil to indicate that the client should use its
+// own inline streaming logic.
+func buildStreamChains(provider ai.Provider, middlewares []MiddlewareConfig) StreamFunc {
+	if len(middlewares) == 0 {
+		return nil
+	}
+
+	// Check whether any middleware contributes a stream wrapper; if none does
+	// the stream chain is functionally identical to the bare base function and
+	// there is no value in going through a chain allocation.
+	hasStreamMiddleware := false
+
+	for _, mw := range middlewares {
+		if mw.Stream != nil {
+			hasStreamMiddleware = true
+
+			break
+		}
+	}
+
+	if !hasStreamMiddleware {
+		return nil
+	}
+
+	return buildStreamChain(provider, middlewares)
 }
 
 // loadModelCostFromEnv attempts to load ModelCost from environment variables.
@@ -538,8 +635,8 @@ func WithEphemeralSystemPrompt(prompt string) SendMessageOption {
 // SendMessage sends a user message to the LLM and returns the response.
 // This is a basic orchestration method that:
 // 1. Appends the user message to memory (if memory provider is set)
-// 2. Sends messages + tools + schema to the LLM provider
-// 3. Records observability data
+// 2. Sends messages + tools + schema to the LLM provider through the middleware chain
+// 3. Records observability data (via ObservabilityMiddleware when WithObserver is set)
 // 4. Returns the raw response
 //
 // The prompt parameter must be non-empty. If you need to continue a conversation
@@ -547,12 +644,6 @@ func WithEphemeralSystemPrompt(prompt string) SendMessageOption {
 //
 // If no memory provider is configured, the client operates in stateless mode,
 // sending only the current prompt as a single user message.
-//
-// TODO: Future enhancements:
-// - Accept per-request options (model override, temperature, etc.)
-// - Support streaming responses
-// - Add timeout/cancellation handling
-// - Support context propagation for distributed tracing
 //
 // Note: This method does NOT execute tool calls automatically.
 // Tool execution loops should be implemented as higher-level patterns.
@@ -567,17 +658,17 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 	for _, opt := range opts {
 		opt(options)
 	}
-	// Start tracing span (only if observer is set)
-	span := c.observeInit(&ctx, "sending message")
-	executionOverview := overview.OverviewFromContext(&ctx)
-	timer := utils.NewTimer()
 
 	// Build messages list based on memory provider availability
 	var messages []ai.Message
 	if c.memoryProvider != nil {
 		// Stateful mode: append to memory and use all messages
 		c.memoryProvider.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: prompt})
-		messages = c.memoryProvider.AllMessages()
+		var memErr error
+		messages, memErr = c.memoryProvider.AllMessages(ctx)
+		if memErr != nil {
+			return nil, fmt.Errorf("failed to retrieve messages from memory: %w", memErr)
+		}
 
 		if c.observer != nil {
 			c.observer.Debug(ctx, "Using stateful mode with memory",
@@ -625,17 +716,21 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 		// TODO: consider do add hints to the LLM into the system prompt about the expected structure
 	}
 
-	// Send to LLM provider
-	response, err := c.llmProvider.SendMessage(ctx, request)
+	// Send to LLM provider — go through the middleware chain when configured.
+	var response *ai.ChatResponse
+	var err error
 
-	timer.Stop()
+	if c.sendChain != nil {
+		response, err = c.sendChain(ctx, request)
+	} else {
+		response, err = c.llmProvider.SendMessage(ctx, request)
+	}
 
 	if err != nil {
-		c.observeError(&ctx, &span, err, timer, "sending message")
-
 		return nil, err
 	}
 
+	executionOverview := overview.OverviewFromContext(&ctx)
 	executionOverview.AddRequest(&request)
 	executionOverview.AddResponse(response)
 	executionOverview.IncludeUsage(response.Usage)
@@ -648,8 +743,6 @@ func (c *Client) SendMessage(ctx context.Context, prompt string, opts ...SendMes
 	if c.computeCost != nil {
 		executionOverview.SetComputeCost(c.computeCost)
 	}
-
-	c.observeSuccess(&ctx, &span, response, timer, "sending message")
 
 	return response, nil
 }
@@ -691,7 +784,11 @@ func (c *Client) StreamMessage(ctx context.Context, prompt string, opts ...SendM
 	var messages []ai.Message
 	if c.memoryProvider != nil {
 		c.memoryProvider.AppendMessage(ctx, &ai.Message{Role: ai.RoleUser, Content: prompt})
-		messages = c.memoryProvider.AllMessages()
+		var memErr error
+		messages, memErr = c.memoryProvider.AllMessages(ctx)
+		if memErr != nil {
+			return nil, fmt.Errorf("failed to retrieve messages from memory: %w", memErr)
+		}
 	} else {
 		messages = []ai.Message{
 			{Role: ai.RoleUser, Content: prompt},
@@ -724,7 +821,12 @@ func (c *Client) StreamMessage(ctx context.Context, prompt string, opts ...SendM
 		}
 	}
 
-	// Try native streaming if provider supports it
+	// Try native streaming if provider supports it, or go through the stream
+	// middleware chain when one has been configured.
+	if c.streamChain != nil {
+		return c.streamChain(ctx, request)
+	}
+
 	if streamProvider, ok := c.llmProvider.(ai.StreamProvider); ok {
 		return streamProvider.StreamMessage(ctx, request)
 	}
@@ -761,7 +863,10 @@ func (c *Client) StreamContinueConversation(ctx context.Context, opts ...SendMes
 		opt(options)
 	}
 
-	messages := c.memoryProvider.AllMessages()
+	messages, memErr := c.memoryProvider.AllMessages(ctx)
+	if memErr != nil {
+		return nil, fmt.Errorf("failed to retrieve messages from memory: %w", memErr)
+	}
 
 	// Determine which system prompt to use
 	systemPrompt := c.systemPrompt
@@ -789,7 +894,12 @@ func (c *Client) StreamContinueConversation(ctx context.Context, opts ...SendMes
 		}
 	}
 
-	// Try native streaming if provider supports it
+	// Try native streaming if provider supports it, or go through the stream
+	// middleware chain when one has been configured.
+	if c.streamChain != nil {
+		return c.streamChain(ctx, request)
+	}
+
 	if streamProvider, ok := c.llmProvider.(ai.StreamProvider); ok {
 		return streamProvider.StreamMessage(ctx, request)
 	}
@@ -839,11 +949,10 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 		opt(options)
 	}
 
-	// Start tracing span (only if observer is set)
-	span := c.observeInit(&ctx, "continue conversation")
-	executionOverview := overview.OverviewFromContext(&ctx)
-	timer := utils.NewTimer()
-	messages := c.memoryProvider.AllMessages()
+	messages, memErr := c.memoryProvider.AllMessages(ctx)
+	if memErr != nil {
+		return nil, fmt.Errorf("failed to retrieve messages from memory: %w", memErr)
+	}
 
 	if c.observer != nil {
 		c.observer.Debug(ctx, "Using stateful mode with memory",
@@ -867,9 +976,8 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 		Tools:        c.toolDescriptions,
 	}
 
-	// Add response format if output schema is provided for this request
-	// Add response format if output schema is provided
-	// Priority: per-request schema > default schema
+	// Add response format if output schema is provided.
+	// Priority: per-request schema > default schema.
 	schema := options.OutputSchema
 	if schema == nil {
 		schema = c.defaultOutputSchema
@@ -882,17 +990,21 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 		}
 	}
 
-	// Send to LLM provider
-	response, err := c.llmProvider.SendMessage(ctx, request)
+	// Send to LLM provider — go through the middleware chain when configured.
+	var response *ai.ChatResponse
+	var err error
 
-	timer.Stop()
+	if c.sendChain != nil {
+		response, err = c.sendChain(ctx, request)
+	} else {
+		response, err = c.llmProvider.SendMessage(ctx, request)
+	}
 
 	if err != nil {
-		c.observeError(&ctx, &span, err, timer, "continue conversation")
-
 		return nil, err
 	}
 
+	executionOverview := overview.OverviewFromContext(&ctx)
 	executionOverview.AddRequest(&request)
 	executionOverview.AddResponse(response)
 	executionOverview.AddToolCalls(response.ToolCalls)
@@ -908,129 +1020,5 @@ func (c *Client) ContinueConversation(ctx context.Context, opts ...SendMessageOp
 		executionOverview.SetComputeCost(c.computeCost)
 	}
 
-	c.observeSuccess(&ctx, &span, response, timer, "continue conversation")
-
 	return response, nil
-}
-func (c *Client) observeInit(ctx *context.Context, subject string) observability.Span {
-	if c.observer == nil {
-		return nil
-	}
-
-	var span observability.Span
-	isContinuingConversation := subject == "continue conversation"
-
-	*ctx, span = c.observer.StartSpan(*ctx, observability.SpanClientSendMessage,
-		observability.String(observability.AttrLLMModel, c.defaultModel),
-		observability.Bool(observability.AttrClientContinuingConversation, isContinuingConversation),
-	)
-
-	// Put span and observer in context for downstream propagation
-	*ctx = observability.ContextWithSpan(*ctx, span)
-	*ctx = observability.ContextWithObserver(*ctx, c.observer)
-
-	// DEBUG: Operation starting
-	c.observer.Debug(*ctx, subject,
-		observability.String(observability.AttrLLMModel, c.defaultModel),
-		observability.Int(observability.AttrClientToolsCount, len(c.toolDescriptions)),
-		observability.Bool(observability.AttrClientContinuingConversation, isContinuingConversation),
-	)
-
-	return span
-}
-
-func (c *Client) observeError(ctx *context.Context, span *observability.Span, err error, timer *utils.Timer, subject string) {
-	if c.observer == nil {
-		return
-	}
-
-	(*span).RecordError(err)
-	(*span).SetStatus(observability.StatusError, "Failed to "+subject)
-
-	// ERROR: Operation failed
-	c.observer.Error(*ctx, "Failed to "+subject+" with LLM",
-		observability.Error(err),
-		observability.Duration(observability.AttrDuration, timer.GetDuration()),
-		observability.String(observability.AttrLLMModel, c.defaultModel),
-	)
-
-	// Metrics at DEBUG level
-	c.observer.Counter(observability.MetricClientRequestCount).Add(*ctx, 1,
-		observability.String(observability.AttrStatus, "error"),
-		observability.String(observability.AttrLLMModel, c.defaultModel),
-	)
-
-}
-
-func (c *Client) observeSuccess(ctx *context.Context, span *observability.Span, response *ai.ChatResponse, timer *utils.Timer, subject string) {
-	if c.observer == nil {
-		return
-	}
-
-	// Record metrics
-	c.observer.Histogram(observability.MetricClientRequestDuration).Record(*ctx, timer.GetDuration().Seconds(),
-		observability.String(observability.AttrLLMModel, c.defaultModel),
-	)
-
-	c.observer.Counter(observability.MetricClientRequestCount).Add(*ctx, 1,
-		observability.String(observability.AttrStatus, "success"),
-		observability.String(observability.AttrLLMModel, c.defaultModel),
-	)
-
-	// Prepare compact log attributes
-	logAttrs := []observability.Attribute{
-		observability.String(observability.AttrLLMModel, c.defaultModel),
-		observability.String(observability.AttrLLMFinishReason, response.FinishReason),
-		observability.Duration(observability.AttrDuration, timer.GetDuration()),
-		observability.Int(observability.AttrClientToolCalls, len(response.ToolCalls)),
-	}
-
-	// Add token usage if available
-	if response.Usage != nil {
-		c.observer.Counter(observability.MetricClientTokensTotal).Add(*ctx, int64(response.Usage.TotalTokens),
-			observability.String(observability.AttrLLMModel, c.defaultModel),
-		)
-		c.observer.Counter(observability.MetricClientTokensPrompt).Add(*ctx, int64(response.Usage.PromptTokens),
-			observability.String(observability.AttrLLMModel, c.defaultModel),
-		)
-		c.observer.Counter(observability.MetricClientTokensCompletion).Add(*ctx, int64(response.Usage.CompletionTokens),
-			observability.String(observability.AttrLLMModel, c.defaultModel),
-		)
-
-		(*span).SetAttributes(
-			observability.Int(observability.AttrLLMTokensTotal, response.Usage.TotalTokens),
-			observability.Int(observability.AttrLLMTokensPrompt, response.Usage.PromptTokens),
-			observability.Int(observability.AttrLLMTokensCompletion, response.Usage.CompletionTokens),
-		)
-
-		logAttrs = append(logAttrs,
-			observability.Int(observability.AttrLLMTokensPrompt, response.Usage.PromptTokens),
-			observability.Int(observability.AttrLLMTokensCompletion, response.Usage.CompletionTokens),
-			observability.Int(observability.AttrLLMTokensTotal, response.Usage.TotalTokens),
-		)
-	}
-
-	// Add tool call names if present
-	if len(response.ToolCalls) > 0 {
-		toolNames := make([]string, len(response.ToolCalls))
-		for i, tc := range response.ToolCalls {
-			toolNames[i] = tc.Function.Name
-		}
-		logAttrs = append(logAttrs,
-			observability.StringSlice("tool_calls", toolNames),
-		)
-	}
-
-	// Add response content preview if present
-	if response.Content != "" {
-		logAttrs = append(logAttrs,
-			observability.String("response", utils.TruncateString(response.Content, 100)),
-		)
-	}
-
-	// Single INFO log with all information
-	c.observer.Info(*ctx, subject+": LLM call completed ", logAttrs...)
-
-	(*span).SetStatus(observability.StatusOK, subject+" success")
-	(*span).End()
 }

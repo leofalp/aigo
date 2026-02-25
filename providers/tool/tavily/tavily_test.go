@@ -445,3 +445,270 @@ func TestParseTavilyError(t *testing.T) {
 		})
 	}
 }
+
+// TestExtract_Success verifies that Extract correctly parses API responses
+// and builds a summary from the results.
+func TestExtract_Success(t *testing.T) {
+	mockResponse := tavilyExtractAPIResponse{
+		Results: []tavilyExtractResultItem{
+			{
+				URL:        "https://example.com/1",
+				RawContent: "This is the raw content of test result 1",
+			},
+			{
+				URL:        "https://example.com/2",
+				RawContent: "This is the raw content of test result 2",
+			},
+		},
+		FailedResults: []tavilyFailedResult{
+			{
+				URL:   "https://example.com/3",
+				Error: "Not found",
+			},
+		},
+		ResponseTime: 0.5,
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != "POST" {
+			t.Errorf("expected POST request, got %s", request.Method)
+		}
+		if request.URL.Path != "/extract" {
+			t.Errorf("expected /extract path, got %s", request.URL.Path)
+		}
+		if request.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("expected Content-Type application/json, got %s", request.Header.Get("Content-Type"))
+		}
+		if request.Header.Get("Accept") != "application/json" {
+			t.Errorf("expected Accept application/json, got %s", request.Header.Get("Accept"))
+		}
+
+		// Verify request body contains api_key and urls
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(request.Body).Decode(&reqBody); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
+		}
+		if reqBody["api_key"] == nil {
+			t.Error("expected api_key in request body")
+		}
+		urls, ok := reqBody["urls"].([]interface{})
+		if !ok || len(urls) != 2 {
+			t.Errorf("expected 2 urls, got %v", reqBody["urls"])
+		}
+
+		writer.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(writer).Encode(mockResponse) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	// Override baseURL for testing
+	originalBaseURL := baseURL
+	baseURL = server.URL
+	defer func() { baseURL = originalBaseURL }()
+
+	os.Setenv("TAVILY_API_KEY", "test-api-key")
+	defer os.Unsetenv("TAVILY_API_KEY")
+
+	ctx := context.Background()
+	output, err := Extract(ctx, ExtractInput{URLs: []string{"https://example.com/1", "https://example.com/2"}})
+	if err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	if len(output.Results) != 2 {
+		t.Errorf("expected 2 results, got %d", len(output.Results))
+	}
+
+	if output.Results[0].URL != "https://example.com/1" {
+		t.Errorf("expected first result URL 'https://example.com/1', got '%s'", output.Results[0].URL)
+	}
+
+	if output.Summary == "" {
+		t.Error("expected non-empty summary")
+	}
+
+	if !strings.Contains(output.Summary, "Failed to extract 1 URL(s)") {
+		t.Errorf("expected summary to contain failed results info, got: %s", output.Summary)
+	}
+}
+
+// TestExtract_HTTPError verifies that Extract correctly handles non-200 API responses.
+func TestExtract_HTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(writer).Encode(map[string]interface{}{
+			"detail": map[string]string{"error": "invalid api key"},
+		}) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	originalBaseURL := baseURL
+	baseURL = server.URL
+	defer func() { baseURL = originalBaseURL }()
+
+	os.Setenv("TAVILY_API_KEY", "bad-key")
+	defer os.Unsetenv("TAVILY_API_KEY")
+
+	ctx := context.Background()
+	_, err := Extract(ctx, ExtractInput{URLs: []string{"https://example.com"}})
+	if err == nil {
+		t.Error("expected error for 401 response")
+	}
+
+	if !strings.Contains(err.Error(), "invalid api key") {
+		t.Errorf("expected error to contain API error message, got: %s", err.Error())
+	}
+}
+
+// TestExtract_MalformedJSON verifies that Extract correctly handles malformed JSON responses.
+func TestExtract_MalformedJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Write([]byte(`{malformed json`))
+	}))
+	defer server.Close()
+
+	originalBaseURL := baseURL
+	baseURL = server.URL
+	defer func() { baseURL = originalBaseURL }()
+
+	os.Setenv("TAVILY_API_KEY", "test-api-key")
+	defer os.Unsetenv("TAVILY_API_KEY")
+
+	ctx := context.Background()
+	_, err := Extract(ctx, ExtractInput{URLs: []string{"https://example.com"}})
+	if err == nil {
+		t.Error("expected error for malformed JSON response")
+	}
+
+	if !strings.Contains(err.Error(), "error parsing response") {
+		t.Errorf("expected error about parsing response, got: %s", err.Error())
+	}
+}
+
+// TestFetchTavilyExtract_Success verifies that fetchTavilyExtract correctly parses API responses.
+func TestFetchTavilyExtract_Success(t *testing.T) {
+	mockResponse := tavilyExtractAPIResponse{
+		Results: []tavilyExtractResultItem{
+			{
+				URL:        "https://example.com/1",
+				RawContent: "Content 1",
+			},
+		},
+		ResponseTime: 0.5,
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(writer).Encode(mockResponse) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	originalBaseURL := baseURL
+	baseURL = server.URL
+	defer func() { baseURL = originalBaseURL }()
+
+	os.Setenv("TAVILY_API_KEY", "test-api-key")
+	defer os.Unsetenv("TAVILY_API_KEY")
+
+	ctx := context.Background()
+	resp, err := fetchTavilyExtract(ctx, ExtractInput{URLs: []string{"https://example.com/1"}})
+	if err != nil {
+		t.Fatalf("fetchTavilyExtract failed: %v", err)
+	}
+
+	if len(resp.Results) != 1 {
+		t.Errorf("expected 1 result, got %d", len(resp.Results))
+	}
+	if resp.Results[0].RawContent != "Content 1" {
+		t.Errorf("expected 'Content 1', got '%s'", resp.Results[0].RawContent)
+	}
+}
+
+// TestFetchTavilyExtract_HTTPError verifies that fetchTavilyExtract correctly handles 500 errors.
+func TestFetchTavilyExtract_HTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusInternalServerError)
+		writer.Write([]byte(`Internal Server Error`))
+	}))
+	defer server.Close()
+
+	originalBaseURL := baseURL
+	baseURL = server.URL
+	defer func() { baseURL = originalBaseURL }()
+
+	os.Setenv("TAVILY_API_KEY", "test-api-key")
+	defer os.Unsetenv("TAVILY_API_KEY")
+
+	ctx := context.Background()
+	_, err := fetchTavilyExtract(ctx, ExtractInput{URLs: []string{"https://example.com"}})
+	if err == nil {
+		t.Error("expected error for 500 response")
+	}
+
+	if !strings.Contains(err.Error(), "unexpected status code 500") {
+		t.Errorf("expected error about status code 500, got: %s", err.Error())
+	}
+}
+
+// TestFetchTavilyExtract_MalformedJSON verifies that fetchTavilyExtract correctly handles malformed JSON.
+func TestFetchTavilyExtract_MalformedJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Write([]byte(`[not an object]`))
+	}))
+	defer server.Close()
+
+	originalBaseURL := baseURL
+	baseURL = server.URL
+	defer func() { baseURL = originalBaseURL }()
+
+	os.Setenv("TAVILY_API_KEY", "test-api-key")
+	defer os.Unsetenv("TAVILY_API_KEY")
+
+	ctx := context.Background()
+	_, err := fetchTavilyExtract(ctx, ExtractInput{URLs: []string{"https://example.com"}})
+	if err == nil {
+		t.Error("expected error for malformed JSON response")
+	}
+
+	if !strings.Contains(err.Error(), "error parsing response") {
+		t.Errorf("expected error about parsing response, got: %s", err.Error())
+	}
+}
+
+// TestFetchTavilyExtract_EmptyURLs verifies that fetchTavilyExtract handles empty URLs list.
+// Note: Extract() validates this before calling fetchTavilyExtract, but we test the inner function anyway.
+func TestFetchTavilyExtract_EmptyURLs(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		// Verify request body contains empty urls array or null
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(request.Body).Decode(&reqBody); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
+		}
+
+		// API might return an error for empty URLs, let's simulate a 400 Bad Request
+		writer.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(writer).Encode(map[string]interface{}{
+			"detail": "urls cannot be empty",
+		}) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	originalBaseURL := baseURL
+	baseURL = server.URL
+	defer func() { baseURL = originalBaseURL }()
+
+	os.Setenv("TAVILY_API_KEY", "test-api-key")
+	defer os.Unsetenv("TAVILY_API_KEY")
+
+	ctx := context.Background()
+	_, err := fetchTavilyExtract(ctx, ExtractInput{URLs: []string{}})
+	if err == nil {
+		t.Error("expected error for empty URLs")
+	}
+
+	if !strings.Contains(err.Error(), "urls cannot be empty") {
+		t.Errorf("expected error about empty urls, got: %s", err.Error())
+	}
+}

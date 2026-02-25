@@ -189,3 +189,103 @@ func TestHandler_TraceLevel(t *testing.T) {
 		t.Errorf("Expected trace message in output, got: %s", output)
 	}
 }
+
+// TestWithAttrs_AttrsAppearInOutput verifies that attributes registered via
+// WithAttrs are included in every subsequent log record emitted through the
+// returned handler.
+func TestWithAttrs_AttrsAppearInOutput(t *testing.T) {
+	var buf bytes.Buffer
+	baseHandler := NewHandler(&HandlerOptions{
+		Format: FormatCompact,
+		Level:  slog.LevelDebug,
+		Output: &buf,
+		Colors: false,
+	})
+
+	// Derive a handler that carries a pre-set attribute.
+	derived := baseHandler.WithAttrs([]slog.Attr{slog.String("k", "v")})
+
+	logger := slog.New(derived)
+	logger.Info("attrs test message")
+
+	output := buf.String()
+	if !strings.Contains(output, "k") {
+		t.Errorf("Expected pre-set attribute key 'k' in output, got: %s", output)
+	}
+	if !strings.Contains(output, "v") {
+		t.Errorf("Expected pre-set attribute value 'v' in output, got: %s", output)
+	}
+}
+
+// TestWithGroup_GroupPrefixesAttrs verifies that a handler created via
+// WithGroup prefixes attribute keys with the group name in the output.
+func TestWithGroup_GroupPrefixesAttrs(t *testing.T) {
+	var buf bytes.Buffer
+	baseHandler := NewHandler(&HandlerOptions{
+		Format: FormatCompact,
+		Level:  slog.LevelDebug,
+		Output: &buf,
+		Colors: false,
+	})
+
+	grouped := baseHandler.WithGroup("mygroup")
+	logger := slog.New(grouped)
+	logger.Info("group test", "field", "data")
+
+	output := buf.String()
+	if !strings.Contains(output, "mygroup") {
+		t.Errorf("Expected group prefix 'mygroup' in output, got: %s", output)
+	}
+}
+
+// TestColorForLevel_ReturnsNonEmpty ensures colorForLevel returns a
+// non-empty ANSI code for every standard log level and for unknown levels.
+func TestColorForLevel_ReturnsNonEmpty(t *testing.T) {
+	levels := []struct {
+		name  string
+		level slog.Level
+	}{
+		{"Trace", slog.LevelDebug - 4},
+		{"Debug", slog.LevelDebug},
+		{"Info", slog.LevelInfo},
+		{"Warn", slog.LevelWarn},
+		{"Error", slog.LevelError},
+		{"Unknown high level", slog.Level(99)},
+	}
+
+	for _, tt := range levels {
+		t.Run(tt.name, func(t *testing.T) {
+			color := colorForLevel(tt.level)
+			if color == "" {
+				t.Errorf("colorForLevel(%v) returned empty string", tt.level)
+			}
+		})
+	}
+}
+
+// TestEmojiForLevel_AllLevels verifies emojiForLevel returns the correct
+// emoji for every branch: Trace (< Debug), Debug, Info, Warn, Error, and
+// an unknown high level that falls into the Error/default branch.
+func TestEmojiForLevel_AllLevels(t *testing.T) {
+	tests := []struct {
+		name     string
+		level    slog.Level
+		expected string
+	}{
+		{"Trace", slog.LevelDebug - 4, "🔍"},
+		{"Debug", slog.LevelDebug, "🔵"},
+		{"Info", slog.LevelInfo, "🟢"},
+		{"Warn", slog.LevelWarn, "🟡"},
+		{"Error", slog.LevelError, "🔴"},
+		{"Unknown high level", slog.Level(99), "🔴"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			emoji := emojiForLevel(tt.level)
+			if emoji != tt.expected {
+				t.Errorf("emojiForLevel(%v) = %q, want %q", tt.level, emoji, tt.expected)
+			}
+		})
+	}
+}

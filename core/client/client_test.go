@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/leofalp/aigo/core/cost"
+	"github.com/leofalp/aigo/core/overview"
 	"github.com/leofalp/aigo/internal/jsonschema"
 	"github.com/leofalp/aigo/providers/ai"
 	"github.com/leofalp/aigo/providers/memory/inmemory"
@@ -16,6 +17,37 @@ import (
 )
 
 // ========== Mock Types ==========
+
+// errorMemory is a minimal memory.Provider stub whose AllMessages always returns
+// a fixed error. Used to exercise the error-propagation paths in SendMessage,
+// ContinueConversation, StreamMessage, and StreamContinueConversation.
+type errorMemory struct {
+	allMessagesErr error
+}
+
+func (e *errorMemory) AppendMessage(_ context.Context, _ *ai.Message) {}
+
+func (e *errorMemory) AllMessages(_ context.Context) ([]ai.Message, error) {
+	return nil, e.allMessagesErr
+}
+
+func (e *errorMemory) LastMessages(_ context.Context, _ int) ([]ai.Message, error) {
+	return nil, nil
+}
+
+func (e *errorMemory) PopLastMessage(_ context.Context) (*ai.Message, error) {
+	return nil, nil
+}
+
+func (e *errorMemory) Count(_ context.Context) (int, error) {
+	return 0, nil
+}
+
+func (e *errorMemory) ClearMessages(_ context.Context) {}
+
+func (e *errorMemory) FilterByRole(_ context.Context, _ ai.MessageRole) ([]ai.Message, error) {
+	return nil, nil
+}
 
 // mockProvider is a mock implementation of ai.Provider for testing
 type mockProvider struct {
@@ -238,8 +270,12 @@ func TestSendMessage_StatefulMode(t *testing.T) {
 	}
 
 	// Verify only user message was saved (SendMessage doesn't auto-save response)
-	if memory.Count() != 1 { // user only
-		t.Errorf("Expected 1 message in memory, got: %d", memory.Count())
+	count, countErr := memory.Count(ctx)
+	if countErr != nil {
+		t.Fatalf("Count returned unexpected error: %v", countErr)
+	}
+	if count != 1 { // user only
+		t.Errorf("Expected 1 message in memory, got: %d", count)
 	}
 
 	// Second message
@@ -249,8 +285,12 @@ func TestSendMessage_StatefulMode(t *testing.T) {
 	}
 
 	// Verify history accumulates (only user messages)
-	if memory.Count() != 2 { // 2 user messages
-		t.Errorf("Expected 2 messages in memory, got: %d", memory.Count())
+	count, countErr = memory.Count(ctx)
+	if countErr != nil {
+		t.Fatalf("Count returned unexpected error: %v", countErr)
+	}
+	if count != 2 { // 2 user messages
+		t.Errorf("Expected 2 messages in memory, got: %d", count)
 	}
 
 	// Verify conversation history was sent to provider
@@ -839,5 +879,468 @@ func TestNewClient_WithEnrichSystemPrompt_Integration(t *testing.T) {
 
 	if !strings.Contains(capturedSystemPrompt, "Performs calculations") {
 		t.Error("Captured system prompt should contain tool description")
+	}
+}
+
+// ========== Memory AllMessages Error Path Tests ==========
+
+// TestSendMessage_MemoryAllMessagesError verifies that when AllMessages returns
+// an error, SendMessage propagates it wrapped with context.
+func TestSendMessage_MemoryAllMessagesError(t *testing.T) {
+	memErr := errors.New("db connection lost")
+	provider := &mockProvider{}
+	client, err := New(provider, WithMemory(&errorMemory{allMessagesErr: memErr}))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	_, sendErr := client.SendMessage(context.Background(), "hello")
+	if sendErr == nil {
+		t.Fatal("expected error from SendMessage, got nil")
+	}
+	if !errors.Is(sendErr, memErr) {
+		t.Errorf("expected wrapped memErr, got: %v", sendErr)
+	}
+	if !strings.Contains(sendErr.Error(), "failed to retrieve messages from memory") {
+		t.Errorf("expected wrapping message in error, got: %v", sendErr)
+	}
+}
+
+// TestContinueConversation_MemoryAllMessagesError verifies that when AllMessages
+// returns an error, ContinueConversation propagates it wrapped with context.
+func TestContinueConversation_MemoryAllMessagesError(t *testing.T) {
+	memErr := errors.New("db timeout")
+	provider := &mockProvider{}
+	client, err := New(provider, WithMemory(&errorMemory{allMessagesErr: memErr}))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	_, contErr := client.ContinueConversation(context.Background())
+	if contErr == nil {
+		t.Fatal("expected error from ContinueConversation, got nil")
+	}
+	if !errors.Is(contErr, memErr) {
+		t.Errorf("expected wrapped memErr, got: %v", contErr)
+	}
+	if !strings.Contains(contErr.Error(), "failed to retrieve messages from memory") {
+		t.Errorf("expected wrapping message in error, got: %v", contErr)
+	}
+}
+
+// TestStreamMessage_MemoryAllMessagesError verifies that when AllMessages returns
+// an error, StreamMessage propagates it before returning any stream.
+func TestStreamMessage_MemoryAllMessagesError(t *testing.T) {
+	memErr := errors.New("db read error")
+	provider := &mockProvider{}
+	client, err := New(provider, WithMemory(&errorMemory{allMessagesErr: memErr}))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	_, streamErr := client.StreamMessage(context.Background(), "hello")
+	if streamErr == nil {
+		t.Fatal("expected error from StreamMessage, got nil")
+	}
+	if !errors.Is(streamErr, memErr) {
+		t.Errorf("expected wrapped memErr, got: %v", streamErr)
+	}
+	if !strings.Contains(streamErr.Error(), "failed to retrieve messages from memory") {
+		t.Errorf("expected wrapping message in error, got: %v", streamErr)
+	}
+}
+
+// TestStreamContinueConversation_MemoryAllMessagesError verifies that when
+// AllMessages returns an error, StreamContinueConversation propagates it.
+func TestStreamContinueConversation_MemoryAllMessagesError(t *testing.T) {
+	memErr := errors.New("db unavailable")
+	provider := &mockProvider{}
+	client, err := New(provider, WithMemory(&errorMemory{allMessagesErr: memErr}))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	_, streamErr := client.StreamContinueConversation(context.Background())
+	if streamErr == nil {
+		t.Fatal("expected error from StreamContinueConversation, got nil")
+	}
+	if !errors.Is(streamErr, memErr) {
+		t.Errorf("expected wrapped memErr, got: %v", streamErr)
+	}
+	if !strings.Contains(streamErr.Error(), "failed to retrieve messages from memory") {
+		t.Errorf("expected wrapping message in error, got: %v", streamErr)
+	}
+}
+
+// ========== Tool Catalog & Required Tools Tests ==========
+
+// mockToolWithMetrics is a mock tool that exposes cost/quality metrics for testing
+// enrichment and cost-tracking paths.
+type mockToolWithMetrics struct {
+	name        string
+	description string
+	metrics     *cost.ToolMetrics
+}
+
+func (m *mockToolWithMetrics) ToolInfo() ai.ToolDescription {
+	return ai.ToolDescription{
+		Name:        m.name,
+		Description: m.description,
+		Parameters:  nil,
+		Metrics:     m.metrics,
+	}
+}
+
+func (m *mockToolWithMetrics) Call(_ context.Context, _ string) (string, error) {
+	return `{"result":"ok"}`, nil
+}
+
+func (m *mockToolWithMetrics) GetMetrics() *cost.ToolMetrics {
+	return m.metrics
+}
+
+// TestWithRequiredTools verifies that tools registered via WithRequiredTools appear
+// in the tool catalog alongside regular tools.
+func TestWithRequiredTools(t *testing.T) {
+	provider := &mockProvider{}
+	regularTool := &mockTool{name: "regular_tool", description: "a regular tool"}
+	requiredTool := &mockTool{name: "required_tool", description: "a required tool"}
+
+	aiClient, err := New(
+		provider,
+		WithTools(regularTool),
+		WithRequiredTools(requiredTool),
+	)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	catalog := aiClient.ToolCatalog()
+
+	// Both regular and required tools should be present in the catalog
+	if catalog.Size() != 2 {
+		t.Errorf("expected 2 tools in catalog, got %d", catalog.Size())
+	}
+
+	// Catalog stores names in lowercase
+	if !catalog.Has("regular_tool") {
+		t.Error("expected catalog to contain 'regular_tool'")
+	}
+	if !catalog.Has("required_tool") {
+		t.Error("expected catalog to contain 'required_tool'")
+	}
+
+	// Verify required tools also appear in the requiredTools description slice
+	if len(aiClient.requiredTools) != 1 {
+		t.Fatalf("expected 1 required tool description, got %d", len(aiClient.requiredTools))
+	}
+	if aiClient.requiredTools[0].Name != "required_tool" {
+		t.Errorf("expected required tool name 'required_tool', got %q", aiClient.requiredTools[0].Name)
+	}
+}
+
+// TestToolCatalog_ReturnsAllRegisteredTools verifies that ToolCatalog returns a map
+// containing every registered tool, keyed by its lowercase name.
+func TestToolCatalog_ReturnsAllRegisteredTools(t *testing.T) {
+	provider := &mockProvider{}
+	tools := []tool.GenericTool{
+		&mockTool{name: "Alpha", description: "first tool"},
+		&mockTool{name: "Bravo", description: "second tool"},
+		&mockTool{name: "Charlie", description: "third tool"},
+	}
+
+	aiClient, err := New(provider, WithTools(tools...))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	catalog := aiClient.ToolCatalog()
+	toolMap := catalog.Tools()
+
+	if len(toolMap) != 3 {
+		t.Fatalf("expected 3 tools in catalog map, got %d", len(toolMap))
+	}
+
+	// Verify each tool is accessible by its lowercase name
+	expectedNames := []string{"alpha", "bravo", "charlie"}
+	for _, name := range expectedNames {
+		if _, ok := toolMap[name]; !ok {
+			t.Errorf("expected catalog to contain tool %q", name)
+		}
+	}
+
+	// Verify the returned catalog is a clone (modifying it doesn't affect the client)
+	catalog.Clear()
+	originalCatalog := aiClient.ToolCatalog()
+	if originalCatalog.Size() != 3 {
+		t.Error("modifying the returned catalog should not affect the client's internal catalog")
+	}
+}
+
+// ========== DefaultOutputSchema Tests ==========
+
+// TestWithDefaultOutputSchema verifies that WithDefaultOutputSchema stores the schema
+// and that it is applied to requests sent through SendMessage.
+func TestWithDefaultOutputSchema(t *testing.T) {
+	var capturedRequest ai.ChatRequest
+	provider := &mockProvider{
+		sendMessageFunc: func(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
+			capturedRequest = req
+			return &ai.ChatResponse{
+				Content:      `{"answer":"42"}`,
+				FinishReason: "stop",
+			}, nil
+		},
+	}
+
+	schema := &jsonschema.Schema{
+		Type: "object",
+		Properties: map[string]*jsonschema.Schema{
+			"answer": {Type: "string"},
+		},
+	}
+
+	// Creating the client with a default output schema should succeed
+	aiClient, err := New(provider, WithDefaultOutputSchema(schema))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	// Verify the schema is stored on the client
+	if aiClient.defaultOutputSchema == nil {
+		t.Fatal("expected defaultOutputSchema to be set on the client")
+	}
+	if aiClient.defaultOutputSchema.Type != "object" {
+		t.Errorf("expected schema type 'object', got %q", aiClient.defaultOutputSchema.Type)
+	}
+
+	// Verify the schema is applied to outgoing requests
+	ctx := context.Background()
+	_, sendErr := aiClient.SendMessage(ctx, "What is the meaning of life?")
+	if sendErr != nil {
+		t.Fatalf("SendMessage failed: %v", sendErr)
+	}
+
+	if capturedRequest.ResponseFormat == nil {
+		t.Fatal("expected ResponseFormat to be set on the request")
+	}
+	if capturedRequest.ResponseFormat.OutputSchema == nil {
+		t.Fatal("expected OutputSchema to be set on the request's ResponseFormat")
+	}
+	if capturedRequest.ResponseFormat.Type != "json_schema" {
+		t.Errorf("expected ResponseFormat.Type 'json_schema', got %q", capturedRequest.ResponseFormat.Type)
+	}
+}
+
+// ========== Environment Variable Cost Loading Tests ==========
+
+// TestLoadModelCostFromEnv_InvalidInputCost verifies that an invalid
+// AIGO_MODEL_INPUT_COST_PER_MILLION value causes loadModelCostFromEnv to return nil,
+// meaning the client is created successfully but without model cost tracking.
+func TestLoadModelCostFromEnv_InvalidInputCost(t *testing.T) {
+	t.Setenv("AIGO_MODEL_INPUT_COST_PER_MILLION", "notanumber")
+	t.Setenv("AIGO_MODEL_OUTPUT_COST_PER_MILLION", "10.00")
+
+	provider := &mockProvider{}
+	aiClient, err := New(provider)
+	if err != nil {
+		t.Fatalf("New should succeed even with invalid env input cost, got: %v", err)
+	}
+
+	// loadModelCostFromEnv silently returns nil on parse failure,
+	// so the client is created without model cost tracking.
+	if aiClient.modelCost != nil {
+		t.Error("expected modelCost to be nil when input cost env var is invalid")
+	}
+}
+
+// TestLoadModelCostFromEnv_InvalidOutputCost verifies that an invalid
+// AIGO_MODEL_OUTPUT_COST_PER_MILLION value causes loadModelCostFromEnv to return nil.
+func TestLoadModelCostFromEnv_InvalidOutputCost(t *testing.T) {
+	t.Setenv("AIGO_MODEL_INPUT_COST_PER_MILLION", "2.50")
+	t.Setenv("AIGO_MODEL_OUTPUT_COST_PER_MILLION", "badvalue")
+
+	provider := &mockProvider{}
+	aiClient, err := New(provider)
+	if err != nil {
+		t.Fatalf("New should succeed even with invalid env output cost, got: %v", err)
+	}
+
+	if aiClient.modelCost != nil {
+		t.Error("expected modelCost to be nil when output cost env var is invalid")
+	}
+}
+
+// TestLoadComputeCostFromEnv_InvalidCost verifies that an invalid
+// AIGO_COMPUTE_COST_PER_SECOND value causes loadComputeCostFromEnv to return nil.
+func TestLoadComputeCostFromEnv_InvalidCost(t *testing.T) {
+	t.Setenv("AIGO_COMPUTE_COST_PER_SECOND", "notanumber")
+
+	provider := &mockProvider{}
+	aiClient, err := New(provider)
+	if err != nil {
+		t.Fatalf("New should succeed even with invalid env compute cost, got: %v", err)
+	}
+
+	if aiClient.computeCost != nil {
+		t.Error("expected computeCost to be nil when compute cost env var is invalid")
+	}
+}
+
+// ========== Model Cost in Overview Tests ==========
+
+// TestWithModelCost_AffectsOverview verifies that configuring WithModelCost
+// causes the overview's cost summary to include model token costs after SendMessage.
+func TestWithModelCost_AffectsOverview(t *testing.T) {
+	provider := &mockProvider{
+		sendMessageFunc: func(_ context.Context, _ ai.ChatRequest) (*ai.ChatResponse, error) {
+			return &ai.ChatResponse{
+				Id:           "cost-test",
+				Model:        "test-model",
+				Content:      "hello",
+				FinishReason: "stop",
+				Usage: &ai.Usage{
+					PromptTokens:     1000,
+					CompletionTokens: 500,
+					TotalTokens:      1500,
+				},
+			}, nil
+		},
+	}
+
+	modelCostConfig := cost.ModelCost{
+		InputCostPerMillion:  2.50,
+		OutputCostPerMillion: 10.00,
+	}
+
+	aiClient, err := New(provider, WithModelCost(modelCostConfig))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	// Create a context with an overview so we can inspect it after SendMessage.
+	ctx := context.Background()
+	overviewInstance := &overview.Overview{
+		ToolCosts: make(map[string]float64),
+	}
+	ctx = overviewInstance.ToContext(ctx)
+
+	_, sendErr := aiClient.SendMessage(ctx, "test prompt")
+	if sendErr != nil {
+		t.Fatalf("SendMessage failed: %v", sendErr)
+	}
+
+	// The overview should now have model cost set via SetModelCost.
+	if overviewInstance.ModelCost == nil {
+		t.Fatal("expected ModelCost to be set on the overview after SendMessage")
+	}
+
+	// Verify cost calculations are non-zero
+	summary := overviewInstance.CostSummary()
+	if summary.ModelInputCost == 0 {
+		t.Error("expected non-zero ModelInputCost in cost summary")
+	}
+	if summary.ModelOutputCost == 0 {
+		t.Error("expected non-zero ModelOutputCost in cost summary")
+	}
+
+	// Verify approximate expected costs:
+	// Input: 1000 tokens * ($2.50 / 1M) = $0.0025
+	// Output: 500 tokens * ($10.00 / 1M) = $0.005
+	expectedInputCost := (1000.0 / 1_000_000.0) * 2.50
+	if summary.ModelInputCost != expectedInputCost {
+		t.Errorf("expected ModelInputCost %.10f, got %.10f", expectedInputCost, summary.ModelInputCost)
+	}
+
+	expectedOutputCost := (500.0 / 1_000_000.0) * 10.00
+	if summary.ModelOutputCost != expectedOutputCost {
+		t.Errorf("expected ModelOutputCost %.10f, got %.10f", expectedOutputCost, summary.ModelOutputCost)
+	}
+
+	if summary.TotalModelCost == 0 {
+		t.Error("expected non-zero TotalModelCost")
+	}
+}
+
+// ========== Enrich System Prompt With Tool Costs Tests ==========
+
+// TestWithEnrichSystemPromptWithToolsCosts_PopulatesSystemPrompt verifies that
+// WithEnrichSystemPromptWithToolsCosts enriches the system prompt with tool cost
+// metrics and optimization guidance.
+func TestWithEnrichSystemPromptWithToolsCosts_PopulatesSystemPrompt(t *testing.T) {
+	var capturedSystemPrompt string
+	provider := &mockProvider{
+		sendMessageFunc: func(_ context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
+			capturedSystemPrompt = req.SystemPrompt
+			return &ai.ChatResponse{
+				Content:      "response",
+				FinishReason: "stop",
+			}, nil
+		},
+	}
+
+	// Create a tool with cost metrics
+	toolWithCost := &mockToolWithMetrics{
+		name:        "ExpensiveSearch",
+		description: "A premium search tool",
+		metrics: &cost.ToolMetrics{
+			Amount:                  0.005,
+			Currency:                "USD",
+			CostDescription:         "per API call",
+			Accuracy:                0.95,
+			AverageDurationInMillis: 1200,
+		},
+	}
+
+	aiClient, err := New(
+		provider,
+		WithSystemPrompt("You are a helpful assistant."),
+		WithTools(toolWithCost),
+		WithEnrichSystemPromptWithToolsCosts(cost.OptimizeForCost),
+	)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	// Verify the client's stored system prompt is enriched at construction time
+	if !strings.Contains(aiClient.systemPrompt, "Available Tools") {
+		t.Error("expected enriched system prompt to contain 'Available Tools' section")
+	}
+	if !strings.Contains(aiClient.systemPrompt, "ExpensiveSearch") {
+		t.Error("expected enriched system prompt to contain the tool name")
+	}
+	if !strings.Contains(aiClient.systemPrompt, "Minimize costs") {
+		t.Error("expected enriched system prompt to contain cost optimization guidance")
+	}
+
+	// Send a message to verify the enriched prompt reaches the provider
+	ctx := context.Background()
+	_, sendErr := aiClient.SendMessage(ctx, "find something")
+	if sendErr != nil {
+		t.Fatalf("SendMessage failed: %v", sendErr)
+	}
+
+	if capturedSystemPrompt == "" {
+		t.Fatal("system prompt was not captured from the provider")
+	}
+
+	// Verify the captured prompt contains tool cost information
+	if !strings.Contains(capturedSystemPrompt, "ExpensiveSearch") {
+		t.Error("expected captured system prompt to contain tool name 'ExpensiveSearch'")
+	}
+	if !strings.Contains(capturedSystemPrompt, "A premium search tool") {
+		t.Error("expected captured system prompt to contain tool description")
+	}
+	if !strings.Contains(capturedSystemPrompt, "Cost:") {
+		t.Error("expected captured system prompt to contain 'Cost:' section with metrics")
+	}
+	if !strings.Contains(capturedSystemPrompt, "USD") {
+		t.Error("expected captured system prompt to contain currency 'USD'")
+	}
+	if !strings.Contains(capturedSystemPrompt, "Accuracy") {
+		t.Error("expected captured system prompt to contain accuracy metrics")
+	}
+	if !strings.Contains(capturedSystemPrompt, "Optimization Goal") {
+		t.Error("expected captured system prompt to contain optimization goal guidance")
 	}
 }
