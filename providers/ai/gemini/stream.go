@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+
 	"github.com/leofalp/aigo/internal/utils"
 	"github.com/leofalp/aigo/providers/ai"
 	"github.com/leofalp/aigo/providers/observability"
-	"io"
 )
 
 // StreamMessage implements ai.StreamProvider for the Gemini API.
@@ -188,7 +189,7 @@ func geminiChunkToStreamEvents(
 		})
 	}
 
-	// Emit reasoning delta directly — same delta-based behaviour as text.
+	// Emit reasoning delta directly — same delta-based behavior as text.
 	for _, reasoningPart := range reasoningParts {
 		events = append(events, ai.StreamEvent{
 			Type:      ai.StreamEventReasoning,
