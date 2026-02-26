@@ -5,6 +5,7 @@ package gemini
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -264,4 +265,133 @@ func TestGeminiMultiTurn_Integration(t *testing.T) {
 	}
 
 	t.Logf("Multi-turn response: %s", response.Content)
+}
+
+// TestGeminiStreamDeltaIntegrity_Integration verifies that streaming text deltas
+// are not truncated or corrupted. This is a regression test for a bug where the
+// code assumed Gemini returned cumulative text in each SSE chunk (like non-streaming
+// generateContent) and tried to slice deltas from a running length — which mangled
+// the actual delta-based output from streamGenerateContent.
+//
+// The test sends the same deterministic prompt via both SendMessage (non-streaming)
+// and StreamMessage (streaming), then asserts that:
+//  1. Concatenating all stream deltas via Iter() produces coherent text.
+//  2. Collect() produces the same text as the concatenated deltas.
+//  3. The streamed text matches the non-streaming response (content equivalence).
+func TestGeminiStreamDeltaIntegrity_Integration(t *testing.T) {
+	requireAPIKey(t)
+
+	// Deterministic prompt that produces a predictable, short response.
+	const prompt = "Reply with exactly this text and nothing else: The quick brown fox jumps over the lazy dog"
+
+	// Step 1: Get the non-streaming baseline response.
+	baselineCtx, baselineCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer baselineCancel()
+
+	provider := New()
+	baselineResponse, err := provider.SendMessage(baselineCtx, ai.ChatRequest{
+		Model: Model25FlashLite,
+		Messages: []ai.Message{
+			{Role: ai.RoleUser, Content: prompt},
+		},
+	})
+	if err != nil {
+		t.Fatalf("baseline SendMessage failed: %v", err)
+	}
+
+	baselineContent := strings.TrimSpace(baselineResponse.Content)
+	if baselineContent == "" {
+		t.Fatal("baseline response returned empty content")
+	}
+
+	t.Logf("Baseline (non-streaming): %q", baselineContent)
+
+	// newStreamRequest returns a fresh ChatRequest for each subtest so that
+	// Iter and Collect (which consume the same underlying iterator) each get
+	// their own stream.
+	newStreamRequest := func() ai.ChatRequest {
+		return ai.ChatRequest{
+			Model: Model25FlashLite,
+			Messages: []ai.Message{
+				{Role: ai.RoleUser, Content: prompt},
+			},
+		}
+	}
+
+	// Step 2: Stream via Iter() and concatenate all content deltas.
+	t.Run("Iter_delta_concatenation", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		stream, err := provider.StreamMessage(ctx, newStreamRequest())
+		if err != nil {
+			t.Fatalf("StreamMessage failed: %v", err)
+		}
+
+		var contentBuilder strings.Builder
+		eventCount := 0
+		contentEventCount := 0
+
+		for event, iterErr := range stream.Iter() {
+			if iterErr != nil {
+				t.Fatalf("stream iteration error at event %d: %v", eventCount, iterErr)
+			}
+			eventCount++
+
+			if event.Content != "" {
+				contentEventCount++
+				contentBuilder.WriteString(event.Content)
+			}
+		}
+
+		if eventCount == 0 {
+			t.Fatal("expected at least one stream event, got none")
+		}
+
+		if contentEventCount == 0 {
+			t.Fatal("expected at least one content event in the stream")
+		}
+
+		streamedContent := strings.TrimSpace(contentBuilder.String())
+
+		t.Logf("Streamed (Iter): %q (%d events, %d content events)", streamedContent, eventCount, contentEventCount)
+
+		// The concatenated deltas must form the same text as the non-streaming response.
+		if streamedContent != baselineContent {
+			t.Errorf("streamed content does not match baseline:\n  streamed:  %q\n  baseline:  %q", streamedContent, baselineContent)
+		}
+	})
+
+	// Step 3: Stream via Collect() and compare with the baseline.
+	t.Run("Collect_matches_baseline", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		stream, err := provider.StreamMessage(ctx, newStreamRequest())
+		if err != nil {
+			t.Fatalf("StreamMessage failed: %v", err)
+		}
+
+		collected, err := stream.Collect()
+		if err != nil {
+			t.Fatalf("stream.Collect() failed: %v", err)
+		}
+
+		if collected == nil {
+			t.Fatal("expected non-nil collected response")
+		}
+
+		collectedContent := strings.TrimSpace(collected.Content)
+
+		t.Logf("Collected: %q", collectedContent)
+
+		if collectedContent == "" {
+			t.Fatal("expected non-empty collected content")
+		}
+
+		// Collected content must match the non-streaming baseline.
+		if collectedContent != baselineContent {
+			t.Errorf("collected content does not match baseline:\n  collected: %q\n  baseline:  %q", collectedContent, baselineContent)
+		}
+	})
 }
